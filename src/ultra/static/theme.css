@@ -1,0 +1,70 @@
+/* Ultra theme: design tokens (SPEC 7.0). Adapted from the deep-research dashboard. */
+:root {
+  --bg: #07090d;
+  --bg-2: #0b0f15;
+  --panel: #0e131b;
+  --panel-2: #121926;
+  --line: #1c2533;
+  --line-2: #26324a;
+  --text: #d6deeb;
+  --dim: #8b98ad;
+  --faint: #7a869b;
+  --cyan: #22d3ee;
+  --cyan-d: rgba(34, 211, 238, .12);
+  --amber: #f5a524;
+  --amber-d: rgba(245, 165, 36, .16);
+  --magenta: #e879f9;   /* reserved for model output */
+  --magenta-d: rgba(232, 121, 249, .16);
+  --green: #34d399;
+  --green-d: rgba(52, 211, 153, .15);
+  --red: #f87171;
+  --red-d: rgba(248, 113, 113, .14);
+  --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: "Inter", "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --serif: "Iowan Old Style", "Charter", "Source Serif Pro", Georgia, serif;
+  --radius: 6px;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow-x: hidden; }
+body {
+  background: radial-gradient(1200px 600px at 70% -10%, rgba(34, 211, 238, .05), transparent 60%), var(--bg);
+  color: var(--text);
+  font: 13px/1.5 var(--sans);
+}
+body::before { /* faint engineering grid */
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 40px 40px; opacity: .18;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+input, textarea, select { font: inherit; color: var(--text); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #1e2838; border-radius: 10px; border: 2px solid var(--bg-2); }
+.dim { color: var(--dim); }
+.faint { color: var(--faint); }
+.mono { font-family: var(--mono); }
+.kbd { font: 10px var(--mono); border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; color: var(--dim); }
+.label { font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.grow { flex: 1; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+
+.btn { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 5px 10px; }
+.btn:hover:not(:disabled) { border-color: var(--cyan); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--cyan-d); border-color: var(--cyan); color: var(--cyan); }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.small { padding: 3px 8px; font-size: 12px; }
+
+.badge { font: 600 10px var(--mono); padding: 1px 6px; border-radius: 10px; border: 1px solid; }
+.badge.vip { color: var(--amber); border-color: var(--amber); background: var(--amber-d); }
+.badge.ready { color: var(--red); border-color: var(--red); background: var(--red-d); }
+.badge.ai { color: var(--magenta); border-color: var(--magenta); background: var(--magenta-d); }
+.badge.ok { color: var(--green); border-color: var(--green); background: var(--green-d); }
+.badge.wait { color: var(--amber); border-color: var(--line-2); }
+
+@media print {
+  body { background: #fff; color: #000; }
+  body::before, .topbar, .panel, .statusbar, .toasts, .scrim { display: none !important; }
+  #app, .layout, .center { display: block; position: static; height: auto; overflow: visible; }
+  mark { background: #fff3c4 !important; }
+}

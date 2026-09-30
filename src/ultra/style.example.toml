@@ -1,0 +1,12 @@
+# Outgoing text rules. Copy to ~/.config/ultra-workstation/style.toml and add your own.
+
+[ascii]
+level = "error"            # "error" blocks approval, "warning" only warns
+
+[[forbid]]
+pattern = "(?i)\\bsorry for the (slow|late) reply\\b"
+message = "Skip apologetic openers."
+level = "warning"
+
+[signature]
+text = ""

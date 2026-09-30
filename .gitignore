@@ -1,0 +1,48 @@
+# ---- Private: never commit ----------------------------------------------
+# Operator notes, real names, addresses, IDs, style rules for one workplace.
+local/
+# Secrets and runtime config (the app keeps these under ~/.config/ultra-workstation/,
+# these patterns are a backstop in case one lands in the checkout).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+client_secret*.json
+credentials*.json
+token*.json
+*oauth*.json
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+# Mail, calendar or Slack captures used while debugging; exported files
+captures/
+exports/
+*.eml
+*.mbox
+fixtures/private/
+# Logs can hold subjects and addresses
+*.log
+logs/
+
+# ---- Python / uv ----------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- Editors / OS ---------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store

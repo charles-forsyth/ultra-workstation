@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ultra</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">U</span><span class="brand-name">ULTRA</span><span class="brand-sub">workstation</span></div>
+    <div class="telemetry" id="telemetry" aria-live="polite"></div>
+    <div class="top-actions">
+      <button class="btn ghost mnav l" id="btn-left" title="Stream">&#9776;</button>
+      <button class="btn ghost" id="btn-palette" title="Command palette (Ctrl+K)">Search <span class="kbd">Ctrl K</span></button>
+      <button class="btn ghost mnav r" id="btn-right" title="Context">&#9776;</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="panel left" id="left">
+      <div class="panel-head">
+        <div class="seg" id="filter-seg" role="tablist">
+          <button data-f="mine" class="on">Mine</button>
+          <button data-f="waiting">Waiting</button>
+          <button data-f="all">All</button>
+          <button data-f="slack">Slack</button>
+          <button data-f="tickets">Tickets</button>
+        </div>
+      </div>
+      <div class="stream" id="stream" role="listbox" aria-label="Stream"></div>
+    </aside>
+
+    <main class="center" id="center">
+      <div class="empty dim" id="thread-empty">Select a conversation. <span class="kbd">j</span> <span class="kbd">k</span> to move, <span class="kbd">Enter</span> to open.</div>
+      <article class="thread" id="thread" hidden></article>
+    </main>
+
+    <aside class="panel right" id="right">
+      <div class="panel-head"><span class="label">Context</span></div>
+      <div class="rbody" id="context"><div class="dim">Nothing selected.</div></div>
+      <div class="bucket" id="bucket">
+        <div class="bucket-head"><span class="label">Bucket</span><span class="dim" id="bucket-count">0</span></div>
+        <div class="bucket-drop" id="bucket-drop">Drag email, Slack or events here</div>
+        <div class="bucket-acts"><button class="btn small" disabled>Log</button><button class="btn small" disabled>Task</button><button class="btn small" disabled>Block</button></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="statusbar" id="statusbar">
+    <span id="sb-mail" class="src">Mail --</span>
+    <span id="sb-cal" class="src">Calendar --</span>
+    <span id="sb-slack" class="src">Slack --</span>
+    <span id="sb-ledger" class="src">Ledger --</span>
+    <span id="sb-ai" class="src">AI --</span>
+    <span class="grow"></span>
+    <span id="sb-version" class="dim mono"></span>
+  </footer>
+</div>
+<div class="scrim" id="scrim" hidden></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

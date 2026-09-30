@@ -1,0 +1,74 @@
+# Ultra AI Workstation Desktop configuration.
+# Copy to ~/.config/ultra-workstation/config.toml (`ultra config init` does this).
+# Every value here is a placeholder. Real addresses and ids live only in your copy.
+
+[operator]
+name = "Ada Example"
+addresses = ["ada@example.org"]        # every address that counts as "from me"
+timezone = "America/New_York"
+ledger_id = ""                         # your id in the ledger (nexus), if used
+slack_user_id = ""
+
+[server]
+port = 7440
+poll_mail_seconds = 120
+poll_slack_minutes = 15
+
+[google]
+oauth_client = "~/.config/ultra-workstation/oauth_client.json"
+token_read = "~/.config/ultra-workstation/tokens/read.json"
+token_modify = "~/.config/ultra-workstation/tokens/modify.json"
+token_send = "~/.config/ultra-workstation/tokens/send.json"
+token_calendar = "~/.config/ultra-workstation/tokens/calendar.json"
+calendars = ["primary"]
+work_block_color = "tomato"
+personal_block_visibility = "private"
+
+[ledger]
+enabled = true
+binary = "nexus"
+org_email_domain = "example.org"
+netid_from_local_part = true
+max_parallel = 3
+
+[slack]
+enabled = false
+claude_binary = "claude"
+claude_cwd = "~"
+tool_prefix = "mcp__claude_ai_Slack__"
+
+[tickets]
+sender_patterns = ["@service-now\\.com$"]
+number_patterns = ["RITM\\d{7}", "INC\\d{7}", "SCTASK\\d{7}", "REQ\\d{7}"]
+
+[mail]
+vip_file = "~/.config/ultra-workstation/vip.txt"
+noise_patterns = ["noreply", "no-reply", "newsletter", "notification"]
+send_delay_seconds = 15
+sent_lookback_days = 14
+self_cc = false
+
+[court]
+waiting_amber_days = 3
+waiting_red_days = 5
+done_signal_patterns = ["\\bis ready\\b", "\\bcompleted\\b", "\\ball set\\b", "\\bdone\\b"]
+
+[ai]
+provider = "gemini"                    # or "none"
+model = ""
+fallback_model = ""
+
+[audio]
+tts_model = ""
+voices = ["Charon", "Kore", "Puck", "Aoede", "Fenrir", "Leda", "Orus", "Zephyr"]
+default_voice = "Charon"
+price_in_per_1m = 0.0
+price_out_per_1m = 0.0
+chunk_chars = 3500
+
+[research]
+enabled = true
+binary = "deep-research"
+dashboard_url = ""
+default_depth = 1
+default_breadth = 3

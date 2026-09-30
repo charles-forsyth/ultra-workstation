@@ -1,0 +1,70 @@
+[project]
+name = "ultra-workstation"
+version = "0.1.0"
+description = "Ultra AI Workstation Desktop: email, calendar, Slack and a work ledger in one local web workstation, with AI drafting, double-approved sending, and drag-to-log."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Charles Forsyth" }]
+keywords = ["email", "calendar", "slack", "workstation", "dashboard", "gemini", "crm"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Web Environment",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+[project.optional-dependencies]
+google = [
+    "google-api-python-client>=2.150.0",
+    "google-auth>=2.35.0",
+    "google-auth-oauthlib>=1.2.1",
+    "google-genai>=2.0.0",
+]
+
+[project.scripts]
+ultra = "ultra.cli:main"
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ultra = ["static/*", "static/vendor/*", "config.example.toml", "style.example.toml"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE", "PLW", "RUF", "S"]
+ignore = [
+    "S603",  # subprocess with a list argv is how the adapters call the CLIs
+    "S607",  # binaries are found on PATH (nexus, claude, deep-research)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "S108"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["googleapiclient.*", "google_auth_oauthlib.*", "google.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.2",
+    "pytest>=9.0.3",
+    "ruff>=0.14.14",
+]

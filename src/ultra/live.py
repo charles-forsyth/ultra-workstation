@@ -190,14 +190,29 @@ class Live:
     def _refresh_tasks(self) -> None:
         self.store.cache_put("tasks:open", self.ledger._run(["tasks", "list"]) or [])
 
-    def r_stream(self, q: dict, body: Any, m: re.Match[str]) -> dict:
-        f = (q.get("filter") or ["mine"])[0]
-        items, age = self._merged()
+    def _kick_stale(self) -> None:
+        """Start a refresh for any source older than its interval.
+
+        Called from /api/stream and from the page's 5 s status poll, so sources stay
+        fresh while a tab is open and nothing polls when no tab is open (Slack reads
+        run a model, so no background polling without a viewer). _job never runs two
+        of the same name at once, so several open tabs do not double up.
+        """
+        age = self.mail.stream(0)[1]
         if age is None or age > self.poll_mail:
             self._job("mail", self.mail.refresh)
         s_age = self.slack.items()[1]
         if self.slack.enabled and (s_age is None or s_age > self.poll_slack):
             self._job("slack", self.slack.refresh)
+        if self.ledger.enabled and self.show_tasks:
+            hit = self.store.cache_get("tasks:open")
+            if hit is None or hit[1] > 300:
+                self._job("tasks", self._refresh_tasks)
+
+    def r_stream(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        f = (q.get("filter") or ["mine"])[0]
+        items, age = self._merged()
+        self._kick_stale()
         counts = {k: sum(1 for it in items if fn(it)) for k, fn in FILTERS.items()}
         keep = FILTERS.get(f, FILTERS["mine"])
         rows = [{k: v for k, v in it.items() if k != "messages"} for it in items if keep(it)]
@@ -212,10 +227,12 @@ class Live:
         return {"started": what}
 
     def r_status(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        self._kick_stale()
         with self.jl:
             jobs = {k: dict(v) for k, v in self.jobs.items()}
         mail_age = self.mail.stream(0)[1]
         slack_age = self.slack.items()[1]
+        t_hit = self.store.cache_get("tasks:open")
         return {
             "jobs": jobs,
             "sources": {
@@ -226,6 +243,7 @@ class Live:
                     "age": slack_age,
                 },
                 "ledger": {**self.ledger.state, "enabled": self.ledger.enabled},
+                "tasks": {"age": t_hit[1] if t_hit else None},
                 "ai": {**self.ai.state, "enabled": self.ai.enabled, "model": self.ai.model},
                 "research": {**self.research.state, "enabled": self.research.enabled},
             },

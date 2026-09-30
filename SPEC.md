@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.11 of the spec; app at v0.5.3 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
+Status: v0.12 of the spec; app at v0.5.4 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-09-29
@@ -1155,6 +1155,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.12 | App v0.5.4: fix, an idle open tab never refreshed (refresh only started on /api/stream, which an idle tab does not call). The 5 s status poll now starts any refresh older than its interval (mail 120 s, Slack 15 min, tasks 5 min); one job per source at a time; nothing polls with no tab open. Task data changes also rebuild the stream. |
 | 2026-09-30 | 0.11 | App v0.5.3 (operator ask): tailnet access narrowed from the whole 100.64.0.0/10 range to the operator's own devices. `tailnet:mine` in `[server] remote_networks` (default with 192.168.0.0/16) = addresses of nodes owned by the same Tailscale user as this machine, from `tailscale status --json`; shared-in nodes and other users' devices are refused. An unknown tailnet address triggers at most one refresh a minute, so new devices work without a restart. |
 | 2026-09-30 | 0.10 | App v0.5.2 (operator ask): the access key did not work on the phone and is removed. Remote mode (`--host 0.0.0.0`) now admits clients by address only: this machine, the Tailscale range 100.64.0.0/10 and 192.168.0.0/16 (`[server] remote_networks`); all others get 403 before routing. Host allow-list, Origin check and CSRF token still apply. `ultra remote` lists the addresses. |
 | 2026-09-30 | 0.9 | App v0.5.1 (operator asks). Tasks in the stream: open ledger tasks are stream rows (Tasks filter, also in All), colour-coded by priority (CRITICAL red, HIGH amber) and status (BLOCKED red text, started marker), sorted by priority; opening one shows status, due date, ledger links, and actions Complete (DONE, with Undo), Start, Blocked, Back to to-do, priority, local Snooze (1/3/7 days) and Log update (a staged log card with the task and its people as chips). `e` completes a task. Slack conversations get Mark done (local only, `e`): hidden until a newer message arrives, with Undo; nothing is written to Slack. Remote access: `--host 0.0.0.0` on start/restart/serve (restart keeps the previous host); non-loopback clients need an access key (mode-600 file, `ultra remote-key` prints the links, `--rotate` signs out every device), swapped for an HttpOnly SameSite=Strict cookie; Host allow-list in remote mode accepts IPs, bare machine names and LAN/tailnet suffixes, and refuses public names (DNS rebinding). |

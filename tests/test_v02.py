@@ -439,3 +439,33 @@ def test_no_tokens_means_auth_needed(tmp_path):
     cfg = Config({"google": {"token_read": str(bad)}})
     with pytest.raises(google_auth.AuthNeeded, match="lacks the scope"):
         google_auth.credentials(cfg, "read")
+
+
+def test_status_poll_refreshes_stale_sources(tmp_path, monkeypatch):
+    """An idle open tab only calls /api/status; that must keep mail fresh."""
+    from ultra.live import Live
+
+    cfg = Config(
+        {
+            "operator": {"addresses": [ME]},
+            "ledger": {"enabled": False},
+            "server": {"poll_mail_seconds": 120},
+        }
+    )
+    live = Live(cfg, Store(tmp_path / "s.db"))
+    started: list[str] = []
+    monkeypatch.setattr(live, "_job", lambda name, fn, *a: started.append(name))
+    live.r_status({}, None, None)  # type: ignore[arg-type]
+    assert started == ["mail"]  # no cache yet
+    live.store.cache_put("mail:stream", {"items": []})
+    started.clear()
+    live.r_status({}, None, None)  # type: ignore[arg-type]
+    assert started == []  # fresh: nothing started
+    ts = time.time() - 121
+    monkeypatch.setattr(
+        live.store,
+        "cache_get",
+        lambda k, ttl=None: ({"items": []}, time.time() - ts) if k == "mail:stream" else None,
+    )
+    live.r_status({}, None, None)  # type: ignore[arg-type]
+    assert started == ["mail"]  # stale: refresh started from the status poll

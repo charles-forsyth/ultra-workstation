@@ -376,7 +376,7 @@ function loadContext(it) {
 // ---------------------------------------------------------------- status polling
 const SRC = { mail: "sb-mail", slack: "sb-slack", ledger: "sb-ledger", ai: "sb-ai" };
 $("#sb-cal") && ($("#sb-cal").title = "Calendar arrives in v0.6");
-let lastBuilt = { mail: null, slack: null };
+let lastBuilt = { mail: null, slack: null, tasks: null };
 async function pollStatus() {
   if (S.demo) return;
   try {
@@ -400,9 +400,10 @@ async function pollStatus() {
       else if (s.ok === false) { cls = "err"; txt = `${label} !`; }
       el.className = `src ${cls}`; el.textContent = txt; el.title = s.error || "";
     }
-    const mailAge = st.sources.mail?.age, slackAge = st.sources.slack?.age;
-    const changed = (lastBuilt.mail !== null && mailAge < lastBuilt.mail) || (lastBuilt.slack !== null && slackAge != null && slackAge < lastBuilt.slack) || (S.loading && mailAge != null);
-    lastBuilt = { mail: mailAge, slack: slackAge };
+    const mailAge = st.sources.mail?.age, slackAge = st.sources.slack?.age, taskAge = st.sources.tasks?.age;
+    const newer = (a, b) => a != null && b != null && a < b;  // age went down = fresh data
+    const changed = newer(mailAge, lastBuilt.mail) || newer(slackAge, lastBuilt.slack) || newer(taskAge, lastBuilt.tasks) || (S.loading && mailAge != null);
+    lastBuilt = { mail: mailAge, slack: slackAge, tasks: taskAge };
     if (changed) loadStream(true);
     const err = st.sources.mail?.error;
     if (err && st.sources.mail?.auth && !S.authWarned) { S.authWarned = true; toast(err, "err"); }

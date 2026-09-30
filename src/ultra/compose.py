@@ -456,12 +456,14 @@ class Composer:
         try:
             result = send_fn(d, v)
         except Exception as e:  # noqa: BLE001 - recorded, draft returns to APPROVED
+            # Record the error before the state flips, so anyone who sees APPROVED
+            # also sees why (a reader polling state could otherwise catch the gap).
+            self.store.cache_put(f"draft:{did}:send_error", str(e)[:300])
             with self._db() as c:
                 c.execute(
                     "UPDATE drafts SET state='APPROVED', updated_at=? WHERE id=?",
                     (time.time(), did),
                 )
-            self.store.cache_put(f"draft:{did}:send_error", str(e)[:300])
             self.store.journal("send_failed", str(did), False, str(e)[:300])
             return
         with self._db() as c:

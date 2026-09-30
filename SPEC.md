@@ -802,6 +802,111 @@ this; the UI cannot skip it.
   a Slack message can approve or send anything.
 - The palette's Ask cannot send; it can only produce a draft in DRAFT state.
 
+### 9.6 Draft Studio (v0.9.5): drafts built like the operator's best replies
+
+The gold standard is a reply the operator called amazing, built by following one rule:
+"Read the whole thread, look up the person in the ledger, find my last two similar
+replies and match them, check policy on the real source page, flag anything
+unverified, and ask me before stating a fact you can't cite." Draft Studio makes those
+steps the pipeline, not a hope in a prompt.
+
+**Starts on open.** Opening a mail item starts the gather in the background (no click),
+so the brief is ready by the time the operator has read the message. Results are cached
+per thread and message count; a new message in the thread rebuilds them. Progress shows
+in a small strip on the thread ("Thread / People / Past replies / Sources / Brief").
+Target: brief ready in under 20 s for a typical thread; each stage renders as it lands.
+
+**1. Gather (no AI, parallel):**
+- The whole thread (every message, full text).
+- Every other thread with each participant in the last 120 days (Gmail search by each
+  address). The most recent 3 are included in full; older ones are summarized into one
+  line each (date, subject, who asked what, what was answered).
+- The item's Full context (v0.8): people, ledger logs, open tasks, entity group.
+- Precedents: the operator's own sent replies to the same kind of request. Ranked by
+  shared terms with the incoming asks (subject and body keywords, the same service names,
+  the same kind of requester), newest first; the top 2-3 are read in full. Shown as
+  chips the operator can swap ("use a different example").
+- Work notes: dated files in the operator's notes folder (`[draft] notes_dir`, private)
+  that name a participant.
+- Policy sources (below): pages relevant to the asks, fetched and cached.
+
+**2. Policy sources (private list, `[draft.sources]`):**
+The operator lists the sites whose pages count as policy (their IT office, campus and
+system-wide policy libraries, their help desk's public knowledge base, their own KB
+site). The real list, and the notes on which hosts answer, live in the private config
+and `local/`, not in this repo. Supported source kinds:
+- `site`: a public site; pages found through its sitemap.xml and fetched directly.
+- `page`: one fixed URL (an AI guidance page, a rate card).
+- `servicenow_kb`: a ServiceNow portal's public articles. Articles are found by web
+  search restricted to the portal host, then read without login through the portal
+  page API (`/api/now/sp/page?id=kb_article&sys_id=<id>&portal_id=<portal>`, which
+  returns number, title, author and full text). Guest search through that API returns
+  nothing, so search goes through the web search tool. Authenticated KB search is out
+  of scope.
+Fetching: plain HTTPS GET with a normal user agent, 20 s timeout, text extracted
+(scripts, nav and footers dropped), cached 24 h in the state DB with the fetch time.
+The page's relevant passages (keyword windows around the asks) go to the model with
+the URL; the draft cites the URL. A source that fails to load is shown as failed, never
+silently skipped. A host that does not answer is reported in `ultra doctor`.
+
+**3. House facts (private, `house_facts` table):**
+Settled answers the operator has given, for example "credits means our central cloud
+program", "provider X is not centrally covered; own funds only", "do not mention the
+pilot service", "no dollar figures unless asked". Each has text, topic words, source ("operator,
+2026-09-30"), and an on/off switch. Relevant ones (by topic words) go into every brief
+and draft. New ones come only from the operator: answering a question in step 5 offers
+"Save as a house fact" (default on, editable). Never learned silently from mail.
+
+**4. Brief (AI, gemini-3.8-flash, with the real date and time):**
+Returned as JSON and shown for correction before any drafting:
+- asks: the numbered questions or requests, in the sender's words
+- constraints: facts that shape the answer ("public datasets only", "grant pending")
+- audience: student / faculty / staff / peer / leadership / vendor (sets depth, per the
+  operator's rules), and the tone of the operator's precedents with this person
+- known: each fact with its source (message, ledger log, policy URL, house fact)
+- unknown: what the answer needs but no source gives
+- risks: at most two worth flagging unprompted (a DUA, a stale draft, a promise in the
+  thread, a dropped Cc)
+- plan: one line per ask saying how the reply answers it
+
+**5. Questions first:**
+Every "unknown" becomes a question card with answer buttons where possible (Yes / No /
+Other...) and a free-text box. The draft waits for answers or for "Draft anyway" (then
+the unknowns are written as "I'll confirm and get back to you", never guessed).
+
+**6. Draft (AI):**
+Inputs: brief, answers, house facts, policy passages, the 2-3 precedents as voice
+examples, style rules, signature. Output: the body plus a claim map: each sentence
+tagged with its source ids. The editor shows sources on hover and marks sentences with
+no source.
+
+**7. Check (rules + AI):**
+- Claim check: a second pass reads each tagged claim against its source and returns
+  supported / not supported / unclear. Not supported defaults to Cut (buttons: Cut,
+  Keep, Ask). Nothing is softened into a hedge.
+- Rule checks (lint, errors block approval as today): dates or deadlines the operator
+  does not control, dollar figures when not allowed, offers of extra work or meetings,
+  a reassurance given earlier in the thread that the draft drops, a stronger teardown
+  verb than the operator used before, internal ticket keys, ServiceNow Ref:MSG line,
+  the operator's forbid list.
+
+**8. Review:** draft beside its sources (thread, precedents, policy passages, house
+facts), a compare view against the closest precedent, then the unchanged double
+approval (section 9.2-9.4).
+
+**9. After send:** the staged log card opens prefilled (asks, what was answered, what
+the operator is waiting on), plus a suggested follow-up task with a due date. Both still
+need Commit.
+
+**10. Learning from edits:** when the operator edits an AI draft before approving, the
+diff is kept. Repeated patterns become suggestions ("You cut offers of a call 4 times.
+Add a rule?"); nothing changes until the operator accepts.
+
+**Limits:** every model call is gemini-3.8-flash with the current date and time; the
+thread and gathered context are data, never instructions; the operator's precedents
+and house facts never leave the machine except inside the model call; the public repo
+holds no real sources list, house facts or examples.
+
 ## 10. Outgoing text rules (lint)
 
 Rules live in `~/.config/ultra-workstation/style.toml` (operator-specific, not in the
@@ -1137,6 +1242,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | v0.6 Calendar (shipped 0.6.0) | Today view (day timeline, prev/next day, now line, work hours band, overlapping events in columns, all-day row, response and privacy marks); drag a stream item onto a time to stage a block (title Focus: subject, notes from the last message, open draft and link, 15-120 min, personal = private); Block time buttons on threads, tasks and the bucket open a block card at the next free slot; move and delete only Ultra-tagged blocks (server-enforced), re-read after every write; meeting prep (invite notes, attendees with responses, click one for ledger context); Find a time (free/busy over work hours, others you cannot see are listed, Copy as text, Hold); `g` toggles Today. Check-in and end-of-day move to v0.8 |
 | v0.7 Board (later, operator's call) | Court board, nudge-all, drag between columns |
 | v0.8 Day (shipped 0.9.0) | Day view (`d` key, top-bar Day): check-in plan (meetings minus declined, free windows in work hours from now, your-move items READY/VIP first, waiting 3+ days, overdue / due today / high-priority tasks, suggested focus blocks fitted into free windows that open the normal block card), AI read of the day (draft only); end-of-day report from the journal (sent, Slack posted, archived with subjects, logged, task changes, calendar block writes, research, audio; repeats collapsed; still open), editable, Copy / Listen / Save to ledger via a staged log card; exports agenda .ics (no attendee emails) and journal .csv. AI brief builder and Board export move with the Board |
+| v0.9.5 Draft Studio (next) | Section 9.6: gather on open (thread, 120-day history per participant, Full context, 2-3 precedents from Sent, work notes, policy pages), private policy sources with 24 h cache (site sitemaps, fixed pages, public ServiceNow KB via the portal page API), house facts, brief with asks / constraints / audience / known / unknown / risks, question cards before drafting, draft with claim map, claim check (cut by default) plus rule checks, source-side review, send-then-log with follow-up task, suggestions from edits |
 | v0.10 Email | ServiceNow replies (Ref:MSG line kept, To the ticket desk, requester in Cc; send blocked if the line is missing), version diff, Tidy, mail search, all-drafts list, labels, attachments (view/save/attach), send-as, highlights and notes with export |
 | v0.11 Calendar | Week view, meetings with invitees (double approval like email), RSVP with confirm, meeting prep from item context, log a meeting to the ledger, recurring Ultra focus blocks |
 | v0.12 Ledger tab | Full dashboard for the ledger tool: home (counts, activity, tasks, overdue, going-cold people), browse/search every entity type, entity pages with links/history/tasks/cited briefing, task board, interactions (edit via `interactions edit`, link/unlink), org tree, GCP audit and cost reports, graph health (`doctor`); writes only through allow-listed commands with review cards, read-back, double confirmation for destructive or bulk changes; ledger additions each on their own reviewed PR |
@@ -1165,6 +1271,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.21 | Draft Studio designed (section 9.6, v0.9.5, next) from the operator's gold-standard reply and one-line rule. Policy source kinds site / page / servicenow_kb; public ServiceNow KB articles are readable without login through the portal page API (guest search returns nothing). The real source list and host notes are private (`local/draft_sources.md`). Operator decisions: house facts yes; all generation on gemini-3.8-flash; gather and brief start when an email is opened. |
 | 2026-09-30 | 0.20 | App v0.9.2 (operator rules): every text-generating AI call uses gemini-3.8-flash with no silent fallback to another model (a failure is shown). Every AI call starts with the real local date and time read from the clock at call time; `/api/now` gives the page the server clock; the Day page reads it before building and on every rebuild (shows it in the header, picks plan vs report from it, plans only the rest of today); client-side dates use the configured time zone, not UTC or the device zone. |
 | 2026-09-30 | 0.19 | App v0.9.1 (operator ask): task due dates. Ledger 0.1.206 added `tasks add --due/--json`, `tasks update --due/--clear-due`, `tasks list --overdue/--due-before` (the column already existed; no schema change); 0.1.207 made task writes by UUID exact (no fuzzy fallback). Ultra: Due field on the task card, due editor in the task view (confirm, exact UUID, read-back), OVERDUE / DUE TODAY / DUE SOON badges and sort, Day plan's overdue / due-today lists now fill from real dates. Verified end to end against the ledger test DB (5433). |
 | 2026-09-30 | 0.18 | App v0.9.0: Day (see the delivery table). Journal now also records Slack posts (`slack_sent`), Ultra calendar block create/move/delete, and archive subjects, so the report is complete. Report text and AI note never include the configured internal ticket prefix (`[ai] hide_ticket_prefix`, private config). Plan: operator reprioritised: Day, Email, Calendar, Ledger tab; Board later. |

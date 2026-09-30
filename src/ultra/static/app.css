@@ -301,3 +301,7 @@
   .today-head h2 { font-size: 15px; }
   .today-head .grow { display: none; }
 }
+
+/* ---- v0.5 Slack reply: disabled send buttons must look disabled ---- */
+.btn:disabled, .btn.send:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.6); }
+.cx-slack-note { margin: -2px 0 8px; }

@@ -176,7 +176,15 @@ def register(api: Api) -> None:
                     }
                 ],
             }
-        return {"key": key, "messages": THREADS.get(key, [])}
+        out: dict[str, Any] = {"key": key, "messages": THREADS.get(key, [])}
+        if key.startswith("s-"):
+            row = next((s for s in STREAM if s["key"] == key), {})
+            out["reply_target"] = {
+                "channel_id": DEMO_SLACK_CH,
+                "thread_ts": "",
+                "label": row.get("subject", "Slack"),
+            }
+        return out
 
     def task_action(q: dict, body: Any, m: re.Match[str]) -> dict:
         b = body or {}
@@ -744,6 +752,9 @@ def _register_desk(api: Api) -> None:
     ).register(api)
 
 
+DEMO_SLACK_CH = "C0DEMO0001"
+
+
 class DemoOutbox:
     """Stands in for Gmail send in demo mode and tests: records, never sends."""
 
@@ -751,7 +762,16 @@ class DemoOutbox:
         self.sent: list[dict[str, Any]] = []
 
     def __call__(self, d: dict[str, Any], v: dict[str, Any]) -> dict[str, Any]:
-        self.sent.append({"draft": d["id"], **{k: v[k] for k in ("to_addrs", "subject", "body")}})
+        self.sent.append(
+            {
+                "draft": d["id"],
+                "kind": d["kind"],
+                **{k: v[k] for k in ("to_addrs", "subject", "body")},
+            }
+        )
+        if d["kind"] == "slack":  # the demo "posts" and verifies trivially
+            ts = f"1790000{len(self.sent):03d}.000100"
+            return {"id": ts, "ts": ts, "permalink": "", "verified": True, "verify_note": ""}
         return {"id": f"demo-{len(self.sent)}", "threadId": d.get("thread_id")}
 
 
@@ -864,6 +884,28 @@ def _register_composer(api: Api) -> None:
 
     api.add("POST", r"/api/send", send)
     api.add("POST", r"/api/send/(\d+)/cancel", lambda q, b, m: wrap(comp.cancel, did(m)))
+
+    # Slack replies: the demo Slack row is a group DM in channel DEMO_SLACK_CH
+    def slack_target(key: str) -> dict[str, str] | None:
+        row = next((s for s in STREAM if s["key"] == key and s["source"] == "slack"), None)
+        return (
+            {"channel_id": DEMO_SLACK_CH, "thread_ts": "", "label": row["subject"]} if row else None
+        )
+
+    def slack_draft(q: dict, b: Any, m: re.Match[str]) -> dict:
+        tgt = slack_target(str((b or {}).get("key", "")))
+        if not tgt:
+            raise ApiError(404, "That Slack conversation is not in the stream")
+        ex = comp.for_slack(tgt["channel_id"], tgt["thread_ts"])
+        return ex[0] if ex else wrap(comp.create_slack, tgt["channel_id"], "", tgt["label"])
+
+    def slack_find(q: dict, b: Any, m: re.Match[str]) -> dict:
+        tgt = slack_target(m.group(1))
+        ex = comp.for_slack(tgt["channel_id"], "") if tgt else []
+        return {"draft": ex[0]["id"] if ex else None}
+
+    api.add("POST", r"/api/slack/draft", slack_draft)
+    api.add("GET", r"/api/slack/draft/(s-[A-Za-z0-9_-]+)", slack_find)
     api.add("POST", r"/api/mail/archive", lambda q, b, m: {"archived": [], "demo": True})
     api.add("POST", r"/api/mail/unarchive", lambda q, b, m: {"unarchived": [], "demo": True})
     api.add(

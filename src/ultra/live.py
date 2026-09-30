@@ -26,7 +26,7 @@ from ultra.lint import ascii_fix, load_style
 from ultra.mail import Mail
 from ultra.research import Research
 from ultra.rules import Rules
-from ultra.slack import Slack, SlackError
+from ultra.slack import Slack, SlackError, SlackSender, slack_reply_target
 from ultra.store import Store
 from ultra.tasks import (
     slack_done,
@@ -78,6 +78,7 @@ class Live:
         self.ai = AI(cfg)
         self.compose = Composer(cfg, self.store, cfg.my_addresses)
         self.send_fn = gmail_send(cfg)
+        self.slack_sender = SlackSender(self.slack) if self.slack.enabled else None
         self.operator = str(cfg.get("operator", "name", ""))
         addrs = list(cfg.get("operator", "addresses", []) or [])
         self.from_default = addrs[0] if addrs else "me"
@@ -171,6 +172,8 @@ class Live:
         api.add("POST", r"/api/drafts/(\d+)/discard", self.r_draft_discard)
         api.add("POST", r"/api/drafts/(\d+)/gmail", self.r_draft_gmail)
         api.add("POST", r"/api/send", self.r_send)
+        api.add("POST", r"/api/slack/draft", self.r_slack_draft)
+        api.add("GET", r"/api/slack/draft/(s-[A-Za-z0-9_-]+)", self.r_slack_draft_find)
         api.add("POST", r"/api/send/(\d+)/cancel", self.r_send_cancel)
 
     def _merged(self) -> tuple[list[dict[str, Any]], float | None]:
@@ -402,6 +405,7 @@ class Live:
         return {
             "key": key,
             "permalink": row.get("permalink", ""),
+            "reply_target": slack_reply_target(row),
             "messages": [
                 {
                     "from": x.get("from", ""),
@@ -483,6 +487,19 @@ class Live:
         ]
         return (f"Subject: {subject}\n\n" + "\n\n-----\n\n".join(parts))[-60000:]
 
+    def _slack_text(self, d: dict[str, Any]) -> str:
+        """The Slack conversation a Slack draft answers, as plain text for the AI."""
+        channel = (d["thread_id"] or "").removeprefix("slack:")
+        items, _ = self.slack.items()
+        rows = [
+            r
+            for r in Slack.to_stream(items)
+            if (slack_reply_target(r) or {}).get("channel_id") == channel
+            and (slack_reply_target(r) or {}).get("thread_ts") == (d["in_reply_to"] or "")
+        ]
+        msgs = sorted((rows[0]["messages"] if rows else []), key=lambda x: float(x.get("ts") or 0))
+        return "\n\n".join(f"{x.get('from', '')}: {x.get('text', '')}" for x in msgs)[-20000:]
+
     def _thread_text(self, tid: str, limit: int = 30000) -> str:
         t = self.mail.thread(tid)
         parts = [
@@ -554,12 +571,22 @@ class Live:
         instruction = str(body.get("instruction", "")).strip()[:2000]
         d = self._wrap(self.compose.get, self._did(m))
         cur = d["current"] or {}
-        thread_text = self._thread_text(d["thread_id"]) if d["thread_id"] else ""
+        slack = d["kind"] == "slack"
+        if slack:
+            thread_text = self._slack_text(d)
+        else:
+            thread_text = self._thread_text(d["thread_id"]) if d["thread_id"] else ""
         style = load_style()
         notes = "; ".join(
             str(r.get("message")) for r in style.get("forbid") or [] if r.get("message")
         )
-        sig = str((style.get("signature") or {}).get("text", ""))
+        # Slack replies are short chat messages: no email signature
+        sig = "" if slack else str((style.get("signature") or {}).get("text", ""))
+        if slack:
+            notes = (notes + "; " if notes else "") + (
+                "This is a Slack chat reply, not an email: one to four short sentences, "
+                "no greeting line, no sign-off, no signature"
+            )
         ctx = ""
         if body.get("context") and d["thread_id"]:
             ctx = str(body["context"])[:4000]
@@ -610,9 +637,45 @@ class Live:
         return res
 
     def _send_and_refresh(self, d: dict[str, Any], v: dict[str, Any]) -> dict[str, Any]:
+        if d["kind"] == "slack":
+            if not self.slack_sender:
+                raise RuntimeError("Slack sending is not available")
+            channel = (d["thread_id"] or "").removeprefix("slack:")
+            return self.slack_sender.send(channel, d["in_reply_to"] or "", v["body"])
         r = self.send_fn(d, v)
         self._job("mail", self.mail.refresh)
         return r
+
+    def r_slack_draft_find(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Is there an open Slack draft for this conversation? (No draft is created.)"""
+        items, _ = self.slack.items()
+        row = next((r for r in Slack.to_stream(items) if r["key"] == m.group(1)), None)
+        tgt = slack_reply_target(row) if row else None
+        if not tgt:
+            return {"draft": None}
+        ex = self.compose.for_slack(tgt["channel_id"], tgt["thread_ts"])
+        return {"draft": ex[0]["id"] if ex else None}
+
+    def r_slack_draft(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Open (or resume) a reply draft for a Slack conversation in the stream.
+
+        The target comes from the cached stream row, not from the page, so the page
+        cannot aim a draft at an arbitrary channel.
+        """
+        key = str((body or {}).get("key", ""))
+        items, _ = self.slack.items()
+        row = next((r for r in Slack.to_stream(items) if r["key"] == key), None)
+        if not row:
+            raise _bad("That Slack conversation is not in the stream", 404)
+        tgt = slack_reply_target(row)
+        if not tgt:
+            raise _bad("No channel id for this conversation; cannot reply from Ultra", 422)
+        existing = self.compose.for_slack(tgt["channel_id"], tgt["thread_ts"])
+        if existing:
+            return existing[0]
+        return self._wrap(
+            self.compose.create_slack, tgt["channel_id"], tgt["thread_ts"], tgt["label"]
+        )
 
     def r_send_cancel(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         return self._wrap(self.compose.cancel, self._did(m))

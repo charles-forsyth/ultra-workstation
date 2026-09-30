@@ -1,7 +1,7 @@
 // Ultra client shell. Vanilla JS modules, no build step, no inline code (CSP).
 // Helpers adapted from the deep-research dashboard (MIT, same author).
 
-import { openDraft, resumeForThread, onSent } from "./compose.js";
+import { openDraft, openSlackDraft, resumeForThread, onSent } from "./compose.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, showTaskPeople, openPersonByAddr } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog } from "./tools.js";
 import { initToday, openToday, closeToday, todayOpen } from "./today.js";
@@ -134,6 +134,14 @@ async function loadStream(keepSel = false) {
   }
 }
 
+async function resumeSlack(it) {
+  const c = $("#composer");
+  try {
+    const r = await api(`/api/slack/draft/${encodeURIComponent(it.key)}`);
+    if (r.draft) await openSlackDraft(it.key); else c.hidden = true;
+  } catch { c.hidden = true; }
+}
+
 async function openItem(i) {
   const it = S.items[i]; if (!it) return;
   if (todayOpen()) closeToday();
@@ -181,6 +189,14 @@ async function openItem(i) {
       const b = $(`[data-a="${k}"]`, th);
       b.onclick = () => busy(b, () => openDraft(k, it.key));
     }
+    if (it.source === "slack") {
+      // Slack: Reply posts in the same conversation (thread if it is one), after both approvals
+      const rb = $('[data-a="reply"]', th);
+      if (S.slackOn && t.reply_target) { rb.disabled = false; rb.title = "Reply in Slack (r), after two approvals"; rb.onclick = () => busy(rb, () => openSlackDraft(it.key)); }
+      else if (!t.reply_target) rb.title = "No channel id for this conversation";
+      const ra = $('[data-a="reply_all"]', th), fw = $('[data-a="forward"]', th);
+      ra.hidden = true; fw.hidden = true;
+    }
     const sb = $('[data-a="summary"]', th); sb.onclick = () => busy(sb, () => summarize(it));
     $('[data-a="bucket"]', th).onclick = () => addConversation(it.key);
     $('[data-a="listen"]', th).onclick = () => readAloud(th);
@@ -193,7 +209,7 @@ async function openItem(i) {
     const ab = $('[data-a="archive"]', th);
     if (it.source === "slack") { ab.disabled = false; ab.textContent = "Mark done"; ab.title = "Hide until a new message arrives (e). Nothing is sent to Slack."; ab.onclick = () => busy(ab, () => slackDone(it)); }
     else ab.onclick = () => busy(ab, () => archive(it));
-    await resumeForThread(it.key);
+    if (it.source === "slack") await resumeSlack(it); else await resumeForThread(it.key);
   } catch (e) { th.innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
   loadContext(it);
 }
@@ -567,7 +583,9 @@ async function boot() {
   tick(); setInterval(tick, 30000);
   onSent((d) => {
     setTimeout(() => loadStream(true), 3000);
-    if (d?.thread_id) stageAfterSend("g-" + d.thread_id);  // send-then-log
+    // send-then-log: the log card is for the conversation that was answered
+    if (d?.kind === "slack") { const k = d.stream_key || S.key; if (k?.startsWith("s-")) stageAfterSend(k); }
+    else if (d?.thread_id) stageAfterSend("g-" + d.thread_id);
   });
   initRail(); wireSearch(); initTools();
   initToday(S.tz, {

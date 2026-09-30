@@ -103,6 +103,9 @@ class Composer:
         for v in d["versions"]:
             v["lint"] = json.loads(v["lint"] or "[]")
         d["current"] = d["versions"][-1] if d["versions"] else None
+        if d["kind"] == "slack" and d["state"] == "SENT":
+            hit = self.store.cache_get(f"draft:{did}:sent_result")
+            d["sent_result"] = hit[0] if hit else None
         return d
 
     def for_thread(self, thread_id: str) -> list[dict[str, Any]]:
@@ -187,6 +190,46 @@ class Composer:
             author="me",
             instruction="created",
         )
+
+    def create_slack(self, channel_id: str, thread_ts: str, label: str) -> dict[str, Any]:
+        """A Slack reply draft. The target (channel id, thread ts) is fixed at creation and
+        is part of the approval hash (thread_id, in_reply_to), so it cannot be changed
+        after approval. Kept locally, never synced to Gmail."""
+        now = time.time()
+        c = self._db()
+        with c:
+            cur = c.execute(
+                "INSERT INTO drafts (kind, thread_id, reply_to_msg, in_reply_to, refs, "
+                "state, created_at, updated_at) VALUES ('slack',?,?,?,NULL,'DRAFT',?,?)",
+                (f"slack:{channel_id}", thread_ts or None, thread_ts or "", now, now),
+            )
+            did = int(cur.lastrowid or 0)
+        return self.save(
+            did,
+            {
+                "from_addr": "slack",
+                "to_addrs": label[:200],
+                "cc": "",
+                "bcc": "",
+                "subject": "",
+                "body": "",
+            },
+            author="me",
+            instruction="created",
+        )
+
+    def for_slack(self, channel_id: str, thread_ts: str) -> list[dict[str, Any]]:
+        rows = (
+            self._db()
+            .execute(
+                "SELECT id FROM drafts WHERE kind='slack' AND thread_id = ? AND "
+                "COALESCE(in_reply_to,'') = ? AND state NOT IN ('SENT','DISCARDED') "
+                "ORDER BY id DESC",
+                (f"slack:{channel_id}", thread_ts or ""),
+            )
+            .fetchall()
+        )
+        return [self.get(r[0]) for r in rows]
 
     # ---------------------------------------------------------------- versions
     def _lint(self, did: int, d: dict[str, Any], v: dict[str, Any]) -> list[Issue]:
@@ -323,7 +366,7 @@ class Composer:
         dropped = (
             sorted(set(hit[0]) - present - self.me) if hit and d["kind"] == "reply_all" else []
         )
-        return {
+        out = {
             "token": token,
             "expires_in": TOKEN_TTL,
             "delay": self.delay,
@@ -332,7 +375,18 @@ class Composer:
             "dropped": dropped,
             "thread_id": d["thread_id"],
             "lint": v["lint"],
+            "kind": d["kind"],
         }
+        if d["kind"] == "slack":
+            out["slack"] = {
+                "channel_id": (d["thread_id"] or "").removeprefix("slack:"),
+                "thread_ts": d["in_reply_to"] or "",
+                "label": v["to_addrs"],
+                "notice": "Slack messages are posted by Claude through the Slack connector "
+                "(a model is in the send path). Ultra checks the posted text against this "
+                "approved text afterwards and never resends on its own.",
+            }
+        return out
 
     def confirm(self, did: int, token: str, version: int, send_fn: Any) -> dict[str, Any]:
         """Check everything, then queue the send after the delay."""
@@ -424,8 +478,14 @@ class Composer:
                 "thread_id": result.get("threadId"),
                 "to": v["to_addrs"],
                 "subject": v["subject"][:80],
+                "kind": d["kind"],
+                "verified": result.get("verified", True),
+                "verify_note": result.get("verify_note", ""),
+                "permalink": result.get("permalink", ""),
             },
         )
+        if d["kind"] == "slack":
+            self.store.cache_put(f"draft:{did}:sent_result", result)
         self._delete_gmail_draft(d)
 
     # ---------------------------------------------------------------- gmail drafts
@@ -433,7 +493,7 @@ class Composer:
         """Mirror the current version into a Gmail draft (visible on the phone)."""
         d = self.get(did)
         v = d["current"]
-        if not v or d["state"] in ("SENT", "DISCARDED"):
+        if not v or d["state"] in ("SENT", "DISCARDED") or d["kind"] == "slack":
             return None
         g = google_auth.service(self.cfg, "gmail", "v1", "modify")
         body: dict[str, Any] = {"message": {"raw": raw(build_mime(d, v))}}

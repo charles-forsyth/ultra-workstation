@@ -77,12 +77,17 @@ def lint(
     cc = _addrs(version.get("cc") or "")
     bcc = _addrs(version.get("bcc") or "")
 
-    if not to:
+    slack = kind == "slack"
+    if not to and not slack:
         issues.append(Issue("error", "no_to", "Add at least one To recipient."))
     if not body.strip():
         issues.append(Issue("error", "empty", "The message is empty."))
-    if not subject.strip():
+    if not subject.strip() and not slack:
         issues.append(Issue("warning", "no_subject", "No subject."))
+    if slack and len(body) > 4000:
+        issues.append(Issue("error", "too_long", "Slack messages are limited to 4000 characters."))
+    if slack and re.search(r"(?<![\w<])@(channel|here|everyone)\b", body):
+        issues.append(Issue("warning", "broadcast", "Mentions @channel/@here: notifies everyone."))
 
     level = str((style.get("ascii") or {}).get("level", "error"))
     bad = sorted({c for c in body + subject if ord(c) > 126})
@@ -112,7 +117,7 @@ def lint(
                     "Reply-all no longer includes: " + ", ".join(dropped),
                 )
             )
-    if org_domain:
+    if org_domain and not slack:
         ext = sorted(a for a in set(to) | set(cc) | set(bcc) if not a.endswith("@" + org_domain))
         if ext:
             issues.append(Issue("warning", "external", "Outside your domain: " + ", ".join(ext)))

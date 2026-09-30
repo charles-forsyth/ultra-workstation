@@ -4,7 +4,7 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger by dragging it into a bucket.
 
-Status: v0.6.0. Mail read and write (double-approval send), AI summary and drafting,
+Status: v0.7.0. Mail read and write (double-approval send), AI summary and drafting,
 archive with undo, ticket cards, whose-court rules, Slack read, a context rail that
 covers everyone on a conversation, and the bucket: drag conversations and people in,
 then log or make a task in the ledger with links checked by read-back; web search
@@ -61,6 +61,13 @@ missing one). A card commits once; nothing is retried automatically.
 
 The ledger adapter only runs `log`, `tasks add`, `tasks update`, `link` and `unlink`,
 passes entities as full UUIDs, and sends text on stdin.
+
+## Slack replies
+
+Open a Slack conversation and press Reply (or `r`). Write it yourself or with AI, then
+approve twice, the same as email. Ultra posts it through Claude's Slack connector,
+reads it back, and tells you whether the posted text matches what you approved. It
+never resends on its own. Slack adds a small "Sent using Claude" line under each post.
 
 ## Today (calendar)
 

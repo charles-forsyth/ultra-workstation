@@ -34,8 +34,9 @@ ultra restart --host 0.0.0.0
 ultra remote              # prints the http://<ip>:7440/ addresses to open on the device
 ```
 
-Only clients on the Tailscale range (100.64.0.0/10) and 192.168 LANs may connect;
-everything else is refused. Change the list with `[server] remote_networks`.
+Only your 192.168 LAN and your own Tailscale devices (same Tailscale user as this
+machine, not the whole 100.64.0.0/10 range) may connect; everything else is refused.
+Change the list with `[server] remote_networks`.
 
 ## Sending mail
 

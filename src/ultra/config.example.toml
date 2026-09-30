@@ -11,9 +11,9 @@ slack_user_id = ""
 
 [server]
 port = 7440
-# With --host 0.0.0.0, only clients in these networks may connect (this machine always can).
-# Default: the Tailscale range and 192.168 LANs.
-# remote_networks = ["100.64.0.0/10", "192.168.0.0/16"]
+# With --host 0.0.0.0, only these clients may connect (this machine always can).
+# "tailnet:mine" = devices owned by your own Tailscale user (not the whole 100.64/10).
+# remote_networks = ["192.168.0.0/16", "tailnet:mine"]
 poll_mail_seconds = 120
 poll_slack_minutes = 15
 

@@ -84,11 +84,6 @@ def host_allowed(host_header: str, port: int, remote: bool = False) -> bool:
     return bool(host) and ("." not in host or host.endswith(LOCAL_SUFFIXES))
 
 
-# Remote mode (--host 0.0.0.0) admits only these client networks: the Tailscale
-# address range and private 192.168 LANs. Everything else is refused before routing.
-DEFAULT_REMOTE_NETWORKS = ("100.64.0.0/10", "192.168.0.0/16")
-
-
 def parse_networks(
     specs: list[str] | tuple[str, ...],
 ) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:

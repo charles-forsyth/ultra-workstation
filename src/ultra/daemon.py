@@ -97,7 +97,7 @@ def start(port: int, demo: bool = False, host: str = "127.0.0.1") -> int:
         if probe(port):
             print(f"[INFO] Ultra started (PID {proc.pid}): http://127.0.0.1:{port}")
             if host not in ("127.0.0.1", "localhost", "::1"):
-                print(f"[WARN] Listening on {host}: Tailscale and 192.168 clients allowed.")
+                print(f"[WARN] Listening on {host}: 192.168 and your own tailnet devices allowed.")
                 print("       Run `ultra remote` for the addresses to open on them.")
             return 0
         time.sleep(0.25)

@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from ultra import __version__, guard
 from ultra.config import Config
+from ultra.remote import PeerPolicy, policy_from_config
 
 MAX_BODY = 25 * 1024 * 1024  # attachments ride in JSON as base64 later
 
@@ -109,12 +110,13 @@ def _static_bytes(path: str) -> tuple[bytes, str] | None:
 
 
 def make_handler(
-    api: Api, port: int, networks: tuple[Any, ...] = ()
+    api: Api, port: int, peer_ok: Callable[[str], bool] | None = None
 ) -> type[BaseHTTPRequestHandler]:
-    remote = bool(networks)
+    remote = peer_ok is not None
 
     class H(BaseHTTPRequestHandler):
         server_version = f"ultra/{__version__}"
+        peer_policy = peer_ok
 
         def log_message(self, format: str, *args: Any) -> None:
             return  # no access log: URLs can carry message ids
@@ -143,7 +145,8 @@ def make_handler(
 
         def _handle(self, method: str) -> None:
             url = urlparse(self.path)
-            if not guard.peer_allowed(self.client_address[0], networks):
+            addr = self.client_address[0]
+            if not (guard.loopback_peer(addr) or (peer_ok is not None and peer_ok(addr))):
                 return self._json(403, {"error": "This address may not connect."})
             host = self.headers.get("Host", "")
             if not guard.host_allowed(host, port, remote):
@@ -238,28 +241,27 @@ def build(
     port: int,
     demo: bool = False,
     host: str = "127.0.0.1",
-    networks: tuple[Any, ...] | None = None,
+    policy: PeerPolicy | None = None,
 ) -> tuple[ThreadingHTTPServer, Api]:
     """Bind host:port (0 = any free port) and return the server and its Api.
 
-    On a non-loopback host, clients outside `networks` (default: the Tailscale range and
-    192.168 LANs, or [server] remote_networks) are refused.
+    On a non-loopback host, only clients the policy admits may connect (default: 192.168
+    LANs and the operator's own tailnet devices, or [server] remote_networks).
     """
     api = Api(cfg, guard.new_token(), demo=demo)
-    nets: tuple[Any, ...] = ()
+    pol: PeerPolicy | None = None
     if not guard.loopback_peer(host):
-        if networks is None:
-            specs = cfg.get("server", "remote_networks", None) or list(
-                guard.DEFAULT_REMOTE_NETWORKS
-            )
-            networks = guard.parse_networks(specs)
-        if not networks:
+        pol = (
+            policy
+            if policy is not None
+            else policy_from_config(cfg.get("server", "remote_networks", None))
+        )
+        if not pol:
             raise ValueError("a non-loopback --host needs at least one allowed network")
-        nets = networks
-    httpd = ThreadingHTTPServer((host, port), make_handler(api, port, nets))
+    httpd = ThreadingHTTPServer((host, port), make_handler(api, port, pol))
     real = httpd.server_address[1]
     if real != port:  # port 0: the Host check must use the port actually bound
-        httpd.RequestHandlerClass = make_handler(api, int(real), nets)
+        httpd.RequestHandlerClass = make_handler(api, int(real), pol)
     httpd.daemon_threads = True
     return httpd, api
 
@@ -268,8 +270,11 @@ def serve(cfg: Config, port: int, demo: bool = False, host: str = "127.0.0.1") -
     httpd, api = build(cfg, port, demo, host)
     print(f"[INFO] Ultra listening on http://{host}:{port}", flush=True)
     if not guard.loopback_peer(host):
-        nets = cfg.get("server", "remote_networks", None) or list(guard.DEFAULT_REMOTE_NETWORKS)
-        print(f"[WARN] Remote access on for: {', '.join(nets)}", flush=True)
+        pol = httpd.RequestHandlerClass.peer_policy  # type: ignore[attr-defined]
+        print(f"[WARN] Remote access on for: {', '.join(pol.specs)}", flush=True)
+        if pol.tailnet:
+            own = ", ".join(f"{n} {ip}" for ip, n in pol.own().items() if "." in ip)
+            print(f"[INFO] Own tailnet devices: {own or 'none found'}", flush=True)
     if api.live is not None:
         api.live.warm()
     try:

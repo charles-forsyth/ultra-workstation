@@ -28,8 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument(
         "--host",
         default=None,
-        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices from the "
-        "Tailscale range and 192.168 LANs only ([server] remote_networks).",
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices: 192.168 LANs "
+        "and your own tailnet devices only ([server] remote_networks).",
     )
     sub.add_parser("stop", help="Stop the background server")
     r = sub.add_parser("restart", help="Stop and start again")
@@ -38,8 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument(
         "--host",
         default=None,
-        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices from the "
-        "Tailscale range and 192.168 LANs only ([server] remote_networks).",
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices: 192.168 LANs "
+        "and your own tailnet devices only ([server] remote_networks).",
     )
     sub.add_parser("status", help="Is it running?")
     sub.add_parser("open", help="Open the running workstation in the browser")
@@ -49,8 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     fg.add_argument(
         "--host",
         default=None,
-        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices from the "
-        "Tailscale range and 192.168 LANs only ([server] remote_networks).",
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices: 192.168 LANs "
+        "and your own tailnet devices only ([server] remote_networks).",
     )
     sub.add_parser("doctor", help="Check config, file permissions, tools and keys")
     sub.add_parser("remote", help="Print the addresses other devices can use")
@@ -162,8 +162,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  {mark} {c.name:26} {c.detail}")
         sys.exit(1 if bad else 0)
     if cmd == "remote":
-        from ultra import guard
-        from ultra.remote import addresses
+        from ultra.remote import addresses, policy_from_config
 
         state = daemon.read_state() or {}
         p = state.get("port", port)
@@ -172,10 +171,12 @@ def main(argv: list[str] | None = None) -> None:
                 "[INFO] Ultra is only listening on this machine. Restart with "
                 "`ultra restart --host 0.0.0.0` to allow other devices."
             )
-        nets = config.load().get("server", "remote_networks", None) or list(
-            guard.DEFAULT_REMOTE_NETWORKS
-        )
-        print(f"Allowed client networks: {', '.join(nets)}")
+        pol = policy_from_config(config.load().get("server", "remote_networks", None))
+        print(f"Allowed: {', '.join(pol.specs)}")
+        if pol.tailnet:
+            for ip, name in pol.own().items():
+                if "." in ip:
+                    print(f"  own tailnet device: {name} {ip}")
         print("Open one of these on the other device:")
         for a in addresses():
             print(f"  http://{a}:{p}/")

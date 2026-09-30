@@ -83,6 +83,7 @@ class Desk:
         api.add("POST", r"/api/bucket/clear", self.r_bucket_clear)
         api.add("POST", r"/api/ledger/stage", self.r_stage)
         api.add("POST", r"/api/ledger/ai-text", self.r_ai_text)
+        api.add("POST", r"/api/ledger/stage-task-log", self.r_stage_task_log)
         api.add("POST", r"/api/ledger/commit", self.r_commit)
         api.add("GET", r"/api/ledger/commit/([A-Za-z0-9_-]+)", self.r_commit_status)
         api.add("POST", r"/api/ledger/link", self.r_link)
@@ -244,6 +245,51 @@ class Desk:
             raise _bad(str(e)) from e
         card["from_bucket"] = from_bucket
         self.stager.annotate(card["id"], from_bucket=from_bucket)
+        card["ledger"] = self.ledger.enabled
+        return card
+
+    def r_stage_task_log(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """A log card for progress on one task: the task (referenced) and its people
+        and projects as chips. Uses the same one-commit card as every other log."""
+        b = body or {}
+        tid = str(b.get("task", "")).lower()
+        if not UUID.match(tid):
+            raise _bad("task id must be a UUID")
+        items = [
+            {
+                "kind": "entity",
+                "key": tid,
+                "subject": str(b.get("summary", ""))[:300],
+                "entity_type": "Task",
+                "people": [],
+                "tickets": [],
+                "gcp": [],
+            }
+        ]
+        for x in (b.get("links") or [])[:20]:
+            xid = str(x.get("id", "")).lower()
+            if UUID.match(xid) and x.get("type") in (
+                "Researcher",
+                "Lab",
+                "GCPProject",
+                "ResearchProject",
+            ):
+                if self.me_netid and f"({self.me_netid})" in str(x.get("name", "")):
+                    continue
+                items.append(
+                    {
+                        "kind": "entity",
+                        "key": xid,
+                        "subject": str(x.get("name", "")),
+                        "entity_type": x["type"],
+                        "people": [],
+                        "tickets": [],
+                        "gcp": [],
+                    }
+                )
+        card = self.stager.stage("log", items)
+        card["text"] = f"Progress on task: {items[0]['subject']}\n\n"
+        card["from_bucket"] = False
         card["ledger"] = self.ledger.enabled
         return card
 

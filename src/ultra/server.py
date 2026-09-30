@@ -108,7 +108,9 @@ def _static_bytes(path: str) -> tuple[bytes, str] | None:
     return target.read_bytes(), ctype
 
 
-def make_handler(api: Api, port: int) -> type[BaseHTTPRequestHandler]:
+def make_handler(api: Api, port: int, remote_key: str = "") -> type[BaseHTTPRequestHandler]:
+    remote = bool(remote_key)
+
     class H(BaseHTTPRequestHandler):
         server_version = f"ultra/{__version__}"
 
@@ -138,12 +140,36 @@ def make_handler(api: Api, port: int) -> type[BaseHTTPRequestHandler]:
             self._send(status, data, "application/json; charset=utf-8")
 
         def _handle(self, method: str) -> None:
-            if not guard.loopback_peer(self.client_address[0]):
-                return self._json(403, {"error": "Only this machine may connect."})
-            host = self.headers.get("Host", "")
-            if not guard.host_allowed(host, port):
-                return self._json(403, {"error": "Unrecognised host name."})
             url = urlparse(self.path)
+            local = guard.loopback_peer(self.client_address[0])
+            set_cookie = False
+            if not local:
+                if not remote:
+                    return self._json(403, {"error": "Only this machine may connect."})
+                qkey = (parse_qs(url.query).get("key") or [""])[0]
+                if not guard.remote_key_ok(self.headers.get("Cookie"), qkey, remote_key):
+                    return self._json(
+                        401,
+                        {
+                            "error": "Access key required. On the laptop run `ultra remote-key` "
+                            "and open the link it prints."
+                        },
+                    )
+                set_cookie = bool(qkey)
+            host = self.headers.get("Host", "")
+            if not guard.host_allowed(host, port, remote):
+                return self._json(403, {"error": "Unrecognised host name."})
+            if set_cookie:  # swap ?key= for a cookie, then drop it from the URL
+                self.send_response(303)
+                self.send_header(
+                    "Set-Cookie",
+                    f"{guard.REMOTE_COOKIE}={remote_key}; Path=/; HttpOnly; SameSite=Strict; "
+                    "Max-Age=2592000",
+                )
+                self.send_header("Location", url.path or "/")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if not url.path.startswith("/api/"):
                 if method != "GET":
                     return self._json(405, {"error": "Method not allowed"})
@@ -229,20 +255,38 @@ def make_handler(api: Api, port: int) -> type[BaseHTTPRequestHandler]:
     return H
 
 
-def build(cfg: Config, port: int, demo: bool = False) -> tuple[ThreadingHTTPServer, Api]:
-    """Bind 127.0.0.1:port (0 = any free port) and return the server and its Api."""
+def build(
+    cfg: Config, port: int, demo: bool = False, host: str = "127.0.0.1", remote_key: str = ""
+) -> tuple[ThreadingHTTPServer, Api]:
+    """Bind host:port (0 = any free port) and return the server and its Api.
+
+    A non-loopback host requires remote_key: remote clients must present it.
+    """
+    if not guard.loopback_peer(host) and not remote_key:
+        raise ValueError("a non-loopback --host needs an access key")
     api = Api(cfg, guard.new_token(), demo=demo)
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(api, port))
+    key = "" if guard.loopback_peer(host) else remote_key
+    httpd = ThreadingHTTPServer((host, port), make_handler(api, port, key))
     real = httpd.server_address[1]
     if real != port:  # port 0: the Host check must use the port actually bound
-        httpd.RequestHandlerClass = make_handler(api, int(real))
+        httpd.RequestHandlerClass = make_handler(api, int(real), key)
     httpd.daemon_threads = True
     return httpd, api
 
 
-def serve(cfg: Config, port: int, demo: bool = False) -> None:
-    httpd, api = build(cfg, port, demo)
-    print(f"[INFO] Ultra listening on http://127.0.0.1:{port}", flush=True)
+def serve(cfg: Config, port: int, demo: bool = False, host: str = "127.0.0.1") -> None:
+    key = ""
+    if not guard.loopback_peer(host):
+        from ultra.remote import access_key
+
+        key = access_key()
+    httpd, api = build(cfg, port, demo, host, key)
+    print(f"[INFO] Ultra listening on http://{host}:{port}", flush=True)
+    if key:
+        print(
+            "[WARN] Remote access on: other machines need the access key (ultra remote-key).",
+            flush=True,
+        )
     if api.live is not None:
         api.live.warm()
     try:

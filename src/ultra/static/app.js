@@ -2,7 +2,7 @@
 // Helpers adapted from the deep-research dashboard (MIT, same author).
 
 import { openDraft, resumeForThread, onSent } from "./compose.js";
-import { initRail, wireSearch, loadPeople, addConversation, addSnippet, searchFor, stage, stageAfterSend } from "./ledger.js";
+import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, showTaskPeople } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog } from "./tools.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -78,7 +78,7 @@ function fmtTime(ts) {
   return d.toLocaleString([], { timeZone: S.tz, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-const BADGE = { VIP: "vip", READY: "ready", OVERDUE: "ready", SLOW: "wait", ASSIGNED: "vip" };
+const BADGE = { VIP: "vip", READY: "ready", OVERDUE: "ready", SLOW: "wait", ASSIGNED: "vip", CRITICAL: "ready", HIGH: "wait", BLOCKED: "ready", STARTED: "vip" };
 
 function renderStream() {
   const el = $("#stream");
@@ -91,8 +91,8 @@ function renderStream() {
     return;
   }
   el.innerHTML = S.items.map((it, i) => `
-    <div class="item ${i === S.sel ? "sel" : ""}" role="option" data-i="${i}" draggable="true" aria-selected="${i === S.sel}">
-      <div class="row1"><span class="src">${esc(it.source)}</span><span class="who ${it.unread ? "unread" : ""}">${esc(it.from)}</span>${it.count > 1 ? `<span class="cnt">${esc(it.count)}</span>` : ""}<span class="age">${esc(age(it.ts))}</span></div>
+    <div class="item ${i === S.sel ? "sel" : ""} ${it.source === "task" ? `task-row pri-${esc((it.priority || "").toLowerCase())} st-${esc((it.status || "").toLowerCase())}` : ""}" role="option" data-i="${i}" draggable="true" aria-selected="${i === S.sel}">
+      <div class="row1"><span class="src">${esc(it.source)}</span><span class="who ${it.unread ? "unread" : ""}">${esc(it.from)}</span>${it.count > 1 ? `<span class="cnt">${esc(it.count)}</span>` : ""}<span class="age">${it.ts ? esc(age(it.ts)) : ""}</span></div>
       <div class="subj">${esc(it.subject)}</div>
       <div class="snip">${esc(it.snippet)}</div>
       ${(it.badges || []).length || it.court === "WAITING" ? `<div class="badges">
@@ -121,6 +121,7 @@ async function loadStream(keepSel = false) {
 
 async function openItem(i) {
   const it = S.items[i]; if (!it) return;
+  if (it.source === "task") return openTask(i);
   S.sel = i; S.key = it.key; renderStream();
   $("#thread-empty").hidden = true;
   const th = $("#thread"); th.hidden = false;
@@ -171,7 +172,9 @@ async function openItem(i) {
     $('[data-a="log"]', th).onclick = () => stage("log", it.key);
     $('[data-a="task"]', th).onclick = () => stage("task", it.key);
     wireSelection(th, it);
-    const ab = $('[data-a="archive"]', th); ab.onclick = () => busy(ab, () => archive(it));
+    const ab = $('[data-a="archive"]', th);
+    if (it.source === "slack") { ab.disabled = false; ab.textContent = "Mark done"; ab.title = "Hide until a new message arrives (e). Nothing is sent to Slack."; ab.onclick = () => busy(ab, () => slackDone(it)); }
+    else ab.onclick = () => busy(ab, () => archive(it));
     await resumeForThread(it.key);
   } catch (e) { th.innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
   loadContext(it);
@@ -240,6 +243,92 @@ function quoteIntoReply(text) {
     if (nb && !nb.disabled) { clearInterval(wait); nb.value = quoted + nb.value; nb.dispatchEvent(new Event("input")); nb.focus(); }
   }, 150);
   setTimeout(() => clearInterval(wait), 8000);
+}
+
+// ---------------------------------------------------------------- slack done
+async function slackDone(it) {
+  await api("/api/slack/done", { method: "POST", body: { key: it.key } });
+  removeRow(it);
+  toast("Marked done. It comes back if someone writes again.", "ok", {
+    label: "Undo", fn: async () => { await api("/api/slack/undone", { method: "POST", body: { key: it.key } }); loadStream(true); },
+  });
+}
+
+function removeRow(it) {
+  const idx = S.items.findIndex((x) => x.key === it.key);
+  S.items = S.items.filter((x) => x.key !== it.key);
+  S.sel = Math.min(idx, S.items.length - 1);
+  renderStream();
+  if (S.sel >= 0) openItem(S.sel); else { $("#thread").hidden = true; $("#thread-empty").hidden = false; }
+}
+
+// ---------------------------------------------------------------- tasks
+const PRI = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+
+async function openTask(i) {
+  const it = S.items[i];
+  S.sel = i; S.key = it.key; renderStream();
+  $("#thread-empty").hidden = true;
+  const th = $("#thread"); th.hidden = false;
+  th.innerHTML = `<h2>${esc(it.subject)}</h2><div class="dim">Loading the task from the ledger...</div>`;
+  let d;
+  try { d = await api(`/api/thread/${encodeURIComponent(it.key)}`); }
+  catch (e) { th.innerHTML = `<div class="dim">${esc(e.message)}</div>`; return; }
+  if (S.key !== it.key) return;
+  if (!d.task) { th.innerHTML = `<h2>${esc(it.subject)}</h2><div class="alert">${esc(d.error || "Task not found")}</div>`; return; }
+  const t = d.task;
+  const due = t.due_date ? String(t.due_date).slice(0, 10) : "";
+  const overdue = due && due < new Date().toISOString().slice(0, 10);
+  th.innerHTML = `<div class="task-head pri-${esc(t.priority.toLowerCase())}"><h2>${esc(t.summary)}</h2>
+      <div class="badges"><span class="badge pri ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="badge">${esc(t.status.replace("_", " "))}</span>
+      ${due ? `<span class="badge ${overdue ? "ready" : ""}">due ${esc(due)}${overdue ? " (overdue)" : ""}</span>` : ""}
+      ${t.snoozed_until ? `<span class="badge wait">snoozed</span>` : ""}
+      ${Object.entries(t.details).map(([k, v]) => `<span class="badge dim" title="${esc(k)}">${esc(v)}</span>`).join("")}</div></div>
+    <div class="thread-acts">
+      ${t.status !== "DONE" ? `<button class="btn small send" data-t="complete" title="Mark DONE in the ledger (e)">Complete</button>` : `<button class="btn small" data-t="reopen">Reopen</button>`}
+      ${t.status !== "IN_PROGRESS" && t.status !== "DONE" ? `<button class="btn small" data-t="start">Start</button>` : ""}
+      ${t.status !== "BLOCKED" && t.status !== "DONE" ? `<button class="btn small" data-t="block">Blocked</button>` : ""}
+      ${t.status === "BLOCKED" || t.status === "IN_PROGRESS" ? `<button class="btn small" data-t="reopen">Back to to-do</button>` : ""}
+      <select id="t-pri" title="Priority">${PRI.map((p) => `<option ${p === t.priority ? "selected" : ""}>${p}</option>`).join("")}</select>
+      <select id="t-snooze" title="Hide from the stream for a while (local only)"><option value="">Snooze...</option><option value="1">1 day</option><option value="3">3 days</option><option value="7">1 week</option>${t.snoozed_until ? `<option value="0">Unsnooze</option>` : ""}</select>
+      <button class="btn small" data-t="log" title="Log progress on this task (l)">Log update</button>
+      <button class="btn small" data-t="bucket" title="Add to bucket (b)">+ Bucket</button>
+      <button class="btn small" data-t="copy">Copy</button>
+    </div>
+    <div class="sect"><span class="label">Linked in the ledger (${d.links.length})</span>
+      ${d.links.length ? `<ul class="clist">${d.links.map((x) => `<li class="ent" draggable="true" data-ent='${esc(JSON.stringify({ id: x.id, name: x.name, type: x.type }))}'><span class="badge">${esc(x.type)}</span> ${esc(x.name)} <span class="dim small-t">${esc(x.edge)}</span></li>`).join("")}</ul>` : `<div class="dim small-t">No links. Drag people or projects onto it via the bucket.</div>`}</div>
+    <div class="dim small-t mono">${esc(t.id)}</div>`;
+  const act = async (body, label) => {
+    const r = await api("/api/task/action", { method: "POST", body: { id: t.id, ...body } });
+    if (r.ok === false) { toast(`The ledger did not confirm: ${r.output_tail || "unknown"}`, "err"); return false; }
+    toast(label, "ok"); return true;
+  };
+  th.onclick = (e) => {
+    const b = e.target.closest("[data-t]"); if (!b) return;
+    const a = b.dataset.t;
+    if (a === "copy") { copyText(`${t.summary} (${t.priority}, ${t.status})`); return; }
+    if (a === "bucket") { addEntityToBucket({ id: t.id, name: t.summary, type: "Task" }); return; }
+    if (a === "log") { stageTaskLog(t, d.links); return; }
+    busy(b, async () => {
+      if (a === "complete") {
+        if (!confirm(`Mark this task DONE in the ledger?\n\n${t.summary}`)) return;
+        if (await act({ action: "complete" }, "Task completed.")) {
+          removeRow(it);
+          toast("Task completed in the ledger.", "ok", { label: "Undo", fn: async () => { await act({ action: "reopen" }, "Task reopened."); setTimeout(() => loadStream(true), 2500); } });
+        }
+      } else if (await act({ action: a }, `Task ${a === "start" ? "started" : a === "block" ? "marked blocked" : "back to to-do"}.`)) {
+        it.status = { start: "IN_PROGRESS", block: "BLOCKED", reopen: "TODO" }[a]; openTask(S.items.indexOf(it)); setTimeout(() => loadStream(true), 2500);
+      }
+    });
+  };
+  $("#t-pri").onchange = async (e) => { if (await act({ action: "priority", priority: e.target.value }, `Priority set to ${e.target.value}.`)) setTimeout(() => loadStream(true), 2500); };
+  $("#t-snooze").onchange = async (e) => {
+    const v = e.target.value; if (v === "") return;
+    if (v === "0") { await act({ action: "unsnooze" }, "Unsnoozed."); loadStream(true); return; }
+    if (await act({ action: "snooze", days: Number(v) }, `Snoozed for ${v} day(s). Only on this laptop.`)) removeRow(it);
+  };
+  th.ondragstart = (e) => { const li = e.target.closest("[data-ent]"); if (li) e.dataTransfer.setData("application/x-ultra-entity", li.dataset.ent); };
+  showTaskPeople(d.links);
 }
 
 function threadsOf(it) {
@@ -363,10 +452,10 @@ function wire() {
       if (e.key === "r") { e.preventDefault(); click("reply"); return; }
       if (e.key === "a") { e.preventDefault(); click("reply_all"); return; }
       if (e.key === "f") { e.preventDefault(); click("forward"); return; }
-      if (e.key === "e") { e.preventDefault(); click("archive"); return; }
+      if (e.key === "e") { e.preventDefault(); const c = $('#thread [data-t="complete"]'); if (c) c.click(); else click("archive"); return; }
       if (e.key === "s") { e.preventDefault(); click("summary"); return; }
       if (e.key === "b") { e.preventDefault(); click("bucket"); return; }
-      if (e.key === "l") { e.preventDefault(); click("log"); return; }
+      if (e.key === "l") { e.preventDefault(); const tl = $('#thread [data-t="log"]'); if (tl) tl.click(); else click("log"); return; }
       if (e.key === "t") { e.preventDefault(); click("task"); return; }
     }
     if (e.key === "c") { e.preventDefault(); openDraft("new", null).catch((x) => toast(x.message, "err")); return; }
@@ -377,6 +466,7 @@ function wire() {
     else if (e.key === "R") $("#btn-refresh").click();
     else if (e.key === "m") $('#filter-seg button[data-f="mine"]').click();
     else if (e.key === "w") $('#filter-seg button[data-f="waiting"]').click();
+    else if (e.key === "T") $('#filter-seg button[data-f="tasks"]').click();
   });
   const drawer = (sel) => { $(sel).classList.toggle("open"); $("#scrim").hidden = !$$(".panel.open").length; };
   $("#btn-left").onclick = () => drawer("#left");
@@ -402,7 +492,7 @@ function commands() {
     { t: "Web search...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tw-q")?.focus(); } },
     { t: "Search past research...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tr-q")?.focus(); } },
     { t: "New deep research...", run: () => launcher("") },
-    ...["mine", "waiting", "all", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
+    ...["mine", "waiting", "all", "tasks", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
   if (it && S.key === it.key) {
     for (const [a, label, k] of [["reply", "Reply", "r"], ["reply_all", "Reply all", "a"], ["forward", "Forward", "f"], ["summary", "Summarize with AI", "s"], ["archive", "Archive", "e"], ["copy", "Copy thread", ""], ["bucket", "Add to bucket", "b"], ["log", "Log in ledger", "l"], ["task", "Ledger task", "t"]]) {

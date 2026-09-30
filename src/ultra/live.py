@@ -27,6 +27,14 @@ from ultra.research import Research
 from ultra.rules import Rules
 from ultra.slack import Slack, SlackError
 from ultra.store import Store
+from ultra.tasks import (
+    slack_done,
+    slack_undone,
+    slack_visible,
+    snooze_task,
+    task_rows,
+    unsnooze_task,
+)
 from ultra.tools import Tools
 
 if TYPE_CHECKING:
@@ -35,8 +43,9 @@ if TYPE_CHECKING:
 FILTERS = {
     "mine": lambda it: it["court"] == "MINE",
     "waiting": lambda it: it["court"] == "WAITING",
-    "all": lambda it: it["court"] in ("MINE", "WAITING", "FYI"),
+    "all": lambda it: it["court"] in ("MINE", "WAITING", "FYI", "TASK"),
     "slack": lambda it: it["source"] == "slack",
+    "tasks": lambda it: it["source"] == "task",
     "tickets": lambda it: it["source"] == "ticket",
     "vip": lambda it: "VIP" in it.get("badges", []),
     "low": lambda it: it["court"] == "LOW",
@@ -85,6 +94,7 @@ class Live:
         self.research = Research(cfg, self.store)
         self.audio = Audio(cfg, self.store, self.ai)
         self.tools = Tools(self.research, self.ai, self.audio, self.thread_text_for, self.operator)
+        self.show_tasks = bool(cfg.get("ledger", "tasks_in_stream", True))
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jl = threading.Lock()
@@ -130,6 +140,10 @@ class Live:
         api.add("GET", r"/api/thread/g-([A-Za-z0-9]+)", self.r_thread)
         api.add("GET", r"/api/thread/k-([A-Z]+\d+)", self.r_ticket)
         api.add("GET", r"/api/thread/s-([A-Za-z0-9_.:-]+)", self.r_slack_thread)
+        api.add("GET", r"/api/thread/t-([0-9a-f-]{36})", self.r_task_thread)
+        api.add("POST", r"/api/task/action", self.r_task_action)
+        api.add("POST", r"/api/slack/done", self.r_slack_done)
+        api.add("POST", r"/api/slack/undone", self.r_slack_undone)
         api.add("GET", r"/api/context/([^/]+)", self.r_context)
         self.desk.register(api)
         self.tools.register(api)
@@ -159,9 +173,22 @@ class Live:
         items = list((mail or {}).get("items") or [])
         if self.slack.enabled:
             s_items, _ = self.slack.items()
-            items += Slack.to_stream(s_items)
+            items += [r for r in Slack.to_stream(s_items) if slack_visible(self.store, r)]
+        items += self._task_rows()
         items.sort(key=lambda x: x.get("ts_ms", 0), reverse=True)
         return items, age
+
+    def _task_rows(self) -> list[dict[str, Any]]:
+        """Open ledger tasks from cache; refreshed in the background (5 min TTL)."""
+        if not self.ledger.enabled or not self.show_tasks:
+            return []
+        hit = self.store.cache_get("tasks:open")
+        if hit is None or hit[1] > 300:
+            self._job("tasks", self._refresh_tasks)
+        return task_rows((hit or [[]])[0] or [], self.store)
+
+    def _refresh_tasks(self) -> None:
+        self.store.cache_put("tasks:open", self.ledger._run(["tasks", "list"]) or [])
 
     def r_stream(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         f = (q.get("filter") or ["mine"])[0]
@@ -209,6 +236,94 @@ class Live:
             return self.mail.thread(m.group(1))
         except google_auth.AuthNeeded as e:
             return {"error": str(e), "auth": e.capability, "messages": []}
+
+    # ---------------------------------------------------------------- tasks
+    def r_task_thread(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        tid = m.group(1)
+        try:
+            t = self.ledger.task(tid) or {}
+            tree = self.ledger.tree_fresh(tid)
+        except (LedgerError, OSError) as e:
+            return {"key": f"t-{tid}", "task": None, "error": str(e), "messages": []}
+        links = [
+            {
+                "id": c["id"],
+                "name": c.get("name", ""),
+                "type": c.get("entity_type", ""),
+                "edge": c.get("type", ""),
+            }
+            for c in tree.get("connections") or []
+        ]
+        snooze = self.store.cache_get(f"snooze:task:{tid}")
+        return {
+            "key": f"t-{tid}",
+            "task": {
+                "id": tid,
+                "summary": t.get("summary", ""),
+                "status": t.get("status", ""),
+                "priority": t.get("priority", ""),
+                "due_date": t.get("due_date") or "",
+                "assigned_to": t.get("assigned_to", ""),
+                "details": {
+                    k: v
+                    for k, v in (t.get("details") or {}).items()
+                    if isinstance(v, (str, int, float))
+                },
+                "snoozed_until": snooze[0]["until"] if snooze else None,
+            },
+            "links": links,
+            "messages": [],
+        }
+
+    def r_task_action(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """complete / start / block / reopen / priority / snooze / unsnooze."""
+        from ultra.ledger_write import UUID, WriteError
+
+        b = body or {}
+        tid = str(b.get("id", "")).lower()
+        if not UUID.match(tid):
+            raise _bad("task id must be a UUID")
+        action = b.get("action")
+        status = {
+            "complete": "DONE",
+            "start": "IN_PROGRESS",
+            "block": "BLOCKED",
+            "reopen": "TODO",
+        }.get(str(action))
+        try:
+            if status:
+                r = self.writer.task_status(tid, status)
+            elif action == "priority":
+                r = self.writer.task_priority(tid, str(b.get("priority", "")))
+            elif action == "snooze":
+                return {"ok": True, "until": snooze_task(self.store, tid, int(b.get("days", 1)))}
+            elif action == "unsnooze":
+                unsnooze_task(self.store, tid)
+                return {"ok": True}
+            else:
+                raise _bad("unknown task action")
+        except WriteError as e:
+            raise _bad(str(e)) from e
+        if r.get("ok"):
+            self._job("tasks", self._refresh_tasks)
+        return r
+
+    def r_slack_done(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        key = str((body or {}).get("key", ""))
+        if not re.fullmatch(r"s-[A-Za-z0-9_.:-]{1,80}", key):
+            raise _bad("bad Slack key")
+        items, _ = self.slack.items()
+        row = next((r for r in Slack.to_stream(items) if r["key"] == key), None)
+        slack_done(self.store, key, (row or {}).get("ts_ms", int(time.time() * 1000)))
+        self.store.journal("slack_done", key, True)
+        return {"ok": True}
+
+    def r_slack_undone(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        key = str((body or {}).get("key", ""))
+        if not re.fullmatch(r"s-[A-Za-z0-9_.:-]{1,80}", key):
+            raise _bad("bad Slack key")
+        slack_undone(self.store, key)
+        return {"ok": True}
 
     def thread_any(self, key: str) -> dict[str, Any]:
         """Messages for any stream key (email thread, ticket card, Slack row)."""

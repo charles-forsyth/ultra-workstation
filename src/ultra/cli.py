@@ -15,7 +15,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="ultra",
         description=(
             "Ultra AI Workstation Desktop: email, calendar, Slack and your work "
-            "ledger in one local web workstation. Listens on 127.0.0.1 only."
+            "ledger in one local web workstation. Listens on 127.0.0.1 unless --host "
+            "is given."
         ),
     )
     p.add_argument("-v", "--version", action="version", version=f"ultra {__version__}")
@@ -24,16 +25,36 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("start", help="Start the server in the background")
     s.add_argument("--port", type=int, default=None)
     s.add_argument("--demo", action="store_true", help="Serve synthetic data only")
+    s.add_argument(
+        "--host",
+        default=None,
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices, which "
+        "must present the access key (see `ultra remote-key`).",
+    )
     sub.add_parser("stop", help="Stop the background server")
     r = sub.add_parser("restart", help="Stop and start again")
     r.add_argument("--port", type=int, default=None)
     r.add_argument("--demo", action="store_true")
+    r.add_argument(
+        "--host",
+        default=None,
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices, which "
+        "must present the access key (see `ultra remote-key`).",
+    )
     sub.add_parser("status", help="Is it running?")
     sub.add_parser("open", help="Open the running workstation in the browser")
     fg = sub.add_parser("serve", help="Run in the foreground (Ctrl-C to stop)")
     fg.add_argument("--port", type=int, default=None)
     fg.add_argument("--demo", action="store_true")
+    fg.add_argument(
+        "--host",
+        default=None,
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices, which "
+        "must present the access key (see `ultra remote-key`).",
+    )
     sub.add_parser("doctor", help="Check config, file permissions, tools and keys")
+    rk = sub.add_parser("remote-key", help="Print the link other devices use (with --host 0.0.0.0)")
+    rk.add_argument("--rotate", action="store_true", help="New key: signs out every device")
 
     a = sub.add_parser("auth", help="Authorize access to Google")
     asub = a.add_subparsers(dest="auth_cmd")
@@ -99,13 +120,20 @@ def main(argv: list[str] | None = None) -> None:
     if cmd is None:
         build_parser().print_help()
         return
+    host = getattr(args, "host", None) or "127.0.0.1"
     if cmd == "start":
-        sys.exit(daemon.start(port, args.demo))
+        sys.exit(daemon.start(port, args.demo, host))
     if cmd == "stop":
         sys.exit(daemon.stop())
     if cmd == "restart":
+        prev = daemon.read_state() or {}
         daemon.stop()
-        sys.exit(daemon.start(port, args.demo))
+        # keep the previous bind address unless one is given
+        sys.exit(
+            daemon.start(
+                port, args.demo, getattr(args, "host", None) or prev.get("host") or "127.0.0.1"
+            )
+        )
     if cmd == "status":
         sys.exit(daemon.status())
     if cmd == "open":
@@ -120,7 +148,7 @@ def main(argv: list[str] | None = None) -> None:
     if cmd == "serve":
         from ultra.server import serve
 
-        serve(cfg, port, demo=args.demo)
+        serve(cfg, port, demo=args.demo, host=host)
         return
     if cmd == "doctor":
         from ultra.doctor import run
@@ -132,6 +160,23 @@ def main(argv: list[str] | None = None) -> None:
             bad += int(c.required and not c.ok)
             print(f"  {mark} {c.name:26} {c.detail}")
         sys.exit(1 if bad else 0)
+    if cmd == "remote-key":
+        from ultra.remote import access_key, addresses
+
+        key = access_key(rotate=args.rotate)
+        state = daemon.read_state() or {}
+        p = state.get("port", port)
+        if args.rotate:
+            print("[INFO] New access key: every device must open the new link.")
+        if state.get("host", "127.0.0.1") in ("127.0.0.1", "localhost", "::1"):
+            print(
+                "[INFO] Ultra is only listening on this machine. Restart with "
+                "`ultra restart --host 0.0.0.0` to allow other devices."
+            )
+        print("Open one of these on the other device (the key is saved as a cookie):")
+        for a in addresses():
+            print(f"  http://{a}:{p}/?key={key}")
+        return
     if cmd == "purge":
         if not (args.audio or args.uploads):
             print("usage: ultra purge [--audio] [--uploads]")

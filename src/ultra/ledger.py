@@ -28,6 +28,7 @@ READ_COMMANDS = {  # the only subcommands this adapter will ever run
     ("search",),
     ("tree",),
     ("tasks", "list"),
+    ("tasks", "show"),
     ("interactions", "list"),
     ("interactions", "show"),
     ("gcp", "show"),
@@ -124,6 +125,16 @@ class Ledger:
     def open_tasks(self) -> dict[str, dict[str, Any]]:
         tasks = self._cached("tasks:open", TTL_TASKS, ["tasks", "list"]) or []
         return {t["id"]: t for t in tasks if t.get("status") != "DONE"}
+
+    def task(self, tid: str) -> dict[str, Any] | None:
+        """One task with due date and details (vector dropped). Fresh read."""
+        if not re.fullmatch(r"[0-9a-f-]{36}", tid):
+            raise LedgerError("bad task id")
+        d = self._run(["tasks", "show", tid])
+        if not isinstance(d, dict):
+            return None
+        d.pop("vector", None)
+        return d
 
     def open_task_ids(self) -> set[str]:
         return set(self.open_tasks())

@@ -4,7 +4,7 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger by dragging it into a bucket.
 
-Status: v0.5.0. Mail read and write (double-approval send), AI summary and drafting,
+Status: v0.5.1. Mail read and write (double-approval send), AI summary and drafting,
 archive with undo, ticket cards, whose-court rules, Slack read, a context rail that
 covers everyone on a conversation, and the bucket: drag conversations and people in,
 then log or make a task in the ledger with links checked by read-back; web search
@@ -25,7 +25,17 @@ ultra start              # your own accounts
 ultra open
 ```
 
-It listens on 127.0.0.1 only (default port 7440).
+It listens on 127.0.0.1 only by default (port 7440).
+
+To use it from your phone or another laptop on your network or tailnet:
+
+```bash
+ultra restart --host 0.0.0.0
+ultra remote-key          # prints http://<ip>:7440/?key=... links; open one on the device
+```
+
+Other devices must present the access key (it is stored as a cookie after the first
+visit). `ultra remote-key --rotate` signs every device out.
 
 ## Sending mail
 
@@ -50,6 +60,14 @@ missing one). A card commits once; nothing is retried automatically.
 
 The ledger adapter only runs `log`, `tasks add`, `tasks update`, `link` and `unlink`,
 passes entities as full UUIDs, and sends text on stdin.
+
+## Tasks and Slack in the stream
+
+Open ledger tasks appear in the stream (Tasks filter, and in All), coloured by priority
+and status. Open one to Complete it (with Undo), Start, mark Blocked, change priority,
+snooze it for a few days on this laptop, or Log update. Slack conversations have Mark
+done: hidden until someone writes again. `e` is Archive for mail, Complete for a task,
+Mark done for Slack.
 
 ## Research and listening
 

@@ -210,6 +210,29 @@ function wireBucket() {
   });
 }
 
+// ---------------------------------------------------------------- task helpers
+export function showTaskPeople(links) {
+  R.key = null; R.people = [];
+  const el = $("#rt-people");
+  const people = links.filter((x) => x.type === "Researcher");
+  $('#rail-tabs button[data-tab="people"]').textContent = `People ${people.length || ""}`.trim();
+  el.innerHTML = people.length ? `<div class="plist">${people.map((p) => `<div class="prow ent" draggable="true" data-ent='${esc(JSON.stringify({ id: p.id, name: p.name, type: "Researcher" }))}'><b>${esc(p.name)}</b> <span class="dim small-t">${esc(p.edge)}</span></div>`).join("")}</div>
+    <div class="dim small-t hint">People linked to this task. Drag one into the bucket to link a log to them.</div>` : `<div class="dim">No people linked to this task.</div>`;
+  el.onclick = null;
+  el.ondragstart = (e) => { const r = e.target.closest("[data-ent]"); if (r) e.dataTransfer.setData("application/x-ultra-entity", r.dataset.ent); };
+}
+
+export async function stageTaskLog(task, links) {
+  // Log progress on a task: a card with the task and its people as chips.
+  const dlg = $("#ledger-card");
+  dlg.hidden = false;
+  dlg.innerHTML = `<div class="lc-card"><div class="dim">Building the log entry...</div></div>`;
+  try {
+    CARD = await api("/api/ledger/stage-task-log", { method: "POST", body: { task: task.id, summary: task.summary, links } });
+  } catch (e) { dlg.hidden = true; toast(e.message, "err"); return; }
+  renderCard();
+}
+
 // ---------------------------------------------------------------- staged card
 let CARD = null;
 

@@ -28,6 +28,7 @@ personal_block_visibility = "private"
 enabled = true
 binary = "nexus"
 my_id = ""                         # your own ledger id (e.g. NetID); left off link chips
+tasks_in_stream = true             # show open ledger tasks in the stream (Tasks filter)
 org_email_domain = "example.org"
 netid_from_local_part = true
 max_parallel = 3

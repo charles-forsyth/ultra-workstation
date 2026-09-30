@@ -51,12 +51,45 @@ def split_host(host_header: str) -> tuple[str, int | None]:
         return host, -1
 
 
-def host_allowed(host_header: str, port: int) -> bool:
-    """Only localhost names on our own port: blocks DNS rebinding."""
+# Names that only resolve on a LAN or tailnet. A DNS-rebinding page is served from a
+# public domain, so its requests carry that domain in Host (rule from deep-research).
+LOCAL_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".localdomain", ".internal", ".ts.net")
+
+
+def host_allowed(host_header: str, port: int, remote: bool = False) -> bool:
+    """Loopback mode: only localhost names on our port. Remote mode (--host 0.0.0.0):
+    also IP literals, bare machine names and LAN/tailnet names. Public DNS names are
+    always refused, which blocks DNS rebinding."""
     host, p = split_host(host_header)
-    if host not in {"127.0.0.1", "localhost", "::1"}:
+    if p not in (None, port):
         return False
-    return p in (None, port)
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return True
+    if not remote:
+        return False
+    host = host.rstrip(".")
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    return bool(host) and ("." not in host or host.endswith(LOCAL_SUFFIXES))
+
+
+REMOTE_COOKIE = "ultra_key"
+
+
+def remote_key_ok(cookie_header: str | None, query_key: str | None, expected: str) -> bool:
+    """Remote clients must present the access key, as a cookie or once in ?key=."""
+    if not expected:
+        return False
+    if query_key and hmac.compare_digest(query_key, expected):
+        return True
+    for part in (cookie_header or "").split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == REMOTE_COOKIE and value and hmac.compare_digest(value, expected):
+            return True
+    return False
 
 
 def origin_allowed(origin: str | None, host_header: str) -> bool:

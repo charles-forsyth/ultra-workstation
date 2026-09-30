@@ -245,3 +245,20 @@
 .more-menu[hidden] { display: none; }
 .md { max-width: 78ch; }
 .modal { background: rgba(0, 0, 0, .72); }
+
+/* ---- v0.5.1: tasks in the stream (colour by priority/status) ---- */
+.item.task-row { border-left-width: 3px; }
+.item.task-row .src { color: var(--cyan); }
+.item.pri-critical { border-left-color: var(--red); background: linear-gradient(90deg, var(--red-d), transparent 40%); }
+.item.pri-high { border-left-color: var(--amber); background: linear-gradient(90deg, var(--amber-d), transparent 40%); }
+.item.pri-medium { border-left-color: var(--line-2); }
+.item.pri-low { border-left-color: var(--line); opacity: .85; }
+.item.st-blocked .subj { color: var(--red); }
+.item.st-in_progress .subj::before { content: "> "; color: var(--cyan); }
+.item.task-row.sel { background: var(--panel-2); }
+.task-head { border-left: 3px solid var(--line-2); padding-left: 12px; margin-bottom: 8px; }
+.task-head.pri-critical { border-left-color: var(--red); }
+.task-head.pri-high { border-left-color: var(--amber); }
+.badge.pri.critical { border-color: var(--red); color: var(--red); }
+.badge.pri.high { border-color: var(--amber); color: var(--amber); }
+.thread-acts select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 3px 6px; font-size: 12px; }

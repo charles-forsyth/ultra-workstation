@@ -166,6 +166,16 @@ class LedgerWriter:
         self._invalidate()
         return {"ok": ok, "rc": rc, "output_tail": _tail(out)}
 
+    def task_priority(self, task_id: str, priority: str) -> dict[str, Any]:
+        tid = check_uuid(task_id, "task")
+        if priority not in PRIORITIES:
+            raise WriteError("bad priority")
+        rc, out = self._run(["tasks", "update", tid, "--priority", priority], timeout=180)
+        ok = rc == 0 and "not found" not in out.lower()
+        self.store.journal("ledger_task_priority", tid, ok, {"priority": priority, "rc": rc})
+        self._invalidate()
+        return {"ok": ok, "rc": rc, "output_tail": _tail(out)}
+
     # ---------------------------------------------------------------- links
     def link(self, source: str, target: str, kind: str) -> dict[str, Any]:
         s, t = check_uuid(source, "source"), check_uuid(target, "target")

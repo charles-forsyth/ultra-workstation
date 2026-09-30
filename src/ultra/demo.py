@@ -102,18 +102,114 @@ CONTEXT = {
 }
 
 
+DEMO_TASKS: list[dict[str, Any]] = [
+    {
+        "id": "55555555-5555-4555-8555-555555555551",
+        "summary": "Send Ben the handover plan",
+        "status": "TODO",
+        "priority": "CRITICAL",
+        "assigned_to": "adal",
+    },
+    {
+        "id": "55555555-5555-4555-8555-555555555552",
+        "summary": "Confirm the budget alert covers the new account",
+        "status": "IN_PROGRESS",
+        "priority": "HIGH",
+        "assigned_to": "adal",
+    },
+    {
+        "id": "55555555-5555-4555-8555-555555555553",
+        "summary": "Waiting on security review",
+        "status": "BLOCKED",
+        "priority": "MEDIUM",
+        "assigned_to": "adal",
+    },
+    {
+        "id": "55555555-5555-4555-8555-555555555554",
+        "summary": "Tidy lab storage notes",
+        "status": "TODO",
+        "priority": "LOW",
+        "assigned_to": "adal",
+    },
+]
+
+
 def register(api: Api) -> None:
+    import tempfile
+    from pathlib import Path
+
+    from ultra.store import Store
+    from ultra.tasks import slack_done, slack_undone, slack_visible, snooze_task, task_rows
+
+    tstore = Store(Path(tempfile.mkdtemp(prefix="ultra-demo-tasks-")) / "t.db")
+    tasks = {t["id"]: dict(t) for t in DEMO_TASKS}
+
+    def items() -> list[dict[str, Any]]:
+        rows = [s for s in STREAM if s["source"] != "slack" or slack_visible(tstore, s)]
+        return rows + task_rows(list(tasks.values()), tstore)
+
     def stream(q: dict, body: Any, m: re.Match[str]) -> dict:
         from ultra.live import FILTERS
 
         f = (q.get("filter") or ["mine"])[0]
         keep = FILTERS.get(f, FILTERS["mine"])
-        counts = {k: sum(1 for s in STREAM if fn(s)) for k, fn in FILTERS.items()}
-        return {"items": [s for s in STREAM if keep(s)], "counts": counts, "demo": True}
+        rows = items()
+        counts = {k: sum(1 for s in rows if fn(s)) for k, fn in FILTERS.items()}
+        return {"items": [s for s in rows if keep(s)], "counts": counts, "demo": True}
 
     def thread(q: dict, body: Any, m: re.Match[str]) -> dict:
         key = m.group(1)
+        if key.startswith("t-"):
+            t = tasks.get(key[2:])
+            if not t:
+                return {"key": key, "task": None, "error": "not found", "messages": []}
+            return {
+                "key": key,
+                "messages": [],
+                "task": {**t, "due_date": "", "details": {}, "snoozed_until": None},
+                "links": [
+                    {
+                        "id": DEMO_IDS["ben@example.org"],
+                        "name": "Ben Carter (bcarter)",
+                        "type": "Researcher",
+                        "edge": "REFERENCED_IN",
+                    }
+                ],
+            }
         return {"key": key, "messages": THREADS.get(key, [])}
+
+    def task_action(q: dict, body: Any, m: re.Match[str]) -> dict:
+        b = body or {}
+        t = tasks.get(str(b.get("id", "")))
+        if not t:
+            from ultra.server import ApiError
+
+            raise ApiError(404, "task not found")
+        a = b.get("action")
+        st = {"complete": "DONE", "start": "IN_PROGRESS", "block": "BLOCKED", "reopen": "TODO"}.get(
+            str(a)
+        )
+        if st:
+            t["status"] = st
+        elif a == "priority":
+            t["priority"] = str(b.get("priority"))
+        elif a == "snooze":
+            return {"ok": True, "until": snooze_task(tstore, t["id"], int(b.get("days", 1)))}
+        return {"ok": True}
+
+    def sdone(q: dict, body: Any, m: re.Match[str]) -> dict:
+        key = str((body or {}).get("key", ""))
+        row = next((s for s in STREAM if s["key"] == key), {})
+        slack_done(tstore, key, int(row.get("ts_ms") or 10**13))
+        return {"ok": True}
+
+    def sundone(q: dict, body: Any, m: re.Match[str]) -> dict:
+        slack_undone(tstore, str((body or {}).get("key", "")))
+        return {"ok": True}
+
+    api.add("POST", r"/api/task/action", task_action)
+    api.add("POST", r"/api/slack/done", sdone)
+    api.add("POST", r"/api/slack/undone", sundone)
 
     def context(q: dict, body: Any, m: re.Match[str]) -> dict:
         return CONTEXT.get(m.group(1), {"unresolved": True})

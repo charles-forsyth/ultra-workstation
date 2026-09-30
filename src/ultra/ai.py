@@ -53,6 +53,8 @@ class AI:
         self.model = str(cfg.get("ai", "model", "") or "gemini-3.8-flash")
         self.fallback = str(cfg.get("ai", "fallback_model", "") or "")
         self.enabled = cfg.get("ai", "provider", "gemini") != "none" and bool(self.key)
+        # an internal ticket-key prefix the briefing must never repeat (private config)
+        self.hide_prefix = str(cfg.get("ai", "hide_ticket_prefix", "") or "")
         self._client: Any = None
         self._lock = threading.Lock()
         self.state: dict[str, Any] = {"ok": None, "error": "", "tokens": 0}
@@ -274,7 +276,13 @@ class AI:
             "## Suggested next steps\n(1-4 bullets for the operator)\n"
             "Cite every factual bullet: [L:abcd1234] (first 8 characters of a ledger "
             "interaction id), [T:abcd1234] (a ledger task) or [M3] (message 3 of this "
-            "conversation). Never write ticket keys that start with RESCMP. Use only facts in "
+            "conversation). "
+            + (
+                f"Never write ticket keys that start with {self.hide_prefix}. "
+                if self.hide_prefix
+                else ""
+            )
+            + "Use only facts in "
             "the data; if something is unclear, say so. Skip ledger entries unrelated to "
             "this conversation. Names are as written in the data."
         )

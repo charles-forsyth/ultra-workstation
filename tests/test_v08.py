@@ -418,7 +418,7 @@ def test_briefing_prompt_requires_citations_and_no_internal_keys():
     from ultra.ai import AI
 
     seen: dict[str, Any] = {}
-    ai = AI(Config({}))
+    ai = AI(Config({"ai": {"hide_ticket_prefix": "INT-"}}))
     ai._gen = lambda p, s, m=0, **kw: (
         seen.update(p=p, s=s, kw=kw)
         or type(  # type: ignore[method-assign]
@@ -426,7 +426,7 @@ def test_briefing_prompt_requires_citations_and_no_internal_keys():
         )()
     )
     ai.briefing("data", "Ada")
-    assert "[L:abcd1234]" in seen["s"] and "[M3]" in seen["s"] and "RESCMP" in seen["s"]
+    assert "[L:abcd1234]" in seen["s"] and "[M3]" in seen["s"] and "start with INT-" in seen["s"]
     assert seen["p"].startswith("<mail>") and seen["kw"]["require_complete"] is True
 
 

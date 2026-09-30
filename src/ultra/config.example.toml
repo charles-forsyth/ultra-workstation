@@ -63,6 +63,7 @@ done_signal_patterns = ['\bis ready\b', '\bcompleted\b', '\ball set\b', '\bdone\
 provider = "gemini"                    # or "none"
 model = ""
 fallback_model = ""
+hide_ticket_prefix = ""                 # e.g. "INT-": the briefing never repeats these keys
 
 [audio]
 tts_model = ""

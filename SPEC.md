@@ -1399,6 +1399,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.27a | App v0.10.1: Google API clients are cached per thread. The shared client's HTTP transport (httplib2) is not thread-safe; concurrent requests (for example People and Full for one item) could fail with TLS "record layer" or "NoneType has no attribute close" errors. Found by the live check of meeting prep. |
 | 2026-09-30 | 0.27 | App v0.10.0 (section 7.4): week view, RSVP, meetings with guests through two approvals, meeting prep from item context, meeting log card, weekly repeating blocks. Built before the remaining email items (mail search, labels, attachments, send-as, highlights), which follow as v0.11; the delivery table is renumbered. Ultra-sent meetings are excluded from block moves and deletes. |
 | 2026-09-30 | 0.26 | App v0.9.9 (sections 9.7, 9.8): composer AI through Draft Studio with a check on every AI version, check stored per version and shown in composer and review, before/after comparison, deterministic Tidy, learning from edits into style rules; Python 3.13 address-parsing fix for reply-all. |
 | 2026-09-30 | 0.25 | App v0.9.8: ticket replies carry and enforce the Ref:MSG line (section 9.6): chosen from the newest desk notice, added to AI text, lint error with one-click fix for operator edits, shown on review; only for replies that go to the desk. |

@@ -571,3 +571,38 @@ def test_pending_skips_ended_invitations_and_counts_each_once(cal, monkeypatch):
     w = cal.week("2026-09-30")
     assert [e["id"] for e in w["pending"]] == ["later"]
     assert sum(1 for d in w["days"].values() for e in d if e["id"] == "later") == 2
+
+
+def test_google_clients_are_not_shared_between_threads(monkeypatch):
+    """httplib2 is not thread-safe; a client shared by two threads corrupts TLS."""
+    import threading
+
+    from ultra import google_auth
+
+    class Creds:
+        valid = True
+
+    built: list[int] = []
+    monkeypatch.setattr(google_auth, "credentials", lambda cfg, cap: Creds())
+    monkeypatch.setattr(google_auth, "_services", {})
+
+    def fake_build(api: str, version: str, credentials: Any, cache_discovery: bool) -> Any:
+        built.append(threading.get_ident())
+        return type("Svc", (), {})()
+
+    disc = pytest.importorskip("googleapiclient.discovery")
+    monkeypatch.setattr(disc, "build", fake_build)
+    got: dict[str, Any] = {}
+
+    def grab(name: str) -> None:
+        got[name] = google_auth.service(Config({}), "calendar", "v3", "calendar")
+        got[name + "2"] = google_auth.service(Config({}), "calendar", "v3", "calendar")
+
+    ths = [threading.Thread(target=grab, args=(n,)) for n in ("a", "b")]
+    for th in ths:
+        th.start()
+    for th in ths:
+        th.join()
+    assert got["a"] is got["a2"] and got["b"] is got["b2"]  # reused within a thread
+    assert got["a"] is not got["b"]  # never shared across threads
+    assert len(built) == 2

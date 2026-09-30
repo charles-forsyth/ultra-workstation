@@ -42,7 +42,7 @@ SATISFIES = {
 }
 
 _lock = threading.Lock()
-_services: dict[tuple[str, str], Any] = {}
+_services: dict[tuple[str, str, int], Any] = {}
 
 
 class AuthNeeded(Exception):
@@ -98,10 +98,16 @@ def _save(path, text: str) -> None:
 
 
 def service(cfg: Config, api: str, version: str, capability: str):
-    """A cached API client for (api, capability); rebuilt when creds expire."""
+    """A cached API client for (api, capability) PER THREAD; rebuilt when creds expire.
+
+    The client's HTTP transport (httplib2) is not thread-safe: two threads sharing one
+    client interleave on the same TLS connection and fail with SSL "record layer" or
+    "NoneType has no attribute close" errors. Background jobs (item context, gather,
+    refresh) and page requests run on different threads, so each thread gets its own
+    client. Building one is about a millisecond (no discovery fetch)."""
     from googleapiclient.discovery import build
 
-    key = (api, capability)
+    key = (api, capability, threading.get_ident())
     with _lock:
         svc = _services.get(key)
         creds = getattr(svc, "_ultra_creds", None) if svc else None
@@ -111,6 +117,9 @@ def service(cfg: Config, api: str, version: str, capability: str):
         svc = build(api, version, credentials=creds, cache_discovery=False)
         svc._ultra_creds = creds
         _services[key] = svc
+        if len(_services) > 400:  # threads come and go in pools; drop the oldest
+            for k in list(_services)[:200]:
+                _services.pop(k, None)
         return svc
 
 

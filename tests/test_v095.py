@@ -579,3 +579,22 @@ def test_precedents_exclude_this_thread_and_mail_not_sent_by_me(tmp_path):
     st = _studio(tmp_path, lambda q, n: rows if "in:sent" in q else [], ai=NoAI())
     ids = [p["id"] for p in st.gather(KEY)["precedents"]]
     assert ids == ["ok"]
+
+
+def test_house_facts_are_never_served_from_the_gather_cache(tmp_path):
+    st = _studio(tmp_path)
+    g1 = st.gather(KEY)
+    gem = next(f for f in g1["facts"] if f["text"].startswith("Gemini"))
+    st.facts.update(gem["id"], enabled=False)
+    new = st.facts.add("Credits means the central program.", "", "test")
+    g2 = st.gather(KEY)
+    assert g2.get("cached") is True
+    texts = [f["text"] for f in g2["facts"]]
+    assert "Gemini is supported through a lab project." not in texts
+    assert "Credits means the central program." in texts
+    import sqlite3
+
+    with sqlite3.connect(tmp_path / "s.db") as c:
+        raw = c.execute("SELECT value FROM kv_cache WHERE key LIKE 'studio:gather:%'").fetchall()
+    assert raw and all('"facts":' not in r[0] for r in raw)
+    st.facts.delete(new["id"])

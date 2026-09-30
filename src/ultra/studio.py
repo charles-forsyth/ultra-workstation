@@ -220,7 +220,13 @@ class Studio:
             if hit:
                 for s in STAGES[:-1]:
                     stage(s, "done")
-                return {**hit[0], "cached": True}
+                # House facts are never cached: a fact the operator turns off or deletes
+                # must drop out of the very next brief.
+                return {
+                    **hit[0],
+                    "facts": self.facts.relevant(hit[0].get("facts_text", "")),
+                    "cached": True,
+                }
         stage("thread", "done")
         people = self._participants(msgs)
         subject = next((m.get("subject") for m in msgs if m.get("subject")), "")
@@ -283,15 +289,13 @@ class Studio:
             "notes": val(notes) or [],
             "policy": src.get("passages", []),
             "policy_failed": src.get("failed", []),
-            "facts": self.facts.relevant(
-                item_text + "\n" + "\n".join(m.get("body", "") for m in msgs[-3:])
-            ),
+            "facts_text": item_text + "\n" + "\n".join(m.get("body", "") for m in msgs[-3:]),
             "ledger": val(led) or "",
             "failures": failures,
             "gathered_at": time.time(),
         }
-        self.store.cache_put(ck, out)
-        return out
+        self.store.cache_put(ck, out)  # without facts (see above)
+        return {**out, "facts": self.facts.relevant(out["facts_text"])}
 
     def _participants(self, msgs: list[dict[str, Any]]) -> list[dict[str, str]]:
         seen: dict[str, dict[str, str]] = {}

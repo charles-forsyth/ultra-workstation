@@ -1,12 +1,19 @@
-"""Calendar adapter (SPEC 7.4, 8.2): Today view, focus blocks, free/busy, meeting prep.
+"""Calendar adapter (SPEC 7.4, 7.7, 8.2): Today and Week views, focus blocks,
+free/busy, meeting prep, invitations and replies.
 
-Reads the operator's calendars for a day. Writes are narrow:
+Reads the operator's calendars. Writes are narrow:
 - Create a block: summary, start, end, description, color, visibility, no attendees.
   Every block Ultra creates carries the private extended property `ultra=1`.
 - Move, resize or delete only events that carry `ultra=1` and are organised by the
   operator. Other events (meetings, invites, anything made elsewhere) are read-only,
   enforced here on the server, not only in the page.
-- After every write, re-read the event and check start, end and visibility.
+- Recurring focus blocks: a weekly series of blocks, also tagged `ultra=1`.
+- Meetings with invitees (v0.10): created only through the two-approval invite flow
+  in ``invites.py``; they carry `ultra=1` and `ultra_kind=meeting`. Guests are emailed
+  by Google when the invite is created (sendUpdates=all).
+- RSVP: the operator's own response on an invitation (accepted, tentative, declined),
+  after a confirmation; nothing else on someone else's event changes.
+- After every write, re-read the event and check what was asked.
 
 Times cross the API as RFC3339 with offsets; the page works in the operator's
 configured timezone.
@@ -41,6 +48,11 @@ COLORS = {  # Google Calendar event colour ids
     "tomato": "11",
 }
 MAX_BLOCK_MIN = 8 * 60
+MAX_MEETING_MIN = 8 * 60
+MAX_GUESTS = 40
+MAX_REPEAT_WEEKS = 26
+RESPONSES = ("accepted", "tentative", "declined")
+WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
 MAX_DESC = 7800
 CACHE_TTL = 120
 
@@ -68,9 +80,18 @@ def _meet_link(e: dict[str, Any]) -> str:
     return m.group(0) if m else ""
 
 
-def is_ultra_block(e: dict[str, Any]) -> bool:
+def has_ultra_tag(e: dict[str, Any]) -> bool:
     priv = ((e.get("extendedProperties") or {}).get("private")) or {}
     return priv.get(TAG_KEY) == TAG_VAL and bool((e.get("organizer") or {}).get("self", True))
+
+
+def is_ultra_block(e: dict[str, Any]) -> bool:
+    """A block Ultra may move or delete: tagged, organised by the operator, and with
+    nobody else on it. A meeting Ultra sent (it has guests) is NOT a block: changing it
+    would need to notify people, so it is read-only here like any other meeting."""
+    priv = ((e.get("extendedProperties") or {}).get("private")) or {}
+    others = [a for a in e.get("attendees") or [] if not a.get("self") and not a.get("resource")]
+    return has_ultra_tag(e) and priv.get("ultra_kind") != "meeting" and not others
 
 
 def slim_event(e: dict[str, Any], cal_id: str) -> dict[str, Any]:
@@ -109,8 +130,34 @@ def slim_event(e: dict[str, Any], cal_id: str) -> dict[str, Any]:
         "location": e.get("location") or "",
         "has_description": bool(e.get("description")),
         "ultra": is_ultra_block(e),
-        "recurring": bool(e.get("recurringEventId")),
+        "ultra_kind": (((e.get("extendedProperties") or {}).get("private")) or {}).get(
+            "ultra_kind", ""
+        ),
+        "recurring": bool(e.get("recurringEventId") or e.get("recurrence")),
     }
+
+
+def _days_touched(e: dict[str, Any], tz: ZoneInfo) -> list[str]:
+    """Local dates an event covers (all-day end dates are exclusive)."""
+    s, en = e.get("start") or "", e.get("end") or ""
+    try:
+        if e.get("all_day"):
+            d0, d1 = dt.date.fromisoformat(s[:10]), dt.date.fromisoformat(en[:10])
+            d1 = max(d1, d0 + dt.timedelta(days=1))
+        else:
+            a = dt.datetime.fromisoformat(s).astimezone(tz)
+            b = dt.datetime.fromisoformat(en).astimezone(tz)
+            d0 = a.date()
+            # an event ending exactly at midnight does not touch the next day
+            d1 = (b - dt.timedelta(microseconds=1)).date() + dt.timedelta(days=1)
+            d1 = max(d1, d0 + dt.timedelta(days=1))
+    except ValueError:
+        return []
+    out: list[str] = []
+    while d0 < d1 and len(out) < 60:
+        out.append(d0.isoformat())
+        d0 += dt.timedelta(days=1)
+    return out
 
 
 def free_windows(
@@ -180,6 +227,69 @@ class Calendar:
             hit = self.store.cache_get(key, CACHE_TTL)
             if hit:
                 return {**hit[0], "age": hit[1]}
+        events = self._list(start, end)
+        events.sort(key=lambda x: (not x["all_day"], x["start"]))
+        out = {
+            "day": day,
+            "tz": self.cfg.timezone,
+            "events": events,
+            "work_hours": list(self.work_hours),
+        }
+        self.store.cache_put(key, out)
+        return {**out, "age": 0.0}
+
+    def week(self, day: str, fresh: bool = False) -> dict[str, Any]:
+        """Monday-to-Sunday week containing ``day``: one read, events grouped by day.
+        An event spanning days appears on each day it touches."""
+        try:
+            d = dt.date.fromisoformat(day)
+        except ValueError as err:
+            raise CalendarError("day must be YYYY-MM-DD") from err
+        monday = d - dt.timedelta(days=d.weekday())
+        key = f"cal:week:{monday.isoformat()}"
+        if not fresh:
+            hit = self.store.cache_get(key, CACHE_TTL)
+            if hit:
+                return {**hit[0], "pending": self._pending(hit[0]), "age": hit[1]}
+        start = dt.datetime.combine(monday, dt.time(0), self.tz)
+        end = start + dt.timedelta(days=7)
+        events = self._list(start, end)
+        days: dict[str, list[dict[str, Any]]] = {
+            (monday + dt.timedelta(days=i)).isoformat(): [] for i in range(7)
+        }
+        for ev in events:
+            for dd in _days_touched(ev, self.tz):
+                if dd in days:
+                    days[dd].append(ev)
+        for v in days.values():
+            v.sort(key=lambda x: (not x["all_day"], x["start"]))
+        out = {
+            "week_start": monday.isoformat(),
+            "tz": self.cfg.timezone,
+            "days": days,
+            "work_hours": list(self.work_hours),
+        }  # "pending" is computed on every call (not cached) so ended ones drop out
+        self.store.cache_put(key, out)
+        return {**out, "pending": self._pending(out), "age": 0.0}
+
+    def _pending(self, week: dict[str, Any]) -> list[dict[str, Any]]:
+        """Invitations still waiting for the operator's answer that have not ended yet,
+        soonest first, each once (multi-day events appear on several days)."""
+        now = dt.datetime.now(self.tz)
+        seen: dict[str, dict[str, Any]] = {}
+        for evs in week.get("days", {}).values():
+            for e in evs:
+                if e["my_response"] != "needsAction" or e["organizer_self"] or e["all_day"]:
+                    continue
+                try:
+                    end = dt.datetime.fromisoformat(e["end"])
+                except ValueError:
+                    continue
+                if end > now:
+                    seen.setdefault(e["id"], e)
+        return sorted(seen.values(), key=lambda x: x["start"])
+
+    def _list(self, start: dt.datetime, end: dt.datetime) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
         try:
             svc = self._svc()
@@ -213,15 +323,7 @@ class Calendar:
         except Exception as e:
             self.state = {"ok": False, "error": str(e)[:300]}
             raise CalendarError(f"Calendar read failed: {e}") from e
-        events.sort(key=lambda x: (not x["all_day"], x["start"]))
-        out = {
-            "day": day,
-            "tz": self.cfg.timezone,
-            "events": events,
-            "work_hours": list(self.work_hours),
-        }
-        self.store.cache_put(key, out)
-        return {**out, "age": 0.0}
+        return events
 
     def event(self, cal: str, eid: str) -> dict[str, Any]:
         e = self._svc().events().get(calendarId=cal, eventId=eid).execute()
@@ -276,6 +378,31 @@ class Calendar:
             "checked": emails,
         }
 
+    def busy_for(self, emails: list[str], start: dt.datetime, end: dt.datetime) -> dict[str, Any]:
+        """Which of these people are busy at [start, end) (free/busy; no event details).
+        Calendars Google won't show (outside the org, private) come back as unknown."""
+        emails = [x.strip().lower() for x in emails if x and "@" in x][:MAX_GUESTS]
+        r = (
+            self._svc()
+            .freebusy()
+            .query(
+                body={
+                    "timeMin": start.isoformat(),
+                    "timeMax": end.isoformat(),
+                    "items": [{"id": "primary"}] + [{"id": x} for x in emails],
+                    "timeZone": self.cfg.timezone,
+                }
+            )
+            .execute()
+        )
+        busy, unknown = [], []
+        for cid, c in (r.get("calendars") or {}).items():
+            if c.get("errors"):
+                unknown.append(cid)
+            elif c.get("busy"):
+                busy.append("you" if cid == "primary" else cid)
+        return {"busy": sorted(busy), "unknown": sorted(unknown)}
+
     # ------------------------------------------------------------ writes
     def _check_block(self, summary: str, start: dt.datetime, end: dt.datetime) -> None:
         if not summary.strip():
@@ -312,6 +439,170 @@ class Calendar:
         with self.lock:
             e = self._svc().events().insert(calendarId=cal, body=body).execute()
         return self._verify(cal, e["id"], start, end, visibility)
+
+    def create_recurring_block(
+        self,
+        summary: str,
+        start: dt.datetime,
+        end: dt.datetime,
+        weekdays: list[str],
+        weeks: int,
+        description: str = "",
+        personal: bool = False,
+        color: str = "",
+    ) -> dict[str, Any]:
+        """A weekly series of Ultra blocks (RRULE, with an end so it never runs on
+        forever). Same tag and rules as a single block; no attendees."""
+        self._check_block(summary, start, end)
+        days = [d for d in WEEKDAYS if d in {x.upper() for x in weekdays}]
+        if not days:
+            raise CalendarError("Pick at least one weekday.")
+        if not 1 <= weeks <= MAX_REPEAT_WEEKS:
+            raise CalendarError(f"Repeat for 1 to {MAX_REPEAT_WEEKS} weeks.")
+        until = (start + dt.timedelta(weeks=weeks)).astimezone(dt.UTC)
+        rule = f"RRULE:FREQ=WEEKLY;BYDAY={','.join(days)};UNTIL={until.strftime('%Y%m%dT%H%M%SZ')}"
+        visibility = self.personal_visibility if personal else "default"
+        cname = (color or self.work_color).lower()
+        body: dict[str, Any] = {
+            "summary": summary.strip()[:200],
+            "start": {"dateTime": start.isoformat(), "timeZone": self.cfg.timezone},
+            "end": {"dateTime": end.isoformat(), "timeZone": self.cfg.timezone},
+            "recurrence": [rule],
+            "description": description[:MAX_DESC],
+            "visibility": visibility,
+            "extendedProperties": {"private": {TAG_KEY: TAG_VAL, "ultra_kind": "series"}},
+            "reminders": {"useDefault": True},
+        }
+        if cname in COLORS:
+            body["colorId"] = COLORS[cname]
+        cal = self.calendars[0]
+        with self.lock:
+            e = self._svc().events().insert(calendarId=cal, body=body).execute()
+        got = self._svc().events().get(calendarId=cal, eventId=e["id"]).execute()
+        problems = []
+        if (got.get("recurrence") or [None])[0] != rule:
+            problems.append("repeat rule differs")
+        if not is_ultra_block(got):
+            problems.append("ultra tag missing")
+        if got.get("attendees"):
+            problems.append("has attendees")
+        self.invalidate()
+        return {
+            "ok": not problems,
+            "problems": problems,
+            "event": slim_event(got, cal),
+            "rule": rule,
+        }
+
+    def delete_series(self, cal: str, eid: str) -> dict[str, Any]:
+        """Delete a whole Ultra block series (from any one of its occurrences)."""
+        e = self._owned(cal, eid)
+        master = e.get("recurringEventId") or eid
+        m = self._owned(cal, master)
+        if not m.get("recurrence"):
+            raise CalendarError("That block is not a series.")
+        return self.delete_block(cal, master)
+
+    def rsvp(self, cal: str, eid: str, response: str, note: str = "") -> dict[str, Any]:
+        """Set the operator's own response on an invitation. Only the operator's
+        attendee entry changes; the organizer is told by Google (sendUpdates=all)."""
+        if response not in RESPONSES:
+            raise CalendarError("Response must be accepted, tentative or declined.")
+        e = self._svc().events().get(calendarId=cal, eventId=eid).execute()
+        if (e.get("organizer") or {}).get("self"):
+            raise CalendarError("You organise this event; there is nothing to answer.")
+        atts = e.get("attendees") or []
+        mine = [a for a in atts if a.get("self")]
+        if not mine:
+            raise CalendarError("You are not on the guest list of this event.")
+        new_atts = []
+        for a in atts:
+            b = dict(a)
+            if a.get("self"):
+                b["responseStatus"] = response
+                if note.strip():
+                    b["comment"] = note.strip()[:500]
+            new_atts.append(b)
+        with self.lock:
+            self._svc().events().patch(
+                calendarId=cal, eventId=eid, body={"attendees": new_atts}, sendUpdates="all"
+            ).execute()
+        got = self._svc().events().get(calendarId=cal, eventId=eid).execute()
+        me: dict[str, Any] = next((a for a in got.get("attendees") or [] if a.get("self")), {})
+        others_before = {a.get("email"): a.get("responseStatus") for a in atts if not a.get("self")}
+        others_after = {
+            a.get("email"): a.get("responseStatus")
+            for a in got.get("attendees") or []
+            if not a.get("self")
+        }
+        problems = []
+        if me.get("responseStatus") != response:
+            problems.append("your response did not take")
+        if others_before != others_after:
+            problems.append("other guests changed")  # should never happen; reported, not hidden
+        self.invalidate()
+        return {"ok": not problems, "problems": problems, "event": slim_event(got, cal)}
+
+    def create_meeting(
+        self,
+        summary: str,
+        start: dt.datetime,
+        end: dt.datetime,
+        guests: list[str],
+        description: str = "",
+        video: bool = True,
+        location: str = "",
+    ) -> dict[str, Any]:
+        """Insert a meeting with guests. Only called from the two-approval invite flow;
+        Google emails the guests. Re-read afterwards: time, guests, tag."""
+        if not summary.strip():
+            raise CalendarError("A meeting needs a title.")
+        mins = (end - start).total_seconds() / 60
+        if mins < 5 or mins > MAX_MEETING_MIN:
+            raise CalendarError("A meeting must be between 5 minutes and 8 hours.")
+        guests = sorted({g.strip().lower() for g in guests if g and "@" in g})
+        if not guests or len(guests) > MAX_GUESTS:
+            raise CalendarError(f"Invite between 1 and {MAX_GUESTS} people.")
+        body: dict[str, Any] = {
+            "summary": summary.strip()[:200],
+            "start": {"dateTime": start.isoformat(), "timeZone": self.cfg.timezone},
+            "end": {"dateTime": end.isoformat(), "timeZone": self.cfg.timezone},
+            "description": description[:MAX_DESC],
+            "location": location[:500],
+            "attendees": [{"email": g} for g in guests],
+            "extendedProperties": {"private": {TAG_KEY: TAG_VAL, "ultra_kind": "meeting"}},
+            "reminders": {"useDefault": True},
+            "guestsCanModify": False,
+        }
+        kw: dict[str, Any] = {"sendUpdates": "all"}
+        if video:
+            import secrets
+
+            body["conferenceData"] = {
+                "createRequest": {
+                    "requestId": secrets.token_hex(8),
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"},
+                }
+            }
+            kw["conferenceDataVersion"] = 1
+        cal = self.calendars[0]
+        with self.lock:
+            e = self._svc().events().insert(calendarId=cal, body=body, **kw).execute()
+        got = self._svc().events().get(calendarId=cal, eventId=e["id"]).execute()
+        problems = []
+        gs = dt.datetime.fromisoformat(got["start"]["dateTime"])
+        ge = dt.datetime.fromisoformat(got["end"]["dateTime"])
+        if gs != start or ge != end:
+            problems.append("time differs from what was approved")
+        have = sorted(
+            a.get("email", "").lower() for a in got.get("attendees") or [] if not a.get("self")
+        )
+        if have != guests:
+            problems.append("guest list differs from what was approved")
+        if not has_ultra_tag(got):
+            problems.append("ultra tag missing")
+        self.invalidate()
+        return {"ok": not problems, "problems": problems, "event": slim_event(got, cal)}
 
     def _owned(self, cal: str, eid: str) -> dict[str, Any]:
         e = self._svc().events().get(calendarId=cal, eventId=eid).execute()
@@ -367,3 +658,4 @@ class Calendar:
 
     def invalidate(self, when: dt.datetime | None = None) -> None:
         self.store.cache_del_prefix("cal:day:")
+        self.store.cache_del_prefix("cal:week:")

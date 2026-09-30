@@ -447,6 +447,18 @@ class DemoCalendar:
             ),
             ("Focus: budget alert check", at(15), at(15, 30), True, [], "", "Made by Ultra."),
             (
+                "Lab storage roadmap",
+                at(14, 0, 1),
+                at(14, 30, 1),
+                False,
+                [
+                    ("ben@example.org", "Ben Carter", "accepted"),
+                    ("ada@example.org", "Ada Lovelace", "needsAction"),
+                ],
+                "https://meet.example.org/xyz",
+                "Please review the quota table before we meet.",
+            ),
+            (
                 "Vendor review",
                 at(11, 0, 1),
                 at(12, 0, 1),
@@ -471,7 +483,7 @@ class DemoCalendar:
                 "type": "default",
                 "organizer_self": mine,
                 "organizer": "ada@example.org" if mine else "ben@example.org",
-                "my_response": "accepted",
+                "my_response": next((r for a, _n, r in att if a == "ada@example.org"), "accepted"),
                 "attendees": [
                     {
                         "email": a,
@@ -522,6 +534,175 @@ class DemoCalendar:
         if eid not in self.events:
             raise CalendarError("not found")
         return dict(self.events[eid])
+
+    def week(self, day: str, fresh: bool = False) -> dict[str, Any]:
+        import datetime as dt
+
+        d = dt.date.fromisoformat(day)
+        monday = d - dt.timedelta(days=d.weekday())
+        days: dict[str, list[dict[str, Any]]] = {
+            (monday + dt.timedelta(days=i)).isoformat(): [] for i in range(7)
+        }
+        slim = [{k: v for k, v in e.items() if k != "description"} for e in self.events.values()]
+        for e in sorted(slim, key=lambda x: x["start"]):
+            if e["start"][:10] in days:
+                days[e["start"][:10]].append(e)
+        return {
+            "week_start": monday.isoformat(),
+            "tz": "America/New_York",
+            "days": days,
+            "work_hours": ["08:00", "17:00"],
+            "pending": [
+                e
+                for e in slim
+                if e["my_response"] == "needsAction"
+                and not e["organizer_self"]
+                and dt.datetime.fromisoformat(e["end"]) > dt.datetime.now(self.tz)
+            ],
+            "age": 0.0,
+        }
+
+    def rsvp(self, cal: str, eid: str, response: str, note: str = "") -> dict[str, Any]:
+        from ultra.calendar import RESPONSES, CalendarError
+
+        e = self.events.get(eid)
+        if not e or response not in RESPONSES:
+            raise CalendarError("bad event or response")
+        if e["organizer_self"]:
+            raise CalendarError("You organise this event; there is nothing to answer.")
+        for a in e["attendees"]:
+            if a["self"]:
+                a["response"] = response
+        e["my_response"] = response
+        return {"ok": True, "problems": [], "event": dict(e)}
+
+    def busy_for(self, emails: list[str], start: Any, end: Any) -> dict[str, Any]:
+        import datetime as dt
+
+        me_busy = any(
+            dt.datetime.fromisoformat(e["start"]) < end
+            and dt.datetime.fromisoformat(e["end"]) > start
+            for e in self.events.values()
+            if e["my_response"] != "declined"
+        )
+        return {
+            "busy": (["you"] if me_busy else []) + [x for x in emails if x.startswith("ben@")],
+            "unknown": [x for x in emails if not x.endswith("@example.org")],
+        }
+
+    def create_meeting(
+        self,
+        summary: str,
+        start: Any,
+        end: Any,
+        guests: list[str],
+        description: str = "",
+        video: bool = True,
+        location: str = "",
+    ) -> dict[str, Any]:
+        self.n += 1
+        eid = f"demo{self.n:04d}"
+        self.events[eid] = {
+            **self._base(eid, summary, start, end, description),
+            "attendees": [
+                {
+                    "email": g,
+                    "name": "",
+                    "response": "needsAction",
+                    "self": False,
+                    "organizer": False,
+                    "resource": False,
+                }
+                for g in guests
+            ],
+            "attendee_count": len(guests),
+            "link": "https://meet.example.org/new" if video else "",
+            "location": location,
+            "ultra_kind": "meeting",
+            "ultra": False,  # has guests: read-only, like the live adapter
+        }
+        self.sent_invites = [*getattr(self, "sent_invites", []), eid]
+        return {"ok": True, "problems": [], "event": dict(self.events[eid])}
+
+    def create_recurring_block(
+        self,
+        summary: str,
+        start: Any,
+        end: Any,
+        weekdays: list[str],
+        weeks: int,
+        description: str = "",
+        personal: bool = False,
+        color: str = "",
+    ) -> dict[str, Any]:
+        import datetime as dt
+
+        from ultra.calendar import MAX_REPEAT_WEEKS, WEEKDAYS, CalendarError
+
+        self._check(summary, start, end)
+        days = [d for d in WEEKDAYS if d in weekdays]
+        if not days or not 1 <= weeks <= MAX_REPEAT_WEEKS:
+            raise CalendarError("Pick weekdays and 1 to 26 weeks.")
+        self.n += 1
+        master = f"demo{self.n:04d}"
+        made = 0
+        for w in range(weeks):
+            for i in range(7):
+                day = start + dt.timedelta(days=7 * w + i)
+                if WEEKDAYS[day.weekday()] in days:
+                    self.n += 1
+                    eid = f"{master}_{self.n}"
+                    self.events[eid] = {
+                        **self._base(eid, summary, day, end + (day - start), description),
+                        "recurring": True,
+                        "series": master,
+                        "ultra_kind": "series",
+                    }
+                    made += 1
+        return {
+            "ok": True,
+            "problems": [],
+            "rule": f"weekly {','.join(days)} x{weeks}",
+            "event": {"id": master, "summary": summary, "count": made},
+        }
+
+    def delete_series(self, cal: str, eid: str) -> dict[str, Any]:
+        from ultra.calendar import CalendarError
+
+        e = self._owned(eid)
+        master = e.get("series")
+        if not master:
+            raise CalendarError("That block is not a series.")
+        for k in [k for k, v in self.events.items() if v.get("series") == master]:
+            del self.events[k]
+        return {"ok": True, "deleted": master}
+
+    def _base(self, eid: str, summary: str, start: Any, end: Any, description: str) -> dict:
+        return {
+            "id": eid,
+            "cal": "primary",
+            "summary": summary.strip(),
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "all_day": False,
+            "visibility": "default",
+            "color": "11",
+            "status": "confirmed",
+            "type": "default",
+            "organizer_self": True,
+            "organizer": "ada@example.org",
+            "my_response": "",
+            "attendees": [],
+            "attendee_count": 0,
+            "link": "",
+            "html_link": "",
+            "location": "",
+            "has_description": bool(description),
+            "ultra": True,
+            "recurring": False,
+            "description": description,
+            "ultra_kind": "",
+        }
 
     def _check(self, summary: str, start: Any, end: Any) -> None:
         from ultra.calendar import MAX_BLOCK_MIN, CalendarError
@@ -639,11 +820,18 @@ def _register_today(api: Api) -> None:
             "url": "",
         }
 
-    Today(cal, info, Rules(me={"ada@example.org"})).register(api)
-
-    import datetime as dt
     import tempfile
     from pathlib import Path
+
+    from ultra.store import Store as _Store
+
+    inv_store = _Store(Path(tempfile.mkdtemp(prefix="ultra-demo-inv-")) / "inv.db")
+    cal.store = inv_store  # type: ignore[attr-defined]
+    Today(
+        cal, info, Rules(me={"ada@example.org"}), inv_store, "example.org", {"ada@example.org"}
+    ).register(api)
+
+    import datetime as dt
     from zoneinfo import ZoneInfo
 
     from ultra.day import Day
@@ -1106,7 +1294,17 @@ def _register_desk(api: Api) -> None:
     rules = Rules(me={"ada@example.org"})
     ictx = ItemContext(ledger, store, rules, {"adal"})
     api.demo_ictx = ictx  # type: ignore[attr-defined]
-    ItemDesk(ictx, thread_fn, task_fn, writer, DemoAI(), store, "Ada").register(api)
+    ItemDesk(
+        ictx,
+        thread_fn,
+        task_fn,
+        writer,
+        DemoAI(),
+        store,
+        "Ada",
+        # late-bound: the demo calendar is registered after the desk
+        event_fn=lambda cal, eid: api.demo_calendar.event(cal, eid),  # type: ignore[attr-defined]  # noqa: PLW0108
+    ).register(api)
     _register_studio(api, store)
 
 

@@ -1050,7 +1050,7 @@ wheels = [
 
 [[package]]
 name = "ultra-workstation"
-version = "0.9.9"
+version = "0.10.0"
 source = { editable = "." }
 
 [package.optional-dependencies]

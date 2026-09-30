@@ -86,6 +86,7 @@ class Desk:
         api.add("POST", r"/api/ledger/ai-text", self.r_ai_text)
         api.add("POST", r"/api/ledger/stage-task-log", self.r_stage_task_log)
         api.add("POST", r"/api/ledger/stage-briefing", self.r_stage_briefing)
+        api.add("POST", r"/api/ledger/stage-meeting", self.r_stage_meeting)
         api.add("POST", r"/api/ledger/commit", self.r_commit)
         api.add("GET", r"/api/ledger/commit/([A-Za-z0-9_-]+)", self.r_commit_status)
         api.add("POST", r"/api/ledger/link", self.r_link)
@@ -303,6 +304,52 @@ class Desk:
             ]
         card = self.stager.stage("log", items)
         card["text"] = text
+        self.stager.annotate(card["id"], from_bucket=False)
+        card["from_bucket"] = False
+        card["ledger"] = self.ledger.enabled
+        return card
+
+    def r_stage_meeting(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """A log card for a calendar meeting: the guests (who resolve in the ledger) as
+        chips, the meeting time as the log date, and a text scaffold with the invite
+        title and optional notes. Same one-commit card; nothing is written until the
+        operator presses Commit."""
+        b = body or {}
+        ev = b.get("event") or {}
+        if not isinstance(ev, dict) or not str(ev.get("summary", "")).strip():
+            raise _bad("meeting details required")
+        guests = [
+            a
+            for a in (ev.get("attendees") or [])[:60]
+            if isinstance(a, dict) and a.get("email") and not a.get("resource")
+        ]
+        msgs = [
+            {
+                "from": str(ev.get("organizer", "")),
+                "to": ", ".join(
+                    f"{a.get('name') or ''!s} <{a['email']!s}>".strip() for a in guests
+                ),
+                "cc": "",
+                "subject": str(ev["summary"])[:200],
+                "ts": str(ev.get("start", "")),
+                "body": "",
+                "mine": bool(ev.get("organizer_self")),
+            }
+        ]
+        item = snapshot_thread("", {"messages": msgs}, self.rules, "email")
+        item.update({"kind": "meeting", "key": "", "subject": str(ev["summary"])[:200]})
+        card = self.stager.stage("log", [item])
+        notes = ascii_fix(str(b.get("notes") or "")).strip()[:8000]
+        went = [
+            str(a.get("name") or a["email"])
+            for a in guests
+            if a.get("response") == "accepted" and not a.get("self")
+        ]
+        lines = [f"Meeting: {str(ev['summary'])[:200]}."]
+        if went:
+            lines.append("With " + ", ".join(went[:12]) + ".")
+        lines.append(notes or "Notes: ")
+        card["text"] = "\n".join(lines)
         self.stager.annotate(card["id"], from_bucket=False)
         card["from_bucket"] = False
         card["ledger"] = self.ledger.enabled

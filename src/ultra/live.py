@@ -115,12 +115,21 @@ class Live:
             self.ai,
             self.store,
             self.operator,
+            # late-bound: the calendar adapter is created below
+            event_fn=lambda cal, eid: self.calendar.event(cal, eid),  # noqa: PLW0108
         )
         self.research = Research(cfg, self.store)
         self.audio = Audio(cfg, self.store, self.ai)
         self.tools = Tools(self.research, self.ai, self.audio, self.thread_text_for, self.operator)
         self.calendar = Calendar(cfg, self.store)
-        self.today = Today(self.calendar, self.block_info, self.rules)
+        self.today = Today(
+            self.calendar,
+            self.block_info,
+            self.rules,
+            self.store,
+            str(cfg.get("ledger", "org_email_domain", "") or ""),
+            set(cfg.my_addresses),
+        )
         wh = [int(str(x).split(":")[0]) for x in self.calendar.work_hours]
         self.day = Day(
             self.store,

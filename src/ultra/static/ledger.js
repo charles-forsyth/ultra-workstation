@@ -643,6 +643,24 @@ window.addEventListener("ultra:stage-text", async (ev) => {
   renderCard();
 });
 
+// A log card for a calendar meeting (Today / Week view): guests become chips.
+window.addEventListener("ultra:stage-meeting", async (ev) => {
+  const dlg = $("#ledger-card");
+  dlg.hidden = false;
+  dlg.innerHTML = `<div class="lc-card"><div class="dim">Building the meeting log: resolving the guests...</div></div>`;
+  try {
+    CARD = await api("/api/ledger/stage-meeting", { method: "POST", body: { event: ev.detail.event, notes: ev.detail.notes || "" } });
+  } catch (e) { dlg.hidden = true; toast(e.message, "err"); return; }
+  renderCard();
+});
+
+// Everyone on a calendar invite in the People / Full tabs.
+window.addEventListener("ultra:item-context", (ev) => {
+  const d = ev.detail || {};
+  showTab("people");
+  loadPeople({ key: d.key, subject: d.subject || "", source: d.source || "calendar" });
+});
+
 export function stageAfterSend(threadKey) {
   stage("log", threadKey, true);
 }

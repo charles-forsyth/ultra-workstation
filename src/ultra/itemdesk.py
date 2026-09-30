@@ -30,7 +30,9 @@ from ultra.lint import ascii_fix
 if TYPE_CHECKING:
     from ultra.server import Api
 
-KEY_RE = re.compile(r"^(g|k|s)-[A-Za-z0-9_-]{1,80}$|^t-[0-9a-f-]{36}$")
+KEY_RE = re.compile(
+    r"^(g|k|s)-[A-Za-z0-9_-]{1,80}$|^t-[0-9a-f-]{36}$|^c-[A-Za-z0-9_.@#-]{1,200}~[A-Za-z0-9_-]{5,300}$"
+)
 TOKEN_TTL = 300
 
 
@@ -55,7 +57,9 @@ class ItemDesk:
         ai: Any,
         store: Any,
         operator: str = "",
+        event_fn: Callable[[str, str], dict[str, Any]] | None = None,
     ):
+        self.event_fn = event_fn  # (cal, event id) -> calendar event with description
         self.ictx = ictx
         self.thread_fn = thread_fn
         self.task_fn = task_fn
@@ -69,7 +73,10 @@ class ItemDesk:
         self.lock = threading.Lock()
 
     def register(self, api: Api) -> None:
-        k = r"((?:g|k|s)-[A-Za-z0-9_-]{1,80}|t-[0-9a-f-]{36})"
+        k = (
+            r"((?:g|k|s)-[A-Za-z0-9_-]{1,80}|t-[0-9a-f-]{36}"
+            r"|c-[A-Za-z0-9_.@#-]{1,200}~[A-Za-z0-9_-]{5,300})"
+        )
         api.add("GET", rf"/api/item/people/{k}", self.r_people)
         api.add("POST", r"/api/item/full", self.r_full_start)
         api.add("GET", r"/api/item/full/job/([0-9a-f]{20})", self.r_full_job)
@@ -83,6 +90,8 @@ class ItemDesk:
     def _item(self, key: str) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         if not KEY_RE.match(key or ""):
             raise _bad("bad item key")
+        if key.startswith("c-"):
+            return self._event_item(key), None
         if key.startswith("t-"):
             t = self.task_fn(key[2:]) or {}
             task = t.get("task") or {}
@@ -107,6 +116,45 @@ class ItemDesk:
                 "links": t.get("links") or [],
             }
         return (self.thread_fn(key).get("messages") or []), None
+
+    def _event_item(self, key: str) -> list[dict[str, Any]]:
+        """A calendar event as one item message: the invite (title, time, organizer,
+        guests with their responses, notes). Guests go in To/Cc so the people and Full
+        tabs resolve them like email participants."""
+        if not self.event_fn:
+            raise _bad("calendar not available")
+        cal, _, eid = key[2:].partition("~")
+        e = self.event_fn(cal, eid)
+        guests = [a for a in e.get("attendees") or [] if not a.get("resource")]
+        org = e.get("organizer") or ""
+        who = ", ".join(
+            f"{a.get('name') or a['email']} <{a['email']}>" for a in guests if a.get("email")
+        )
+        body = "\n".join(
+            [
+                f"Meeting: {e.get('summary', '')}",
+                f"When: {e.get('start', '')} to {e.get('end', '')}",
+                f"Organizer: {org}",
+                "Guests: "
+                + "; ".join(
+                    f"{a.get('name') or a.get('email')} ({a.get('response') or '?'})"
+                    for a in guests
+                ),
+                "",
+                e.get("description") or "(no invite notes)",
+            ]
+        )
+        return [
+            {
+                "from": org,
+                "to": who,
+                "cc": "",
+                "subject": e.get("summary", ""),
+                "ts": e.get("start", ""),
+                "body": body,
+                "mine": bool(e.get("organizer_self")),
+            }
+        ]
 
     # ---------------------------------------------------------------- people
     def r_people(self, q: dict, body: Any, m: re.Match[str]) -> dict:

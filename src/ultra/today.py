@@ -1,8 +1,11 @@
-"""v0.6 routes: Today view, focus blocks, slot finder, meeting prep (SPEC 7.4).
+"""Calendar routes: Today and Week views, focus blocks (single and weekly), slot
+finder, meeting prep, RSVP and meeting invitations (SPEC 7.4, 7.7).
 
 Shared by live and demo. Block creation is one click (it only touches the operator's
 own calendar, carries the ultra tag, and can be moved or deleted from the same view);
-events Ultra did not create are read-only on the server side.
+events Ultra did not create are read-only on the server side, except the operator's
+own RSVP (one confirmation, server token). Invitations email other people, so they go
+through two approvals (invites.py).
 """
 
 from __future__ import annotations
@@ -12,7 +15,8 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from ultra.calendar import COLORS, CalendarError
+from ultra.calendar import COLORS, WEEKDAYS, CalendarError
+from ultra.invites import InviteError, Invites, Rsvp
 
 DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 EID_RE = re.compile(r"[A-Za-z0-9_-]{5,1024}")
@@ -32,10 +36,16 @@ class Today:
         cal: Any,  # ultra.calendar.Calendar or a demo double with the same methods
         item_text: Callable[[str], dict[str, Any]],
         rules: Any,
+        store: Any = None,
+        org_domain: str = "",
+        me: set[str] | None = None,
     ) -> None:
         self.cal = cal
         self.item_text = item_text  # key -> {"subject", "summary", "draft", "task_id", "url"}
         self.rules = rules
+        st = store if store is not None else getattr(cal, "store", None)
+        self.invites = Invites(st, cal, org_domain, me) if st is not None else None
+        self.rsvp = Rsvp(st, cal) if st is not None else None
 
     def register(self, api: Any) -> None:
         api.add("GET", r"/api/cal/day", self.r_day)
@@ -45,6 +55,19 @@ class Today:
         api.add("POST", r"/api/cal/block/delete", self.r_delete)
         api.add("POST", r"/api/cal/slots", self.r_slots)
         api.add("POST", r"/api/cal/block-text", self.r_block_text)
+        api.add("GET", r"/api/cal/week", self.r_week)
+        api.add("POST", r"/api/cal/series", self.r_series)
+        api.add("POST", r"/api/cal/series/delete", self.r_series_delete)
+        api.add("POST", r"/api/cal/rsvp/ask", self.r_rsvp_ask)
+        api.add("POST", r"/api/cal/rsvp", self.r_rsvp)
+        api.add("POST", r"/api/invites", self.r_inv_new)
+        api.add("GET", r"/api/invites/(\d+)", self.r_inv_get)
+        api.add("POST", r"/api/invites/(\d+)", self.r_inv_update)
+        api.add("POST", r"/api/invites/(\d+)/approve", self.r_inv_approve)
+        api.add("POST", r"/api/invites/(\d+)/unapprove", self.r_inv_unapprove)
+        api.add("POST", r"/api/invites/(\d+)/review", self.r_inv_review)
+        api.add("POST", r"/api/invites/(\d+)/send", self.r_inv_send)
+        api.add("POST", r"/api/invites/(\d+)/discard", self.r_inv_discard)
 
     # ------------------------------------------------------------ reads
     def r_day(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -71,6 +94,16 @@ class Today:
             if a["email"] and not self.rules.is_me(a["email"])
         ][:12]
         return e
+
+    def r_week(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        day = (q.get("day") or [""])[0] or dt.datetime.now(self.cal.tz).date().isoformat()
+        if not DAY_RE.fullmatch(day):
+            raise _bad("day must be YYYY-MM-DD")
+        fresh = (q.get("fresh") or ["0"])[0] == "1"
+        try:
+            return self.cal.week(day, fresh=fresh)
+        except CalendarError as e:
+            return {"week_start": day, "days": {}, "pending": [], "error": str(e)}
 
     # ------------------------------------------------------------ writes
     def _times(self, b: dict[str, Any]) -> tuple[dt.datetime, dt.datetime]:
@@ -154,6 +187,113 @@ class Today:
             raise _bad(str(e), 409) from e
         self._journal("cal_delete", res, {"id": eid})
         return res
+
+    def r_series(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """A weekly series of focus blocks (Ultra-tagged, no attendees, ends after at
+        most 26 weeks)."""
+        b = body or {}
+        start, end = self._times(b)
+        days = [str(x).upper()[:2] for x in (b.get("weekdays") or [])]
+        if any(d not in WEEKDAYS for d in days):
+            raise _bad("weekdays must be MO..SU")
+        color = str(b.get("color") or "")
+        if color and color.lower() not in COLORS:
+            raise _bad("unknown colour")
+        try:
+            res = self.cal.create_recurring_block(
+                str(b.get("summary", "")),
+                start,
+                end,
+                days,
+                int(b.get("weeks") or 4),
+                description=str(b.get("description", "")),
+                personal=bool(b.get("personal")),
+                color=color,
+            )
+        except (CalendarError, ValueError) as e:
+            raise _bad(str(e)) from e
+        self._journal("cal_series", res, {"summary": str(b.get("summary", ""))[:80]})
+        return res
+
+    def r_series_delete(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        b = body or {}
+        cal, eid = str(b.get("cal", "primary")), str(b.get("id", ""))
+        if not CAL_RE.fullmatch(cal) or not EID_RE.fullmatch(eid):
+            raise _bad("bad event id")
+        try:
+            res = self.cal.delete_series(cal, eid)
+        except CalendarError as e:
+            raise _bad(str(e), 409) from e
+        self._journal("cal_series_delete", res, {"id": eid})
+        return res
+
+    # ------------------------------------------------------------ RSVP
+    def _need(self, x: Any) -> Any:
+        if x is None:
+            raise _bad("not available")
+        return x
+
+    def _ev_ids(self, b: dict[str, Any]) -> tuple[str, str]:
+        cal, eid = str(b.get("cal", "primary")), str(b.get("id", ""))
+        if not CAL_RE.fullmatch(cal) or not EID_RE.fullmatch(eid):
+            raise _bad("bad event id")
+        return cal, eid
+
+    def r_rsvp_ask(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        b = body or {}
+        cal, eid = self._ev_ids(b)
+        try:
+            return self._need(self.rsvp).ask(cal, eid, str(b.get("response", "")))
+        except InviteError as e:
+            raise _bad(str(e), e.status) from e
+
+    def r_rsvp(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        b = body or {}
+        cal, eid = self._ev_ids(b)
+        try:
+            return self._need(self.rsvp).confirm(
+                str(b.get("token", "")),
+                cal,
+                eid,
+                str(b.get("response", "")),
+                str(b.get("note", "")),
+            )
+        except InviteError as e:
+            raise _bad(str(e), e.status) from e
+
+    # ------------------------------------------------------------ invites (two approvals)
+    def _inv(self, fn: Callable[..., Any], *a: Any) -> Any:
+        try:
+            return fn(*a)
+        except InviteError as e:
+            raise _bad(str(e), e.status) from e
+
+    def r_inv_new(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        b = body or {}
+        return self._inv(self._need(self.invites).create, b, str(b.get("source", ""))[:200])
+
+    def r_inv_get(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._inv(self._need(self.invites).get, int(m.group(1)))
+
+    def r_inv_update(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._inv(self._need(self.invites).update, int(m.group(1)), body or {})
+
+    def r_inv_approve(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._inv(self._need(self.invites).approve, int(m.group(1)))
+
+    def r_inv_unapprove(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._inv(self._need(self.invites).unapprove, int(m.group(1)))
+
+    def r_inv_review(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._inv(self._need(self.invites).review, int(m.group(1)))
+
+    def r_inv_send(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._inv(
+            self._need(self.invites).confirm, int(m.group(1)), str((body or {}).get("token", ""))
+        )
+
+    def r_inv_discard(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._inv(self._need(self.invites).discard, int(m.group(1)))
 
     def _journal(self, action: str, res: Any, detail: dict[str, Any]) -> None:
         store = getattr(self.cal, "store", None)

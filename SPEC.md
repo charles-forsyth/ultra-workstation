@@ -363,6 +363,43 @@ Toggle on the Desk stream: the same threads as columns.
   insert it into the current draft as text.
 - Check-in button (v0.4): builds a proposed plan (fixed meetings, then My Court oldest
   first, quick unblocks, a logging slot at the end) as ghost blocks; accept one by one.
+- *Week view (v0.10).* Day / Week switch (remembered). Monday-to-Sunday grid from one
+  read, all-day row, now line, work-hours band; events the operator has not answered are
+  striped; a "Needs your answer" list sits on top with Yes / Maybe / No / Open. Click a
+  day's name to open it; click a meeting for its panel; click an Ultra block to jump to
+  that day, where it can be dragged.
+- *RSVP (v0.10).* Yes / Maybe / No on any invitation the operator is a guest on (not
+  their own events). The page asks once (Decline asks for an optional note to the
+  organiser) and names the event, time and that Google tells the organiser; a
+  recurring invite is answered for that occurrence only. The server issues a
+  single-use 5-minute token bound to the event and the response; the write changes only
+  the operator's own attendee entry (`sendUpdates=all`) and the read-back checks that
+  the answer took and no other guest's status changed.
+- *Repeating focus blocks (v0.10).* The block card has "Repeat: every week on" with
+  weekday boxes and 2-26 weeks. One RRULE with an UNTIL, so a series never runs on
+  forever; same tag, visibility and colour rules as a single block, no attendees; one
+  confirm. Any block of a series offers "Delete series" (only Ultra-tagged series).
+- *Meeting prep (v0.10).* The meeting panel: "People & context" puts everyone on the
+  invite in the right rail (the event is an item, key `c-<calendar>~<event id>`, so the
+  People / Full tabs and the cited AI briefing work exactly as for email); "Prep
+  briefing" shows that briefing in the panel (editable, copy, rebuild); "Log this
+  meeting" stages the normal log card with the guests as chips, the meeting time, and a
+  text scaffold (title, who accepted, notes). Nothing is written until Commit.
+- *Meetings with guests (v0.10), two approvals like email.* "New meeting" (Today and
+  Week) opens a card: title, day, start, length, guests, Meet link on/off, location,
+  notes, and "Check their free time" (shared free windows; calendars Google won't show
+  are named). Approval 1 stores the invite and locks it (hash of every field; any edit
+  voids the approval and every token). Approval 2 is a review screen with the exact
+  invite, who is busy then, whose calendar can't be seen, and guests outside the
+  operator's domain; "Not yet" is focused and Send is disabled for 2 s. Send presents a
+  single-use token that expires in 10 minutes; the server re-checks the token, the
+  invite id, the approved hash and that the start is still in the future, then creates
+  the event (`sendUpdates=all`, `guestsCanModify=false`) and reads it back (time, guest
+  list, tag). The server refuses non-addresses, more than 40 guests, lengths outside
+  5 min - 8 h, and times in the past; the operator's own addresses are dropped from the
+  guest list. A sent meeting is read-only in Ultra (it has guests, so moving or
+  deleting it would notify people): `is_ultra_block` is false for anything with
+  another guest or `ultra_kind=meeting`.
 - End-of-day button (v0.4): compiles the day from the journal, Sent mail and today's
   ledger entries into a staged report (DONE / NOT DONE / WAITING ON / UPCOMING /
   TOMORROW FIRST), which is logged through the normal staged interaction card.
@@ -1334,8 +1371,8 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | v0.7 Board (later, operator's call) | Court board, nudge-all, drag between columns |
 | v0.8 Day (shipped 0.9.0) | Day view (`d` key, top-bar Day): check-in plan (meetings minus declined, free windows in work hours from now, your-move items READY/VIP first, waiting 3+ days, overdue / due today / high-priority tasks, suggested focus blocks fitted into free windows that open the normal block card), AI read of the day (draft only); end-of-day report from the journal (sent, Slack posted, archived with subjects, logged, task changes, calendar block writes, research, audio; repeats collapsed; still open), editable, Copy / Listen / Save to ledger via a staged log card; exports agenda .ics (no attendee emails) and journal .csv. AI brief builder and Board export move with the Board |
 | v0.9.5 Draft Studio (shipped 0.9.5) | Section 9.6: gather on open (thread, 120-day history per participant, Full context, 2-3 precedents from Sent, work notes, policy pages), private policy sources with 24 h cache (site sitemaps, fixed pages, public ServiceNow KB via the portal page API), house facts, brief with asks / constraints / audience / known / unknown / risks, question cards before drafting, draft with claim map, claim check (cut by default) plus rule checks, source-side review, send-then-log with follow-up task, suggestions from edits |
-| v0.10 Email | ServiceNow replies (Ref:MSG line kept, To the ticket desk, requester in Cc; send blocked if the line is missing), version diff, Tidy, mail search, all-drafts list, labels, attachments (view/save/attach), send-as, highlights and notes with export |
-| v0.11 Calendar | Week view, meetings with invitees (double approval like email), RSVP with confirm, meeting prep from item context, log a meeting to the ledger, recurring Ultra focus blocks |
+| v0.10 Calendar (shipped 0.10.0) | Week view with "Needs your answer"; RSVP with one confirm and a bound single-use token; meetings with guests through two approvals (hash-locked invite, review with busy/unknown/external guests, 10-minute single-use token, read-back); meeting prep from item context (`c-` item keys: People, Full, cited briefing); log a meeting through the staged card; weekly repeating Ultra blocks (RRULE with UNTIL, 26-week cap) and Delete series; sent meetings are never movable |
+| v0.11 Email, rest | ServiceNow replies (Ref:MSG line kept, To the ticket desk, requester in Cc; send blocked if the line is missing), version diff, Tidy, mail search, all-drafts list, labels, attachments (view/save/attach), send-as, highlights and notes with export |
 | v0.12 Ledger tab | Full dashboard for the ledger tool: home (counts, activity, tasks, overdue, going-cold people), browse/search every entity type, entity pages with links/history/tasks/cited briefing, task board, interactions (edit via `interactions edit`, link/unlink), org tree, GCP audit and cost reports, graph health (`doctor`); writes only through allow-listed commands with review cards, read-back, double confirmation for destructive or bulk changes; ledger additions each on their own reviewed PR |
 | v1.0 | Polish, keyboard help, docs, public release |
 | v1.x | Graph view, palette Ask, Slack Web API backend (S-1) |
@@ -1362,6 +1399,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.27 | App v0.10.0 (section 7.4): week view, RSVP, meetings with guests through two approvals, meeting prep from item context, meeting log card, weekly repeating blocks. Built before the remaining email items (mail search, labels, attachments, send-as, highlights), which follow as v0.11; the delivery table is renumbered. Ultra-sent meetings are excluded from block moves and deletes. |
 | 2026-09-30 | 0.26 | App v0.9.9 (sections 9.7, 9.8): composer AI through Draft Studio with a check on every AI version, check stored per version and shown in composer and review, before/after comparison, deterministic Tidy, learning from edits into style rules; Python 3.13 address-parsing fix for reply-all. |
 | 2026-09-30 | 0.25 | App v0.9.8: ticket replies carry and enforce the Ref:MSG line (section 9.6): chosen from the newest desk notice, added to AI text, lint error with one-click fix for operator edits, shown on review; only for replies that go to the desk. |
 | 2026-09-30 | 0.24 | App v0.9.7: Draft Studio task mode (section 9.6): Draft email from a task, related-mail gather, recipient allow-list, thread-or-new choice, internal keys scrubbed, standing-rule flags (no unasked meeting offers, no apologies) in both modes; hand-off to the composer as an AI version with both approvals; task log card after the send. |

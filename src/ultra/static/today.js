@@ -1,13 +1,16 @@
-// Today view (SPEC 7.4): day timeline, drag to block, meeting prep, slot finder.
+// Today view (SPEC 7.4, 7.7): day timeline and week grid, drag to block, repeating
+// blocks, meeting prep (people, cited briefing, log), RSVP, invitations, slot finder.
 // Writes only ever touch blocks Ultra created (tagged ultra=1), and the server enforces
 // that. Creating a block is one click after the block card; nothing is sent to anyone.
+// The only things that reach other people: your RSVP (one confirmation) and a meeting
+// invite (two approvals, like email).
 
 import { api, esc, toast, busy } from "./app.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const PX = 1.1;                 // pixels per minute
 const SNAP = 15;                // minutes
-const T = { day: null, data: null, tz: "UTC", open: false, onClose: null, dragItem: null };
+const T = { day: null, data: null, tz: "UTC", open: false, onClose: null, dragItem: null, view: localStorage.getItem("ultra.calview") || "day", week: null };
 
 function tzNow(tz) {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((x) => [x.type, x.value]));
@@ -27,6 +30,7 @@ export function initToday(tz, { onOpen, onClose }) {
   T.tz = tz || "UTC"; T.onClose = onClose; T.onOpen = onOpen;
   $("#btn-today")?.addEventListener("click", () => (T.open ? closeToday() : openToday()));
   // "Block" from the bucket or a thread: open Today and a block card at the next free slot
+  window.addEventListener("ultra:invite", (ev) => inviteCard(ev.detail || {}));
   window.addEventListener("ultra:block", async (ev) => {
     const d = ev.detail || {};
     await openToday(d.day || null);
@@ -60,6 +64,7 @@ export function closeToday() {
 }
 
 async function loadDay(fresh = false) {
+  if (T.view === "week") return loadWeek(fresh);
   let d;
   try { d = await api(`/api/cal/day?day=${T.day}${fresh ? "&fresh=1" : ""}`); }
   catch (e) { $("#thread").innerHTML = `<div class="alert">${esc(e.message)}</div>`; return; }
@@ -105,7 +110,9 @@ function render() {
       <h2>${esc(dayLabel(T.day, now.day))} <span class="dim small-t">${esc(T.day)}</span></h2>
       <button class="btn small ghost" data-nav="1" title="Next day">&rarr;</button>
       ${T.day !== now.day ? `<button class="btn small ghost" data-nav="0">Today</button>` : ""}
+      ${viewSeg()}
       <span class="grow"></span>
+      <button class="btn small" id="cal-new-meeting" title="Invite people (two approvals before anyone is emailed)">New meeting</button>
       <button class="btn small" id="cal-slots">Find a time</button>
       <button class="btn small ghost" id="cal-fresh" title="Reload from Google">&#8635;</button>
       <button class="btn small ghost" id="cal-close" title="Back to the conversation (Esc)">Close</button>
@@ -160,6 +167,7 @@ function wire() {
   $("#cal-close").onclick = closeToday;
   $("#cal-fresh").onclick = (e) => busy(e.target, () => loadDay(true));
   $("#cal-slots").onclick = () => slotFinder();
+  wireCommon();
   const tl = $("#tl"), ghost = $("#tl-ghost");
   tl.onclick = (e) => {
     const ev = e.target.closest(".ev"); if (!ev) return;
@@ -210,13 +218,33 @@ async function newBlock(it, startMin, minutes = 30) {
       <span class="k">When</span><div class="row-g"><input id="bk-day" type="date" value="${esc(T.day)}"><input id="bk-start" type="time" step="900" value="${hm(startMin)}">
         <select id="bk-len">${[15, 30, 45, 60, 90, 120].map((n) => `<option value="${n}" ${n === minutes ? "selected" : ""}>${n} min</option>`).join("")}</select></div>
       <span class="k">Type</span><label class="chk"><input type="checkbox" id="bk-personal"> Personal (private visibility)</label>
+      <span class="k">Repeat</span><div class="row-g"><select id="bk-rep"><option value="">Just this once</option><option value="weekly">Every week on...</option></select>
+        <span id="bk-repopts" hidden>${["MO", "TU", "WE", "TH", "FR"].map((d) => `<label class="chk"><input type="checkbox" class="bk-wd" value="${d}"> ${d[0]}${d[1].toLowerCase()}</label>`).join(" ")}
+        for <select id="bk-weeks">${[2, 4, 8, 12, 26].map((n) => `<option value="${n}" ${n === 4 ? "selected" : ""}>${n} weeks</option>`).join("")}</select></span></div>
       <span class="k">Notes</span><textarea id="bk-desc" rows="6">${esc(t.description)}</textarea>
     </div>
     <div class="row-g"><button class="btn send" id="bk-create">Add to calendar</button><button class="btn ghost" id="bk-cancel">Cancel</button><span class="dim small-t" id="bk-msg"></span></div>
   </div>`;
   $("#bk-cancel").onclick = () => { panel.innerHTML = ""; };
+  const wdOf = (day) => ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][new Date(`${day}T12:00:00Z`).getUTCDay()];
+  $("#bk-rep").onchange = () => {
+    const on = $("#bk-rep").value === "weekly"; $("#bk-repopts").hidden = !on;
+    if (on) { const wd = wdOf($("#bk-day").value); document.querySelectorAll(".bk-wd").forEach((c) => { c.checked = c.value === wd; }); }
+  };
   $("#bk-create").onclick = (e) => busy(e.target, async () => {
     const start = `${$("#bk-day").value}T${$("#bk-start").value}`;
+    if ($("#bk-rep").value === "weekly") {
+      const weekdays = [...document.querySelectorAll(".bk-wd")].filter((c) => c.checked).map((c) => c.value);
+      const weeks = Number($("#bk-weeks").value);
+      if (!weekdays.length) { $("#bk-msg").textContent = "Pick at least one day."; return; }
+      if (!confirm(`Add "${$("#bk-title").value}" every ${weekdays.join(", ")} for ${weeks} weeks?\n\nOnly on your calendar; nobody is invited. You can delete the whole series from any of its blocks.`)) return;
+      try {
+        const r = await api("/api/cal/series", { method: "POST", body: { summary: $("#bk-title").value, start, minutes: Number($("#bk-len").value), description: $("#bk-desc").value, personal: $("#bk-personal").checked, weekdays, weeks } });
+        toast(r.ok ? `Repeating block added (${r.rule || "weekly"}).` : `Series added but check it: ${r.problems.join(", ")}`, r.ok ? "ok" : "err");
+        panel.innerHTML = ""; await loadDay(true);
+      } catch (err) { $("#bk-msg").textContent = err.message; }
+      return;
+    }
     try {
       const r = await api("/api/cal/block", { method: "POST", body: {
         summary: $("#bk-title").value, start, minutes: Number($("#bk-len").value),
@@ -249,7 +277,8 @@ function blockPanel(x) {
       <span class="k">When</span><div class="row-g"><input id="bm-start" type="time" step="900" value="${hm(x.s)}">
         <select id="bm-len">${[15, 30, 45, 60, 90, 120, 180, 240].map((n) => `<option value="${n}" ${n === x.en - x.s ? "selected" : ""}>${n} min</option>`).join("")}${[15, 30, 45, 60, 90, 120, 180, 240].includes(x.en - x.s) ? "" : `<option value="${x.en - x.s}" selected>${x.en - x.s} min</option>`}</select></div>
     </div>
-    <div class="row-g"><button class="btn" id="bm-save">Save</button><button class="btn danger" id="bm-del">Delete block</button><button class="btn ghost" id="bm-x">Close</button>
+    ${e.recurring ? `<div class="dim small-t">Part of a repeating series. Save and Delete change this one block; use Delete series for all of them.</div>` : ""}
+    <div class="row-g"><button class="btn" id="bm-save">Save</button><button class="btn danger" id="bm-del">Delete block</button>${e.recurring ? `<button class="btn danger ghost" id="bm-delall">Delete series</button>` : ""}<button class="btn ghost" id="bm-x">Close</button>
     ${e.html_link ? `<a class="btn ghost" href="${esc(e.html_link)}" target="_blank" rel="noopener noreferrer">Open in Google</a>` : ""}<span class="dim small-t" id="bm-msg"></span></div>
   </div>`;
   $("#bm-x").onclick = () => { panel.innerHTML = ""; };
@@ -261,6 +290,11 @@ function blockPanel(x) {
       panel.innerHTML = ""; loadDay(true);
     } catch (err) { const m = $("#bm-msg"); if (m) m.textContent = err.message; else toast(err.message, "err"); }
   });
+  $("#bm-delall")?.addEventListener("click", (ev) => busy(ev.target, async () => {
+    if (!confirm(`Delete every block in the "${e.summary}" series from your calendar?`)) return;
+    try { await api("/api/cal/series/delete", { method: "POST", body: { cal: e.cal, id: e.id } }); toast("Series deleted.", "ok"); panel.innerHTML = ""; loadDay(true); }
+    catch (err) { $("#bm-msg").textContent = err.message; }
+  }));
   $("#bm-del").onclick = (ev) => busy(ev.target, async () => {
     if (!confirm(`Delete "${e.summary}" from your calendar?`)) return;
     try { await api("/api/cal/block/delete", { method: "POST", body: { cal: e.cal, id: e.id } }); toast("Block deleted.", "ok"); panel.innerHTML = ""; loadDay(true); }
@@ -283,7 +317,13 @@ async function meetingPanel(e0) {
       ${e.link ? `<a class="btn small" href="${esc(e.link)}" target="_blank" rel="noopener noreferrer">Join</a>` : ""}
       ${e.html_link ? `<a class="btn small ghost" href="${esc(e.html_link)}" target="_blank" rel="noopener noreferrer">Open in Google</a>` : ""}
       <button class="btn small ghost" id="mp-x">Close</button></div>
-    <div class="dim small-t">${e.organizer_self ? "You organise this." : `Organiser: ${esc(e.organizer)}`} ${e.recurring ? "&middot; recurring" : ""} &middot; read-only in Ultra</div>
+    <div class="dim small-t">${e.organizer_self ? "You organise this." : `Organiser: ${esc(e.organizer)}`} ${e.recurring ? "&middot; recurring" : ""} &middot; ${esc(fmtWhen(e))}</div>
+    ${!e.organizer_self && (e.attendees || []).some((a) => a.self) ? `<div class="row-g rsvp">Your answer: <b>${esc({ accepted: "Yes", tentative: "Maybe", declined: "No", needsAction: "not answered" }[e.my_response] || e.my_response || "?")}</b>
+      <button class="btn tiny ${e.my_response === "accepted" ? "on" : ""}" data-rsvp="accepted">Yes</button><button class="btn tiny ${e.my_response === "tentative" ? "on" : ""}" data-rsvp="tentative">Maybe</button><button class="btn tiny ${e.my_response === "declined" ? "on" : ""}" data-rsvp="declined">No</button></div>` : ""}
+    <div class="row-g"><button class="btn small ai" id="mp-brief" title="What you should know before this meeting, from the ledger and past mail, with citations">Prep briefing</button>
+      <button class="btn small" id="mp-log" title="Log this meeting in the ledger (review card)">Log this meeting</button>
+      <button class="btn small ghost" id="mp-ctx" title="Everyone on the invite in the right panel">People &amp; context</button></div>
+    <div id="mp-out"></div>
     ${e.description ? `<details class="quoted" open><summary>Invite notes</summary><div class="body">${esc(e.description)}</div></details>` : `<div class="dim small-t">No invite notes.</div>`}
     <div class="sect"><div class="label">People (${e.attendee_count}${people.length && people.length < e.attendee_count ? `, ${people.length} besides you` : ""})</div>
       ${people.length ? `<div class="plist" id="mp-people">${people.map((p, i) => `<div class="prow" data-i="${i}" tabindex="0"><div class="pmain"><b>${esc(p.name || p.addr)}</b> <span class="badge ${p.response === "accepted" ? "ok" : p.response === "declined" ? "warn" : "dim"}">${esc(resp[p.response] || p.response || "?")}</span></div><div class="dim small-t">${esc(p.addr)}</div></div>`).join("")}</div>
@@ -291,10 +331,200 @@ async function meetingPanel(e0) {
     </div>
   </div>`;
   $("#mp-x").onclick = () => { panel.innerHTML = ""; };
+  panel.querySelectorAll("[data-rsvp]").forEach((b) => b.onclick = () => busy(b, () => rsvp(e, b.dataset.rsvp)));
+  const key = `c-${e.cal}~${e.id}`;
+  $("#mp-ctx").onclick = () => window.dispatchEvent(new CustomEvent("ultra:item-context", { detail: { key, subject: e.summary, source: "calendar" } }));
+  $("#mp-brief").onclick = (ev) => busy(ev.target, async () => {
+    const out = $("#mp-out"); out.innerHTML = `<div class="dim small-t">Reading the ledger and past mail for everyone on the invite...</div>`;
+    try {
+      const r = await api("/api/item/briefing", { method: "POST", body: { key } });
+      out.innerHTML = `<div class="card brief-card"><div class="label">Prep briefing <span class="dim small-t">${esc(r.model || "")}${r.cached ? " &middot; cached" : ""} &middot; citations link to the ledger</span></div>
+        <textarea id="mp-brief-text" rows="14">${esc(r.markdown)}</textarea>
+        <div class="row-g"><button class="btn tiny" id="mp-brief-copy">Copy</button><button class="btn tiny ghost" id="mp-brief-fresh">Rebuild</button><span class="dim small-t">Editable. Nothing is saved unless you log it.</span></div></div>`;
+      $("#mp-brief-copy").onclick = () => navigator.clipboard.writeText($("#mp-brief-text").value).then(() => toast("Copied.", "ok"));
+      $("#mp-brief-fresh").onclick = (x) => busy(x.target, async () => { const r2 = await api("/api/item/briefing", { method: "POST", body: { key, fresh: true } }); $("#mp-brief-text").value = r2.markdown; });
+    } catch (err) { out.innerHTML = `<div class="alert">${esc(err.message)}</div>`; }
+  });
+  $("#mp-log").onclick = () => window.dispatchEvent(new CustomEvent("ultra:stage-meeting", { detail: { event: e } }));
   $("#mp-people")?.addEventListener("click", (ev) => {
     const row = ev.target.closest(".prow"); if (!row) return;
     const p = people[Number(row.dataset.i)];
     window.dispatchEvent(new CustomEvent("ultra:person", { detail: { addr: p.addr, name: p.name } }));
+  });
+}
+
+function fmtWhen(e) {
+  if (e.all_day) return `all day ${e.start}`;
+  const s = minOf(e.start, T.tz), en = minOf(e.end, T.tz);
+  return `${dayLabel(s.day, tzNow(T.tz).day)} ${label12(s.min)}-${label12(en.min)}`;
+}
+
+// ---------------------------------------------------------------- RSVP (one confirmation)
+async function rsvp(e, response) {
+  const word = { accepted: "Yes", tentative: "Maybe", declined: "No" }[response];
+  const ask = await api("/api/cal/rsvp/ask", { method: "POST", body: { cal: e.cal, id: e.id, response } });
+  const note = response === "declined" ? (prompt(`Answer "${word}" to "${e.summary}" (${fmtWhen(e)})?\n\n${e.organizer} is told by Google.${e.recurring ? " This answers only this occurrence." : ""}\n\nOptional note to the organiser (leave blank for none):`, "") ?? null) : "";
+  if (note === null) { toast("Not answered."); return; }
+  if (response !== "declined" && !confirm(`Answer "${word}" to "${e.summary}" (${fmtWhen(e)})?\n\n${e.organizer} is told by Google.${e.recurring ? " This answers only this occurrence." : ""}`)) { toast("Not answered."); return; }
+  const r = await api("/api/cal/rsvp", { method: "POST", body: { cal: e.cal, id: e.id, response, token: ask.token, note } });
+  toast(r.ok ? `Answered ${word}.` : `Answered, but check it: ${r.problems.join(", ")}`, r.ok ? "ok" : "err");
+  $("#cal-panel").innerHTML = ""; loadDay(true);
+}
+
+// ---------------------------------------------------------------- view switch + week
+function viewSeg() {
+  return `<span class="seg cal-seg"><button data-view="day" class="${T.view === "day" ? "on" : ""}">Day</button><button data-view="week" class="${T.view === "week" ? "on" : ""}">Week</button></span>`;
+}
+function wireCommon() {
+  document.querySelectorAll("#thread [data-view]").forEach((b) => b.onclick = () => { T.view = b.dataset.view; localStorage.setItem("ultra.calview", T.view); loadDay(); });
+  $("#cal-new-meeting")?.addEventListener("click", () => inviteCard({}));
+}
+
+async function loadWeek(fresh = false) {
+  let d;
+  try { d = await api(`/api/cal/week?day=${T.day}${fresh ? "&fresh=1" : ""}`); }
+  catch (e) { $("#thread").innerHTML = `<div class="alert">${esc(e.message)}</div>`; return; }
+  if (!T.open) return;
+  if (d.tz) T.tz = d.tz;
+  T.week = d; renderWeek();
+}
+
+function renderWeek() {
+  const d = T.week, now = tzNow(T.tz);
+  const days = Object.keys(d.days || {});
+  const WPX = 0.8;
+  const [ws, we] = (d.work_hours || ["08:00", "17:00"]).map((x) => { const [h, m] = x.split(":").map(Number); return h * 60 + m; });
+  const all = days.flatMap((k) => (d.days[k] || []).filter((e) => !e.all_day).map((e) => { const s = minOf(e.start, T.tz), en = minOf(e.end, T.tz); return { k, e, s: s.day < k ? 0 : s.min, en: en.day > k ? 1440 : Math.max(en.min, (s.day < k ? 0 : s.min) + 15) }; }));
+  const v0 = Math.max(0, Math.floor(Math.min(ws - 60, ...all.map((x) => x.s)) / 60) * 60);
+  const v1 = Math.min(1440, Math.ceil(Math.max(we + 60, ...all.map((x) => x.en)) / 60) * 60);
+  const hours = []; for (let m = v0; m <= v1; m += 60) hours.push(m);
+  const cls = (e) => [e.ultra ? "mine" : "", e.my_response === "declined" ? "declined" : "", e.my_response === "needsAction" ? "tentative" : ""].join(" ");
+  T.wk = all;
+  $("#thread").innerHTML = `
+    <div class="today-head">
+      <button class="btn small ghost" data-wnav="-7" title="Previous week">&larr;</button>
+      <h2>Week of ${esc(new Date(`${d.week_start}T12:00:00Z`).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" }))}</h2>
+      <button class="btn small ghost" data-wnav="7" title="Next week">&rarr;</button>
+      ${days.includes(now.day) ? "" : `<button class="btn small ghost" data-wnav="0">This week</button>`}
+      ${viewSeg()}
+      <span class="grow"></span>
+      <button class="btn small" id="cal-new-meeting">New meeting</button>
+      <button class="btn small" id="cal-slots">Find a time</button>
+      <button class="btn small ghost" id="cal-fresh" title="Reload from Google">&#8635;</button>
+      <button class="btn small ghost" id="cal-close">Close</button>
+    </div>
+    ${d.error ? `<div class="alert">${esc(d.error)}</div>` : ""}
+    ${(d.pending || []).length ? `<div class="card pending"><div class="label">Needs your answer (${d.pending.length})</div>${d.pending.map((e, i) => `<div class="row-g pend"><b>${esc(e.summary)}</b> <span class="dim small-t">${esc(fmtWhen(e))} &middot; from ${esc(e.organizer)}</span><span class="grow"></span><button class="btn tiny" data-pend="${i}" data-r="accepted">Yes</button><button class="btn tiny" data-pend="${i}" data-r="tentative">Maybe</button><button class="btn tiny" data-pend="${i}" data-r="declined">No</button><button class="btn tiny ghost" data-pend="${i}" data-r="open">Open</button></div>`).join("")}</div>` : ""}
+    <div class="wk" id="wk">
+      <div class="wk-hours">${hours.map((m) => `<div class="wk-h" data-top="${(m - v0) * WPX}"><span>${label12(m)}</span></div>`).join("")}</div>
+      ${days.map((k) => `<div class="wk-day ${k === now.day ? "today" : ""}" data-day="${k}">
+        <div class="wk-head" data-goto="${k}">${esc(new Date(`${k}T12:00:00Z`).toLocaleDateString([], { weekday: "short", timeZone: "UTC" }))} ${Number(k.slice(8))}</div>
+        <div class="wk-all">${(d.days[k] || []).filter((e) => e.all_day).map((e) => `<span class="badge" title="${esc(e.summary)}">${esc(e.summary.slice(0, 18))}</span>`).join("")}</div>
+        <div class="wk-col" data-h="${(v1 - v0) * WPX}">
+          <div class="tl-work" data-top="${(ws - v0) * WPX}" data-h="${(we - ws) * WPX}"></div>
+          ${k === now.day && now.min >= v0 && now.min <= v1 ? `<div class="tl-now" data-top="${(now.min - v0) * WPX}"></div>` : ""}
+          ${all.map((x, i) => x.k !== k ? "" : `<div class="ev wev ${cls(x.e)}" data-w="${i}" data-top="${(x.s - v0) * WPX}" data-h="${Math.max(14, (x.en - x.s) * WPX - 1)}" title="${esc(x.e.summary)} ${label12(x.s)}-${label12(x.en)}"><div class="ev-t">${esc(x.e.summary)}</div></div>`).join("")}
+        </div></div>`).join("")}
+    </div>
+    <div class="dim small-t today-hint"><span class="phone-only">Phones show 3 days; the arrows move a week. </span>Click a day's name to open it. Click a meeting for prep, your answer, and logging. Striped = not answered yet.</div>
+    <div id="cal-panel"></div>`;
+  document.querySelectorAll("#wk [data-top]").forEach((el) => { el.style.top = `${el.dataset.top}px`; if (el.dataset.h) el.style.height = `${el.dataset.h}px`; });
+  document.querySelectorAll("#wk .wk-col, #wk .wk-hours").forEach((el) => { el.style.height = `${(v1 - v0) * WPX + 8}px`; });
+  // Phones: 7 columns are too narrow to read; show 3 days from today (this week) or Mon-Wed.
+  if (matchMedia("(max-width: 700px)").matches) {
+    const i0 = Math.max(0, Math.min(4, days.indexOf(now.day)));
+    document.querySelectorAll("#wk .wk-day").forEach((el, i) => el.classList.toggle("phone-hide", i < i0 || i > i0 + 2));
+    $("#wk").style.setProperty("--wk-n", "3");
+  }
+  $("#cal-close").onclick = closeToday;
+  $("#cal-fresh").onclick = (e) => busy(e.target, () => loadWeek(true));
+  $("#cal-slots").onclick = () => slotFinder();
+  wireCommon();
+  document.querySelectorAll("[data-wnav]").forEach((b) => b.onclick = () => { const n = Number(b.dataset.wnav); T.day = n === 0 ? tzNow(T.tz).day : addDays(T.day, n); loadWeek(); });
+  document.querySelectorAll("[data-goto]").forEach((b) => b.onclick = () => { T.day = b.dataset.goto; T.view = "day"; localStorage.setItem("ultra.calview", "day"); loadDay(); });
+  $("#wk").onclick = (ev) => {
+    const el = ev.target.closest(".wev"); if (!el) return;
+    const x = T.wk[Number(el.dataset.w)];
+    x.e.ultra ? (T.day = x.k, T.view = "day", loadDay()) : meetingPanel(x.e);
+  };
+  document.querySelectorAll("[data-pend]").forEach((b) => b.onclick = () => {
+    const e = d.pending[Number(b.dataset.pend)];
+    if (b.dataset.r === "open") return meetingPanel(e);
+    busy(b, () => rsvp(e, b.dataset.r));
+  });
+}
+
+// ---------------------------------------------------------------- new meeting (two approvals)
+export async function inviteCard(pre = {}) {
+  if (!T.open) await openToday(pre.day || null);
+  const panel = $("#cal-panel");
+  const now = tzNow(T.tz);
+  const day = pre.day || (T.day >= now.day ? T.day : now.day);
+  const startMin = pre.startMin ?? Math.max(9 * 60, Math.ceil((now.min + 30) / 30) * 30);
+  panel.innerHTML = `<div class="card invite-card">
+    <div class="label">New meeting <span class="dim small-t">guests are emailed by Google only after your two approvals</span></div>
+    <div class="lc-grid">
+      <span class="k">Title</span><input id="iv-title" class="rinput" maxlength="200" value="${esc(pre.summary || "")}">
+      <span class="k">When</span><div class="row-g"><input id="iv-day" type="date" value="${esc(day)}"><input id="iv-start" type="time" step="900" value="${hm(Math.min(startMin, 23 * 60))}">
+        <select id="iv-len">${[15, 30, 45, 60, 90, 120].map((n) => `<option value="${n}" ${n === (pre.minutes || 30) ? "selected" : ""}>${n} min</option>`).join("")}</select></div>
+      <span class="k">Guests</span><input id="iv-guests" class="rinput" placeholder="email addresses, comma separated" value="${esc((pre.guests || []).join(", "))}">
+      <span class="k">Video</span><label class="chk"><input type="checkbox" id="iv-video" checked> Add a Google Meet link</label>
+      <span class="k">Location</span><input id="iv-loc" class="rinput" placeholder="optional" value="">
+      <span class="k">Notes</span><textarea id="iv-desc" rows="5" placeholder="Agenda (shown to everyone on the invite)">${esc(pre.description || "")}</textarea>
+    </div>
+    <div class="row-g"><button class="btn small ghost" id="iv-find">Check their free time</button><span id="iv-fb" class="dim small-t"></span></div>
+    <div class="row-g"><button class="btn primary" id="iv-approve">Approve (1 of 2)</button><button class="btn ghost" id="iv-cancel">Cancel</button><span class="dim small-t" id="iv-msg"></span></div>
+  </div>`;
+  panel.scrollIntoView({ block: "nearest" });
+  const fields = () => ({ summary: $("#iv-title").value, start: `${$("#iv-day").value}T${$("#iv-start").value}`, minutes: Number($("#iv-len").value), guests: $("#iv-guests").value, video: $("#iv-video").checked, location: $("#iv-loc").value, description: $("#iv-desc").value, source: pre.source || "" });
+  $("#iv-cancel").onclick = () => { panel.innerHTML = ""; };
+  $("#iv-find").onclick = (ev) => busy(ev.target, async () => {
+    const r = await api("/api/cal/slots", { method: "POST", body: { emails: [$("#iv-guests").value], minutes: Number($("#iv-len").value), days: 5 } });
+    const w = r.windows.slice(0, 6).map((x) => { const s = minOf(x.start, T.tz), e = minOf(x.end, T.tz); return `<button class="btn tiny ghost" data-slot="${s.day}|${s.min}">${esc(dayLabel(s.day, tzNow(T.tz).day))} ${label12(s.min)}-${label12(e.min)}</button>`; }).join(" ");
+    $("#iv-fb").innerHTML = (r.unknown?.length ? `Could not see: ${esc(r.unknown.join(", "))}. ` : "") + (w || "No shared free time in the next 5 work days.");
+    $("#iv-fb").querySelectorAll("[data-slot]").forEach((b) => b.onclick = () => { const [dd, mm] = b.dataset.slot.split("|"); $("#iv-day").value = dd; $("#iv-start").value = hm(Number(mm)); });
+  });
+  $("#iv-approve").onclick = (ev) => busy(ev.target, async () => {
+    try {
+      const inv = await api("/api/invites", { method: "POST", body: fields() });
+      await api(`/api/invites/${inv.id}/approve`, { method: "POST" });
+      const rv = await api(`/api/invites/${inv.id}/review`, { method: "POST" });
+      inviteReview(rv);
+    } catch (err) { $("#iv-msg").textContent = err.message; }
+  });
+  $("#iv-title").focus();
+}
+
+function inviteReview(rv) {
+  const d = rv.invite.data, c = rv.checks;
+  const s = minOf(d.start, T.tz);
+  const dlg = $("#review");
+  dlg.innerHTML = `<div class="rv-card" role="dialog" aria-modal="true" aria-labelledby="iv-rv-title">
+    <h3 id="iv-rv-title">Send this meeting invite? <span class="dim">(approval 2 of 2)</span></h3>
+    <div class="kv">
+      <span class="k">Title</span><span class="strong">${esc(d.summary)}</span>
+      <span class="k">When</span><span>${esc(new Date(`${s.day}T12:00:00Z`).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" }))}, ${label12(s.min)}-${label12(s.min + d.minutes)} (${d.minutes} min)</span>
+      <span class="k">Guests</span><span>${esc(d.guests.join(", "))}</span>
+      <span class="k">Video</span><span>${d.video ? "Google Meet link" : "none"}</span>
+      ${d.location ? `<span class="k">Location</span><span>${esc(d.location)}</span>` : ""}
+    </div>
+    ${c.busy?.length ? `<div class="lint warning">Busy then: ${esc(c.busy.join(", "))}</div>` : `<div class="ok-t small-t">Everyone Google can see is free then.</div>`}
+    ${c.unknown?.length ? `<div class="lint warning">Can't see the calendars of: ${esc(c.unknown.join(", "))}</div>` : ""}
+    ${c.external?.length ? `<div class="lint warning">Outside your domain: ${esc(c.external.join(", "))}</div>` : ""}
+    ${d.description ? `<pre class="rv-body">${esc(d.description)}</pre>` : `<div class="dim small-t">No notes.</div>`}
+    <div class="dim small-t">Google emails the invite to every guest as soon as you press Send. This approval expires in ${Math.round(rv.expires_in / 60)} minutes.</div>
+    <div class="rv-acts"><button class="btn" id="iv-no" autofocus>Not yet</button><span class="grow"></span><button class="btn send" id="iv-yes" disabled>Send invite</button></div>
+  </div>`;
+  dlg.hidden = false;
+  setTimeout(() => { const y = $("#iv-yes"); if (y) y.disabled = false; }, 2000);
+  $("#iv-no").onclick = async () => { dlg.hidden = true; await api(`/api/invites/${rv.invite.id}/unapprove`, { method: "POST" }).catch(() => {}); toast("Not sent. The invite is back to a draft."); };
+  $("#iv-yes").onclick = (ev) => busy(ev.target, async () => {
+    try {
+      const r = await api(`/api/invites/${rv.invite.id}/send`, { method: "POST", body: { token: rv.token } });
+      dlg.hidden = true;
+      toast(r.ok ? `Invite sent to ${d.guests.length} ${d.guests.length === 1 ? "person" : "people"}.` : `Sent, but check it in Google Calendar: ${r.problems.join(", ")}`, r.ok ? "ok" : "err");
+      $("#cal-panel").innerHTML = ""; T.day = s.day; loadDay(true);
+    } catch (err) { dlg.hidden = true; toast(err.message, "err"); }
   });
 }
 

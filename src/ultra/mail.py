@@ -133,6 +133,10 @@ class Mail:
         self.rules = rules
         self.lock = threading.Lock()
         self.state: dict[str, Any] = {"ok": None, "error": "", "at": 0.0}
+        # Default: the stream is exactly the Gmail inbox. Threads you archived stay
+        # out, even ones where you are waiting on a reply. include_sent = true adds
+        # recent Sent threads (archived ones show under Waiting).
+        self.include_sent = bool(cfg.get("mail", "include_sent", False))
 
     def _svc(self) -> Any:
         return google_auth.service(self.cfg, "gmail", "v1", "read")
@@ -217,9 +221,11 @@ class Mail:
         """Fetch changed threads; rebuild the stream. Returns the stream payload."""
         with self.lock:
             try:
-                look = int(self.cfg.get("mail", "sent_lookback_days", 14))
                 inbox = self._list_ids("in:inbox", MAX_INBOX)
-                sent = self._list_ids(f"in:sent newer_than:{look}d", MAX_INBOX)
+                sent: list[tuple[str, str]] = []
+                if self.include_sent:
+                    look = int(self.cfg.get("mail", "sent_lookback_days", 14))
+                    sent = self._list_ids(f"in:sent newer_than:{look}d", MAX_INBOX)
                 wanted = dict(sent)
                 wanted.update(dict(inbox))
                 cached: dict[str, Any] = {}
@@ -272,6 +278,8 @@ class Mail:
             msgs = t["messages"]
             if not msgs:
                 continue
+            if tid not in inbox_ids and not self.include_sent:
+                continue  # inbox only: archived threads never appear
             last = msgs[-1]
             subject = next((m["subject"] for m in msgs if m["subject"]), "(no subject)")
             if is_rsvp(subject):

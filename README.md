@@ -4,9 +4,11 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger by dragging it into a bucket.
 
-Status: v0.3.0. Mail read and write (double-approval send), AI summary and drafting,
-archive with undo, ticket cards, whose-court rules, ledger side panel, Slack read.
-Calendar, the bucket and Slack replies are next. See [SPEC.md](SPEC.md) section 19.
+Status: v0.4.0. Mail read and write (double-approval send), AI summary and drafting,
+archive with undo, ticket cards, whose-court rules, Slack read, a context rail that
+covers everyone on a conversation, and the bucket: drag conversations and people in,
+then log or make a task in the ledger with links checked by read-back. Calendar and
+Slack replies are next. See [SPEC.md](SPEC.md) section 19.
 
 Nothing here contains credentials or personal data. Runtime config and tokens live in
 `~/.config/ultra-workstation/`; private notes live in the git-ignored `local/` folder.
@@ -36,10 +38,22 @@ The server refuses to send if the approval token is unknown, used, expired, or i
 stored message no longer matches what you approved. AI output only ever becomes a new
 draft version; it cannot approve or send.
 
+## The bucket (ledger log and linker)
+
+Drag a conversation, a person, a lab or a highlighted snippet into the bucket, then
+press Log or Task. A card opens with the date (converted to your time zone), link
+chips for every person on the thread who is in the ledger plus their labs, and a
+plain template text you can edit or have AI rewrite. Commit runs the ledger CLI,
+reads the record back, and marks each chip linked or missing ("Link now" fixes a
+missing one). A card commits once; nothing is retried automatically.
+
+The ledger adapter only runs `log`, `tasks add`, `tasks update`, `link` and `unlink`,
+passes entities as full UUIDs, and sends text on stdin.
+
 ## Keys
 
 `j`/`k` move, `Enter` open, `r` reply, `a` reply all, `f` forward, `s` AI summary,
-`e` archive (never deletes), `c` compose, `m` Mine, `w` Waiting, `Ctrl+K` commands,
+`e` archive (never deletes), `b` add to bucket, `l` log, `t` task, `c` compose, `m` Mine, `w` Waiting, `Ctrl+K` commands,
 `?` help.
 
 ## Configuration

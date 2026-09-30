@@ -122,6 +122,181 @@ def register(api: Api) -> None:
     api.add("GET", r"/api/thread/([A-Za-z0-9_-]+)", thread)
     api.add("GET", r"/api/context/([^/]+)", context)
     _register_composer(api)
+    _register_desk(api)
+
+
+# ---------------------------------------------------------------- demo ledger
+DEMO_IDS = {
+    "ben@example.org": "11111111-1111-4111-8111-111111111111",
+    "cy@example.org": "22222222-2222-4222-8222-222222222222",
+    "lab": "33333333-3333-4333-8333-333333333333",
+    "project": "44444444-4444-4444-8444-444444444444",
+}
+
+
+class DemoLedger:
+    """Invented people only. Same method names as ultra.ledger.Ledger."""
+
+    enabled = True
+
+    def __init__(self) -> None:
+        self.records: dict[str, dict[str, Any]] = {}
+
+    def resolve(self, addr: str, name: str = "") -> dict[str, Any] | None:
+        if addr == "ben@example.org":
+            return {
+                "id": DEMO_IDS[addr],
+                "name": "Ben Carter (bcarter)",
+                "netid": "bcarter",
+                "title": "Deputy Director",
+                "matched_by": "address",
+            }
+        if addr == "cy@example.org":
+            return {
+                "id": DEMO_IDS[addr],
+                "name": "Cy Dunn (cdunn)",
+                "netid": "cdunn",
+                "title": "Analyst",
+                "matched_by": "address",
+            }
+        return None
+
+    def context(self, addr: str, name: str = "") -> dict[str, Any]:
+        p = self.resolve(addr, name)
+        if not p:
+            return {"unresolved": True, "addr": addr}
+        base = CONTEXT.get(addr, {})
+        return {
+            **base,
+            **p,
+            "labs": ["Lovelace Lab"],
+            "projects": ["ada-lab"],
+            "lab_refs": [{"id": DEMO_IDS["lab"], "name": "Lovelace Lab", "edge": "MEMBER_OF"}],
+            "project_refs": [{"id": DEMO_IDS["project"], "name": "ada-lab", "edge": "OPERATES"}],
+            "open_tasks": base.get("open_tasks", []),
+            "interactions": base.get("interactions", []),
+            "interaction_count": base.get("interaction_count", 0),
+        }
+
+    def search(self, term: str) -> list[dict[str, Any]]:
+        t = term.lower()
+        out = []
+        if "ben" in t or "carter" in t:
+            out.append(
+                {
+                    "id": DEMO_IDS["ben@example.org"],
+                    "name": "Ben Carter (bcarter)",
+                    "type": "Researcher",
+                    "score": 0.9,
+                }
+            )
+        if "lovelace" in t or "lab" in t:
+            out.append({"id": DEMO_IDS["lab"], "name": "Lovelace Lab", "type": "Lab", "score": 0.9})
+        if "ada-lab" in t or "project" in t:
+            out.append(
+                {"id": DEMO_IDS["project"], "name": "ada-lab", "type": "GCPProject", "score": 0.9}
+            )
+        return out
+
+    def interaction(self, iid: str) -> dict[str, Any] | None:
+        return self.records.get(iid)
+
+    def tree_fresh(self, ident: str) -> dict[str, Any]:
+        r = self.records.get(ident) or {}
+        return {"connections": [{"id": x["id"]} for x in r.get("links", [])]}
+
+
+class DemoWriter:
+    """Records ledger writes in memory. Nothing leaves the process."""
+
+    def __init__(self, ledger: DemoLedger) -> None:
+        self.ledger = ledger
+        self.calls: list[tuple[str, Any]] = []
+        self.n = 0
+
+    def _id(self) -> str:
+        self.n += 1
+        return f"{self.n:08x}-demo-4000-8000-{self.n:012x}"
+
+    def log(self, text: str, date: str, links: list[str]) -> dict[str, Any]:
+        self.calls.append(("log", {"text": text, "date": date, "links": links}))
+        iid = self._id()
+        self.ledger.records[iid] = {
+            "id": iid,
+            "summary": text[:120],
+            "links": [{"id": x} for x in links],
+        }
+        return {"id": iid, "explicit": links, "unresolved": [], "ai_error": False, "rc": 0}
+
+    def task_add(self, summary: str, priority: str) -> dict[str, Any]:
+        self.calls.append(("task_add", {"summary": summary, "priority": priority}))
+        tid = self._id()
+        self.ledger.records[tid] = {"id": tid, "summary": summary, "links": []}
+        return {"id": tid, "rc": 0, "summary": summary}
+
+    def link(self, source: str, target: str, kind: str) -> dict[str, Any]:
+        self.calls.append(("link", {"source": source, "target": target, "type": kind}))
+        for a, b in ((source, target), (target, source)):
+            if a in self.ledger.records:
+                self.ledger.records[a]["links"].append({"id": b})
+        return {"ok": True, "rc": 0}
+
+    def unlink(self, a: str, b: str) -> dict[str, Any]:
+        self.calls.append(("unlink", {"a": a, "b": b}))
+        return {"ok": True, "rc": 0}
+
+    def task_status(self, task_id: str, status: str) -> dict[str, Any]:
+        self.calls.append(("task_status", {"id": task_id, "status": status}))
+        return {"ok": True, "rc": 0}
+
+
+def _register_desk(api: Api) -> None:
+    import tempfile
+    from pathlib import Path
+
+    from ultra.desk import Desk
+    from ultra.rules import Rules
+    from ultra.store import Store
+
+    store = Store(Path(tempfile.mkdtemp(prefix="ultra-demo-desk-")) / "desk.db")
+    ledger = DemoLedger()
+    writer = DemoWriter(ledger)
+    api.demo_writer = writer  # type: ignore[attr-defined]
+
+    def thread_fn(key: str) -> dict[str, Any]:
+        row = next((s for s in STREAM if s["key"] == key), {})
+        msgs = [
+            {
+                **m,
+                "subject": row.get("subject", ""),
+                "mine": "ada@example.org" in m["from"],
+                "to": m.get("to", "ada@example.org, Cy Dunn <cy@example.org>"),
+                "ts": m["ts"].replace(" ", "T") + ":00-04:00" if len(m["ts"]) == 16 else m["ts"],
+            }
+            for m in THREADS.get(key, [])
+        ]
+        if not msgs and row:
+            msgs = [
+                {
+                    "from": f"{row['from']} <{row.get('addr') or 'desk@example.org'}>",
+                    "to": "ada@example.org",
+                    "subject": row["subject"],
+                    "ts": row["ts"],
+                    "body": row["snippet"],
+                    "mine": False,
+                }
+            ]
+        return {"key": key, "messages": msgs}
+
+    Desk(
+        store,
+        Rules(me={"ada@example.org"}),
+        ledger,
+        writer,
+        thread_fn,
+        "America/New_York",
+        me_netid="adal",
+    ).register(api)
 
 
 class DemoOutbox:

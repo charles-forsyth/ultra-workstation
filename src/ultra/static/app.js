@@ -1,7 +1,8 @@
 // Ultra client shell. Vanilla JS modules, no build step, no inline code (CSP).
 // Helpers adapted from the deep-research dashboard (MIT, same author).
 
-import { openDraft, resumeForThread, setComposerContext, onSent } from "./compose.js";
+import { openDraft, resumeForThread, onSent } from "./compose.js";
+import { initRail, wireSearch, loadPeople, addConversation, addSnippet, searchFor, stage, stageAfterSend } from "./ledger.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -140,6 +141,9 @@ async function openItem(i) {
         <button class="btn small ai" data-a="summary" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="AI summary (s)">Summarize</button>
         <button class="btn small" data-a="archive" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="Archive (e). Never deletes.">Archive</button>
         <button class="btn small" data-a="copy">Copy</button>
+        <button class="btn small" data-a="bucket" title="Add to bucket (b)">+ Bucket</button>
+        <button class="btn small" data-a="log" title="Log this conversation in the ledger (l)">Log</button>
+        <button class="btn small" data-a="task" title="Make a ledger task from it (t)">Task</button>
         ${t.permalink ? `<a class="btn small" href="${esc(t.permalink)}" target="_blank" rel="noopener noreferrer">Open in Slack</a>` : ""}
       </div>
       <div class="aisum" id="aisum" hidden></div>
@@ -157,10 +161,39 @@ async function openItem(i) {
       b.onclick = () => busy(b, () => openDraft(k, it.key));
     }
     const sb = $('[data-a="summary"]', th); sb.onclick = () => busy(sb, () => summarize(it));
+    $('[data-a="bucket"]', th).onclick = () => addConversation(it.key);
+    $('[data-a="log"]', th).onclick = () => stage("log", it.key);
+    $('[data-a="task"]', th).onclick = () => stage("task", it.key);
+    wireSelection(th, it);
     const ab = $('[data-a="archive"]', th); ab.onclick = () => busy(ab, () => archive(it));
     await resumeForThread(it.key);
   } catch (e) { th.innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
   loadContext(it);
+}
+
+// ---------------------------------------------------------------- selection bar
+function wireSelection(th, it) {
+  const bar = $("#selbar");
+  const hide = () => { bar.hidden = true; };
+  th.onmouseup = () => setTimeout(() => {
+    const sel = window.getSelection();
+    const text = (sel?.toString() || "").trim();
+    if (!text || !th.contains(sel.anchorNode)) { hide(); return; }
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    bar.innerHTML = `<button class="btn tiny" data-s="search" ${text.length > 200 ? "disabled title=\"Select 200 characters or fewer\"" : ""}>Search ledger</button><button class="btn tiny" data-s="bucket">Add to bucket</button><button class="btn tiny" data-s="copy">Copy</button>`;
+    bar.style.left = `${Math.max(8, Math.min(window.innerWidth - 300, r.left))}px`;
+    bar.style.top = `${Math.max(50, r.top - 38)}px`;
+    bar.hidden = false;
+    bar.onmousedown = (e) => e.preventDefault();  // keep the selection
+    bar.onclick = (e) => {
+      const b = e.target.closest("[data-s]"); if (!b) return;
+      if (b.dataset.s === "search") searchFor(text);
+      else if (b.dataset.s === "bucket") addSnippet(text, it.key, it.subject, it.ts);
+      else copyText(text);
+      hide(); sel.removeAllRanges();
+    };
+  }, 0);
+  document.addEventListener("scroll", hide, { capture: true, once: true });
 }
 
 function threadsOf(it) {
@@ -201,36 +234,8 @@ async function summarize(it) {
   } catch (e) { el.innerHTML = `<div class="lint error">${esc(e.message)}</div>`; }
 }
 
-async function loadContext(it) {
-  const el = $("#context");
-  setComposerContext("");
-  if (!it.addr) { el.innerHTML = `<div class="dim">No address to look up.</div>`; return; }
-  el.innerHTML = `<div class="dim">Looking up ${esc(it.addr)} in the ledger... (a few seconds the first time)</div>`;
-  const want = it.key;
-  try {
-    const c = await api(`/api/context/${encodeURIComponent(it.addr)}?name=${encodeURIComponent(it.from || "")}`);
-    pollStatus();
-    if (S.key !== want && S.items[S.sel]?.key !== want) return;
-    if (c.self) { el.innerHTML = `<div class="dim">That's you.</div>`; return; }
-    if (c.unavailable) { el.innerHTML = `<div class="dim">Ledger unavailable: ${esc(c.reason || "")}</div>`; return; }
-    if (c.unresolved) { el.innerHTML = `<div class="dim">${esc(it.addr)} is not in the ledger.</div>`; return; }
-    const list = (xs, f) => xs.length ? `<ul class="clist">${xs.map(f).join("")}</ul>` : `<div class="dim">none</div>`;
-    const tasks = Array.isArray(c.open_tasks) ? c.open_tasks : [];
-    setComposerContext([
-      `${c.name}${c.title ? ", " + c.title : ""}`,
-      (c.labs || []).length ? `Labs: ${(c.labs || []).join("; ")}` : "",
-      (c.projects || []).length ? `Projects: ${(c.projects || []).join("; ")}` : "",
-      tasks.length ? `Open tasks with them: ${tasks.map((x) => x.summary).join("; ")}` : "",
-      (c.interactions || []).length ? `Recent history: ${(c.interactions || []).map((x) => x.summary).join("; ")}` : "",
-    ].filter(Boolean).join("\n"));
-    el.innerHTML = `<div class="cname">${esc(c.name)} <span class="dim mono">${esc(c.netid || "")}</span></div>
-      <div class="dim">${esc(c.title || "")}</div>
-      ${c.matched_by === "name" ? `<div class="warnline">Matched by name, not address: check it's the right person.</div>` : ""}
-      <div class="sect"><span class="label">Labs</span>${list(c.labs || [], (x) => `<li>${esc(x)}</li>`)}</div>
-      <div class="sect"><span class="label">Projects</span>${list(c.projects || [], (x) => `<li>${esc(x)}</li>`)}</div>
-      <div class="sect"><span class="label">Open tasks ${tasks.length}</span>${list(tasks, (x) => `<li title="${esc(x.id)}">${esc(x.summary)}</li>`)}</div>
-      <div class="sect"><span class="label">Recent logs ${esc(c.interaction_count ?? "")}</span>${list(c.interactions || [], (x) => `<li title="${esc(x.id)}">${esc(x.summary)}</li>`)}</div>`;
-  } catch (e) { el.innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
+function loadContext(it) {
+  loadPeople(it).then(() => pollStatus());
 }
 
 // ---------------------------------------------------------------- status polling
@@ -302,16 +307,10 @@ function wire() {
     const el = e.target.closest(".item"); if (!el) return;
     e.dataTransfer.setData("application/x-ultra-item", JSON.stringify(S.items[Number(el.dataset.i)]));
   });
-  const drop = $("#bucket-drop");
-  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
-  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-  drop.addEventListener("drop", (e) => {
-    e.preventDefault(); drop.classList.remove("over");
-    toast("Bucket arrives in v0.4 (log and link to the ledger).");
-  });
+
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); palette(); return; }
-    if (e.target.matches("input, textarea, select") || !$("#review").hidden || !$("#palette").hidden) return;
+    if (e.target.matches("input, textarea, select") || !$("#review").hidden || !$("#palette").hidden || !$("#ledger-card").hidden) return;
     const it = S.items[S.sel];
     const click = (a) => { const b = $(`#thread [data-a="${a}"]`); if (b && !b.disabled) b.click(); };
     if (it && S.key === it.key) {
@@ -320,9 +319,12 @@ function wire() {
       if (e.key === "f") { e.preventDefault(); click("forward"); return; }
       if (e.key === "e") { e.preventDefault(); click("archive"); return; }
       if (e.key === "s") { e.preventDefault(); click("summary"); return; }
+      if (e.key === "b") { e.preventDefault(); click("bucket"); return; }
+      if (e.key === "l") { e.preventDefault(); click("log"); return; }
+      if (e.key === "t") { e.preventDefault(); click("task"); return; }
     }
     if (e.key === "c") { e.preventDefault(); openDraft("new", null).catch((x) => toast(x.message, "err")); return; }
-    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, c compose, m Mine, w Waiting, Ctrl+K commands"); return; }
+    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, c compose, m Mine, w Waiting, Ctrl+K commands"); return; }
     if (e.key === "j") { S.sel = Math.min(S.items.length - 1, S.sel + 1); renderStream(); }
     else if (e.key === "k") { S.sel = Math.max(0, S.sel - 1); renderStream(); }
     else if (e.key === "Enter" && S.sel >= 0) openItem(S.sel);
@@ -348,10 +350,13 @@ function commands() {
   const c = [
     { t: "Compose new email", k: "c", run: () => openDraft("new", null) },
     { t: "Refresh everything", k: "Shift+R", run: () => $("#btn-refresh").click() },
+    { t: "Log the bucket", run: () => stage("log") },
+    { t: "Task from the bucket", run: () => stage("task") },
+    { t: "Search the ledger", run: () => searchFor("") },
     ...["mine", "waiting", "all", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
   if (it && S.key === it.key) {
-    for (const [a, label, k] of [["reply", "Reply", "r"], ["reply_all", "Reply all", "a"], ["forward", "Forward", "f"], ["summary", "Summarize with AI", "s"], ["archive", "Archive", "e"], ["copy", "Copy thread", ""]]) {
+    for (const [a, label, k] of [["reply", "Reply", "r"], ["reply_all", "Reply all", "a"], ["forward", "Forward", "f"], ["summary", "Summarize with AI", "s"], ["archive", "Archive", "e"], ["copy", "Copy thread", ""], ["bucket", "Add to bucket", "b"], ["log", "Log in ledger", "l"], ["task", "Ledger task", "t"]]) {
       c.unshift({ t: `${label}: ${it.subject || ""}`.slice(0, 90), k, run: () => $(`#thread [data-a="${a}"]`)?.click() });
     }
   }
@@ -397,7 +402,11 @@ async function boot() {
   } catch (e) { toast(`Server: ${e.message}`, "err"); }
   $$("#filter-seg button").forEach((b) => { b.dataset.label = b.textContent; });
   tick(); setInterval(tick, 30000);
-  onSent(() => setTimeout(() => loadStream(true), 3000));
+  onSent((d) => {
+    setTimeout(() => loadStream(true), 3000);
+    if (d?.thread_id) stageAfterSend("g-" + d.thread_id);  // send-then-log
+  });
+  initRail(); wireSearch();
   await loadStream();
   pollStatus(); setInterval(pollStatus, 5000);
 }

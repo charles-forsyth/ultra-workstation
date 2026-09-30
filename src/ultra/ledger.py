@@ -21,6 +21,7 @@ from ultra.store import Store
 TTL_PERSON = 86400
 TTL_TREE = 1800
 TTL_TASKS = 300
+TTL_SEARCH = 600
 
 READ_COMMANDS = {  # the only subcommands this adapter will ever run
     ("people", "show"),
@@ -120,9 +121,32 @@ class Ledger:
         self.store.cache_put(f"person:{addr}", person)
         return person
 
-    def open_task_ids(self) -> set[str]:
+    def open_tasks(self) -> dict[str, dict[str, Any]]:
         tasks = self._cached("tasks:open", TTL_TASKS, ["tasks", "list"]) or []
-        return {t["id"] for t in tasks if t.get("status") != "DONE"}
+        return {t["id"]: t for t in tasks if t.get("status") != "DONE"}
+
+    def open_task_ids(self) -> set[str]:
+        return set(self.open_tasks())
+
+    def search(self, term: str) -> list[dict[str, Any]]:
+        term = " ".join(term.split())[:200]
+        if not term or term.startswith("-"):
+            return []
+        res = self._cached(f"search:{term.lower()}", TTL_SEARCH, ["search", term]) or []
+        return [r for r in res if isinstance(r, dict) and r.get("id")]
+
+    def interaction(self, iid: str) -> dict[str, Any] | None:
+        """Fresh read (no cache): used to read back a write."""
+        if not re.fullmatch(r"[0-9a-f-]{36}", iid):
+            raise LedgerError("bad interaction id")
+        d = self._run(["interactions", "show", iid])
+        return d if isinstance(d, dict) else None
+
+    def tree_fresh(self, ident: str) -> dict[str, Any]:
+        if not re.fullmatch(r"[0-9a-f-]{36}", ident):
+            raise LedgerError("bad id")
+        d = self._run(["tree", ident])
+        return d if isinstance(d, dict) else {}
 
     def context(self, addr: str, name: str = "") -> dict[str, Any]:
         """Everything the context rail shows for one address."""
@@ -137,13 +161,16 @@ class Ledger:
 
         with ThreadPoolExecutor(max_workers=2) as ex:
             f_tree = ex.submit(self._cached, f"tree:{netid}", TTL_TREE, ["tree", netid])
-            f_open = ex.submit(self.open_task_ids)
+            f_open = ex.submit(self.open_tasks)
             tree = f_tree.result() or {}
-            open_ids = f_open.result()
+            open_map = f_open.result()
+            open_ids = set(open_map)
         conns = tree.get("connections") or []
         by = lambda kind: [c for c in conns if c.get("entity_type") == kind]  # noqa: E731
         tasks = [t for t in reversed(by("Task")) if t["id"] in open_ids]
+        ref = lambda c: {"id": c["id"], "name": c["name"], "edge": c.get("type")}  # noqa: E731
         return {
+            "id": person.get("id"),
             "name": person.get("name"),
             "netid": netid,
             "title": person.get("title") or "",
@@ -151,7 +178,17 @@ class Ledger:
             "email": person.get("email_alias") or "",
             "labs": [c["name"] for c in by("Lab")][:8],
             "projects": [c["name"] for c in by("GCPProject") + by("ResearchProject")][:8],
-            "open_tasks": [{"id": t["id"], "summary": t["name"]} for t in tasks][:10],
+            "lab_refs": [ref(c) for c in by("Lab")][:8],
+            "project_refs": [ref(c) for c in by("GCPProject") + by("ResearchProject")][:8],
+            "open_tasks": [
+                {
+                    "id": t["id"],
+                    "summary": t["name"],
+                    "status": open_map.get(t["id"], {}).get("status", ""),
+                    "priority": open_map.get(t["id"], {}).get("priority", ""),
+                }
+                for t in tasks
+            ][:10],
             # tree lists edges oldest first; the newest five are at the end
             "interactions": [
                 {"id": c["id"], "summary": c["name"]} for c in reversed(by("Interaction")[-5:])

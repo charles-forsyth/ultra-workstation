@@ -27,6 +27,7 @@ personal_block_visibility = "private"
 [ledger]
 enabled = true
 binary = "nexus"
+my_id = ""                         # your own ledger id (e.g. NetID); left off link chips
 org_email_domain = "example.org"
 netid_from_local_part = true
 max_parallel = 3
@@ -45,7 +46,8 @@ number_patterns = ['RITM\d{7}', 'INC\d{7}', 'SCTASK\d{7}', 'REQ\d{7}']
 vip_file = "~/.config/ultra-workstation/vip.txt"
 noise_patterns = ['noreply', 'no-reply', 'newsletter', 'notification']
 send_delay_seconds = 15
-sent_lookback_days = 14
+include_sent = false               # true: also show recent Sent threads you archived
+sent_lookback_days = 14            # used only when include_sent = true
 self_cc = false
 
 [court]

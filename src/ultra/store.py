@@ -53,6 +53,14 @@ CREATE TABLE IF NOT EXISTS approvals (
     expires_at REAL NOT NULL,
     used_at REAL
 );
+CREATE TABLE IF NOT EXISTS bucket (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,              -- email | ticket | slack | snippet | entity
+    ref TEXT NOT NULL,               -- thread key, entity uuid, ...
+    data TEXT NOT NULL,              -- JSON snapshot shown in the tray
+    added_at REAL NOT NULL,
+    UNIQUE (kind, ref)
+);
 CREATE TABLE IF NOT EXISTS journal (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL NOT NULL,
@@ -106,9 +114,63 @@ class Store:
                 (key, json.dumps(value, default=str), time.time()),
             )
 
+    def cache_del_prefix(self, prefix: str) -> None:
+        with self._conn() as c:
+            c.execute(
+                "DELETE FROM kv_cache WHERE key >= ? AND key < ?", (prefix, prefix + "\uffff")
+            )
+
     def cache_prune(self, max_age: float = 30 * 86400) -> None:
         with self._conn() as c:
             c.execute("DELETE FROM kv_cache WHERE fetched_at < ?", (time.time() - max_age,))
+
+    # ---------------------------------------------------------------- bucket
+    def bucket_list(self) -> list[dict[str, Any]]:
+        rows = (
+            self._conn()
+            .execute("SELECT id, kind, ref, data, added_at FROM bucket ORDER BY id")
+            .fetchall()
+        )
+        return [
+            {"id": r[0], "kind": r[1], "ref": r[2], **json.loads(r[3]), "added_at": r[4]}
+            for r in rows
+        ]
+
+    def bucket_add(self, kind: str, ref: str, data: dict[str, Any]) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO bucket (kind, ref, data, added_at) VALUES (?,?,?,?)",
+                (kind, ref, json.dumps(data, default=str), time.time()),
+            )
+
+    def bucket_remove(self, item_id: int) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM bucket WHERE id = ?", (item_id,))
+
+    def bucket_clear(self) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM bucket")
+
+    def journal_recent(self, limit: int = 50, prefix: str = "") -> list[dict[str, Any]]:
+        rows = (
+            self._conn()
+            .execute(
+                "SELECT ts, action, target, ok, detail FROM journal WHERE action LIKE ? "
+                "ORDER BY id DESC LIMIT ?",
+                (prefix + "%", limit),
+            )
+            .fetchall()
+        )
+        return [
+            {
+                "ts": r[0],
+                "action": r[1],
+                "target": r[2],
+                "ok": bool(r[3]),
+                "detail": json.loads(r[4] or "null"),
+            }
+            for r in rows
+        ]
 
     # ---------------------------------------------------------------- journal
     def journal(self, action: str, target: str, ok: bool, detail: Any = None) -> None:

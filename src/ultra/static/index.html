@@ -42,12 +42,26 @@
     </main>
 
     <aside class="panel right" id="right">
-      <div class="panel-head"><span class="label">Context</span></div>
-      <div class="rbody" id="context"><div class="dim">Nothing selected.</div></div>
+      <div class="panel-head">
+        <div class="seg" id="rail-tabs" role="tablist">
+          <button data-tab="people" class="on">People</button>
+          <button data-tab="person">Person</button>
+          <button data-tab="search">Ledger search</button>
+        </div>
+      </div>
+      <div class="rbody" id="context">
+        <div class="rtab" id="rt-people"><div class="dim">Nothing selected.</div></div>
+        <div class="rtab" id="rt-person" hidden><div class="dim">Pick someone on the People tab.</div></div>
+        <div class="rtab" id="rt-search" hidden>
+          <input id="ls-q" class="rinput" placeholder="Search people, labs, projects, tasks..." autocomplete="off">
+          <div id="ls-out" class="ls-out"></div>
+        </div>
+      </div>
       <div class="bucket" id="bucket">
-        <div class="bucket-head"><span class="label">Bucket</span><span class="dim" id="bucket-count">0</span></div>
-        <div class="bucket-drop" id="bucket-drop">Drag email, Slack or events here</div>
-        <div class="bucket-acts"><button class="btn small" disabled>Log</button><button class="btn small" disabled>Task</button><button class="btn small" disabled>Block</button></div>
+        <div class="bucket-head"><span class="label">Bucket</span><span class="dim" id="bucket-count"></span><span class="grow"></span><button class="btn tiny ghost" id="bucket-clear" hidden>Clear</button></div>
+        <div class="bucket-items" id="bucket-items"></div>
+        <div class="bucket-drop" id="bucket-drop">Drag email, Slack, tickets or people here</div>
+        <div class="bucket-acts" id="bucket-acts"><button class="btn small" data-act="log" disabled title="Log the bucket as one interaction (or drop a conversation here)">Log</button><button class="btn small" data-act="task" disabled title="Make a task from the bucket (or drop a conversation here)">Task</button><button class="btn small" data-act="block" disabled title="Calendar block (v0.6)">Block</button></div>
       </div>
     </aside>
   </div>
@@ -65,6 +79,8 @@
 <div class="scrim" id="scrim" hidden></div>
 <div class="modal" id="review" hidden></div>
 <div class="modal pal" id="palette" hidden></div>
+<div class="modal" id="ledger-card" hidden></div>
+<div class="selbar" id="selbar" hidden></div>
 <div class="sendbar" id="sendbar" hidden></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <script src="/app.js" type="module"></script>

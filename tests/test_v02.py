@@ -189,7 +189,8 @@ def _thread(tid: str, msgs: list[dict]) -> dict:
 
 def test_build_stream_groups_tickets_and_counts(tmp_path):
     r = _rules()
-    mail = Mail(Config({"operator": {"addresses": [ME]}}), Store(tmp_path / "s.db"), r)
+    cfg = Config({"operator": {"addresses": [ME]}, "mail": {"include_sent": True}})
+    mail = Mail(cfg, Store(tmp_path / "s.db"), r)
     tk1 = msg("notify@desk.example.org", 1, "RITM0000001 has been assigned to you")
     tk1["subject"] = "RITM0000001 assigned"
     tk2 = msg("notify@desk.example.org", 0.5, "RITM0000001 comments added")
@@ -213,6 +214,27 @@ def test_build_stream_groups_tickets_and_counts(tmp_path):
     assert "ASSIGNED" in tk["badges"] and "comments added" in tk["events"]
     assert by["g-e"]["court"] == "LOW"
     assert out["counts"] == {"MINE": 2, "WAITING": 1, "LOW": 1}
+
+
+def test_default_stream_is_inbox_only(tmp_path):
+    """Chuck: work only with what is in the inbox. Archived threads never show,
+    including a sent-last thread that would otherwise be Waiting."""
+    r = _rules()
+    mail = Mail(Config({"operator": {"addresses": [ME]}}), Store(tmp_path / "s.db"), r)
+    assert mail.include_sent is False
+    out_sent = msg(ME, 4)
+    out_sent["to"] = "cy@example.org"
+    waiting_in_inbox = msg(ME, 2)
+    waiting_in_inbox["to"] = "dee@example.org"
+    threads = {
+        "a": _thread("a", [msg("ben@example.org", 1)]),
+        "b": _thread("b", [out_sent]),  # archived, I sent last
+        "c": _thread("c", [waiting_in_inbox]),  # still in inbox, I sent last
+        "z": _thread("z", [msg("zed@example.org", 1)]),  # archived, from someone
+    }
+    out = mail._build_stream(threads, inbox_ids={"a", "c"})
+    keys = {i["key"]: i["court"] for i in out["items"]}
+    assert keys == {"g-a": "MINE", "g-c": "WAITING"}
 
 
 # ---------------------------------------------------------------- store

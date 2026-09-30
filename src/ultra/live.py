@@ -17,7 +17,9 @@ from ultra import google_auth
 from ultra.ai import AI, AIError
 from ultra.compose import ComposeError, Composer, gmail_send
 from ultra.config import Config, expand
+from ultra.desk import Desk
 from ultra.ledger import Ledger, LedgerError
+from ultra.ledger_write import LedgerWriter
 from ultra.lint import ascii_fix, load_style
 from ultra.mail import Mail
 from ultra.rules import Rules
@@ -65,6 +67,18 @@ class Live:
         self.operator = str(cfg.get("operator", "name", ""))
         addrs = list(cfg.get("operator", "addresses", []) or [])
         self.from_default = addrs[0] if addrs else "me"
+        self.writer = LedgerWriter(cfg, self.store)
+        self.desk = Desk(
+            self.store,
+            self.rules,
+            self.ledger,
+            self.writer,
+            self.thread_any,
+            cfg.timezone,
+            me_netid=str(cfg.get("ledger", "my_id", "") or ""),
+            ai=self.ai,
+            operator=self.operator,
+        )
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jl = threading.Lock()
@@ -111,6 +125,7 @@ class Live:
         api.add("GET", r"/api/thread/k-([A-Z]+\d+)", self.r_ticket)
         api.add("GET", r"/api/thread/s-([A-Za-z0-9_.:-]+)", self.r_slack_thread)
         api.add("GET", r"/api/context/([^/]+)", self.r_context)
+        self.desk.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -186,6 +201,34 @@ class Live:
             return self.mail.thread(m.group(1))
         except google_auth.AuthNeeded as e:
             return {"error": str(e), "auth": e.capability, "messages": []}
+
+    def thread_any(self, key: str) -> dict[str, Any]:
+        """Messages for any stream key (email thread, ticket card, Slack row)."""
+        if key.startswith("g-"):
+            return self.mail.thread(key[2:])
+        rx = re.match(r"^(k|s)-(.+)$", key)
+        if not rx:
+            return {"key": key, "messages": []}
+        if rx.group(1) == "k":
+            return self.r_ticket({}, None, re.match(r"(.+)", rx.group(2)))  # type: ignore[arg-type]
+        items, _ = self.slack.items()
+        row = next((r for r in Slack.to_stream(items) if r["key"] == key), None)
+        msgs = sorted((row or {}).get("messages") or [], key=lambda x: float(x.get("ts") or 0))
+        return {
+            "key": key,
+            "permalink": (row or {}).get("permalink", ""),
+            "messages": [
+                {
+                    "from": x.get("from", ""),
+                    "from_email": x.get("from_email", ""),
+                    "subject": (row or {}).get("subject", "Slack"),
+                    "ts": _slack_time(x["ts"]) if x.get("ts") else "",
+                    "body": x.get("text", ""),
+                    "mine": False,
+                }
+                for x in msgs
+            ],
+        }
 
     def r_ticket(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         num = m.group(1)

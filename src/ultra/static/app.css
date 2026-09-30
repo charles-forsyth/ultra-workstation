@@ -315,3 +315,11 @@ li.ix { cursor: pointer; }
 li.ix .ix-t { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 li.ix.open .ix-t { display: inline; -webkit-line-clamp: unset; white-space: pre-wrap; }
 li.ix.unlinked { opacity: .85; }
+
+/* ---- row actions (bucket actions without dragging) ---- */
+.item { position: relative; }
+.item .ract { display: flex; gap: 4px; margin-top: 5px; opacity: 0; max-height: 0; overflow: hidden; transition: opacity .12s, max-height .12s; }
+.item:hover .ract, .item.sel .ract, .item:focus-within .ract { opacity: 1; max-height: 30px; }
+.item .ra { background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; color: var(--dim); font-size: 11px; padding: 1px 7px; cursor: pointer; }
+.item .ra:hover { color: var(--cyan); border-color: var(--cyan); }
+@media (hover: none) { .item .ract { opacity: 1; max-height: 30px; } }  /* phones: always shown */

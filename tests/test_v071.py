@@ -208,3 +208,38 @@ def test_full_context_route_in_demo():
     )[1]
     assert r["counts"]["linked"] == 2 and r["tasks"][0]["priority"] == "CRITICAL"
     assert json.dumps(r)  # serializable
+
+
+# ---------------------------------------------------------------- row actions (v0.7.2)
+def test_every_stream_row_offers_bucket_actions_without_dragging():
+    from pathlib import Path
+
+    js = (Path(__file__).parent.parent / "src/ultra/static/app.js").read_text()
+    assert "${rowActs(it)}" in js  # rendered on every row
+    for act in ('data-ra="bucket"', 'data-ra="log"', 'data-ra="task"', 'data-ra="block"'):
+        assert act in js
+    assert 'draggable="true"' in js  # dragging still available
+    css = (Path(__file__).parent.parent / "src/ultra/static/app.css").read_text()
+    assert "@media (hover: none)" in css  # phones always see them
+
+
+def test_row_bucket_actions_accept_every_stream_kind():
+    from ultra.server import build
+
+    httpd, api = build(Config({}), 0, demo=True)
+    httpd.server_close()
+    for key in ("g-100", "s-D0DEMO1", "k-200"):
+        st, r = api.dispatch("POST", "/api/bucket", {}, {"kind": "conversation", "key": key})[:2]
+        assert st == 200, (key, r)
+    st, r = api.dispatch(
+        "POST",
+        "/api/bucket",
+        {},
+        {
+            "kind": "entity",
+            "type": "Task",
+            "id": "22222222-2222-4222-8222-222222222222",
+            "name": "a task",
+        },
+    )[:2]
+    assert st == 200 and len(r["items"]) == 4

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.16 of the spec; app at v0.7.1 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
+Status: v0.16 of the spec; app at v0.7.2 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-09-29
@@ -1155,6 +1155,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.16a | App v0.7.2: bucket actions on every stream row (email, Slack, ticket, task): + Bucket, Log, Task (not on tasks), Block. Shown on hover/selection on desktop, always on touch screens; clicking one does not open the item. Dragging to the bucket and onto the Today timeline still works (real mouse drag verified). |
 | 2026-09-30 | 0.16 | App v0.7.1 (operator report: audio summary and full read cut off). Causes found and fixed: (1) thinking models spent 1,965 of the 2,048 output tokens on hidden reasoning, so spoken summaries stopped after one sentence; every AI call now gets a capped thinking allowance on top of its answer budget, and summaries/drafts/audio scripts refuse a MAX_TOKENS answer instead of using it; (2) text for speech and for the AI was tail-cut (audio 60,000 chars, summary 30,000, explain 20,000, web context 8,000); now the whole thread goes (runaway guard 400,000, marked if ever applied); (3) link cleanup left stray brackets and "Reply to Sender :" footers. Spoken summaries scale 250/450/700 words with thread length and cover every message; full reads announce each message ("Message 2 of 5, from ..."). Full context tab (L-1 resolved without ledger changes): `dossier --json` (labs, lab assets, grants, projects, GCP projects, every linked interaction in full, cloud audit) + `search --json` (logs that mention them but are not linked) + `tasks list --json` (open tasks linked, related by search, or naming them: full name, "First ... Last", "Last Lab", netid), run in parallel (~10 s), cached 15 min; Copy all, Use for AI draft, Add to bucket. `dossier` added to the read allow-list. |
 | 2026-09-30 | 0.15 | App v0.7.0: Slack replies (delivery table row v0.5). Real test: one message to the operator's own DM posted in 19 s including verification; the connector appends "*Sent using* <@...|Claude>" to every post, which the verifier now strips as a final line only. Numbering note: the Slack step shipped as app 0.7.0 because 0.6.x was used by the calendar. |
 | 2026-09-30 | 0.14 | App v0.6.1: fix "Missing or wrong token" in tabs left open across a server restart (each start issues a new CSRF token). The page now fetches the current token and retries the write once on a token refusal. The check itself is unchanged. |

@@ -114,7 +114,38 @@ function renderStream() {
         ${(it.badges || []).map((b) => `<span class="badge ${BADGE[b] || ""}">${esc(b)}</span>`).join("")}
         ${it.court === "WAITING" ? `<span class="badge wait">waiting ${esc(it.waiting_days)}d</span>` : ""}
       </div>` : ""}
+      ${rowActs(it)}
     </div>`).join("");
+}
+
+// Bucket actions on every stream row: the same things dragging does, one click each.
+// (Dragging still works; these are for when you'd rather click.)
+function rowActs(it) {
+  const task = it.source === "task";
+  return `<div class="ract" role="group" aria-label="Actions">
+    <button class="ra" data-ra="bucket" title="Add to bucket">+ Bucket</button>
+    <button class="ra" data-ra="log" title="${task ? "Log progress on this task" : "Log this conversation in the ledger"}">Log</button>
+    ${task ? "" : `<button class="ra" data-ra="task" title="Make a ledger task from it">Task</button>`}
+    <button class="ra" data-ra="block" title="Block time for it on your calendar">Block</button>
+  </div>`;
+}
+
+async function rowAction(a, it) {
+  if (a === "block") {
+    window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));
+    return;
+  }
+  if (it.source === "task") {
+    const id = it.key.slice(2);
+    if (a === "bucket") return addEntityToBucket({ id, name: it.subject, type: "Task" });
+    if (a === "log") {
+      const d = await api(`/api/thread/${encodeURIComponent(it.key)}`);
+      return stageTaskLog(d.task || { id, summary: it.subject }, d.links || []);
+    }
+    return;
+  }
+  if (a === "bucket") return addConversation(it.key);
+  if (a === "log" || a === "task") return stage(a, it.key);
 }
 
 async function loadStream(keepSel = false) {
@@ -472,6 +503,12 @@ function wire() {
   });
   $("#stream").addEventListener("click", (e) => {
     const el = e.target.closest(".item"); if (!el) return;
+    const b = e.target.closest("[data-ra]");
+    if (b) {  // a row action: do it without opening the item
+      e.stopPropagation();
+      busy(b, () => rowAction(b.dataset.ra, S.items[Number(el.dataset.i)]));
+      return;
+    }
     closeDrawers();  // on a phone, picking a conversation closes the drawer
     openItem(Number(el.dataset.i));
   });

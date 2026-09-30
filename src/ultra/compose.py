@@ -12,6 +12,7 @@ import base64
 import email.utils
 import hashlib
 import json
+import re
 import secrets
 import threading
 import time
@@ -25,6 +26,35 @@ from ultra.store import Store
 
 TOKEN_TTL = 600  # seconds an approval-2 token stays valid
 FIELDS = ("from_addr", "to_addrs", "cc", "bcc", "subject", "body")
+# Ticket systems thread replies by a reference line in the notice ("Ref:MSG12345678").
+# A reply without it can be filed as a new ticket or dropped, so it is required.
+DEFAULT_REF_PATTERN = r"Ref:MSG\d{6,12}"
+
+
+def ticket_ref(msgs: list[dict[str, Any]], is_ticket: Any, pattern: str) -> str:
+    """The reference line to carry in a reply: from the newest message sent by the
+    ticket system (never the operator's own mail, whose quoted text can hold an older
+    one). Within that message, the last match wins: notices quote history first and
+    put their own reference at the bottom."""
+    rx = re.compile(pattern)
+    for m in reversed(msgs):
+        frm = m.get("from_addr") or m.get("from") or ""
+        if m.get("mine") or not is_ticket(frm):
+            continue
+        hits = rx.findall(m.get("body") or "")
+        if hits:
+            return str(hits[-1])
+    return ""
+
+
+def with_ref(body: str, ref: str, pattern: str) -> str:
+    """Body with exactly one reference line, the right one, at the end after the
+    signature (unquoted, on its own line). Any other reference line is removed."""
+    if not ref:
+        return body
+    rx = re.compile(r"(?m)^[ \t>]*" + pattern + r"[ \t]*$\n?")
+    kept = rx.sub("", body).rstrip()
+    return f"{kept}\n\n{ref}\n" if kept else f"{ref}\n"
 
 
 class ComposeError(Exception):
@@ -71,10 +101,19 @@ def _fwd_subject(s: str) -> str:
 
 
 class Composer:
-    def __init__(self, cfg: Config, store: Store, me: set[str]):
+    def __init__(
+        self,
+        cfg: Config,
+        store: Store,
+        me: set[str],
+        is_ticket: Any = None,
+    ):
+        """is_ticket(address) -> True when the address is the ticket system's sender."""
         self.cfg = cfg
         self.store = store
         self.me = me
+        self.is_ticket = is_ticket or (lambda a: False)
+        self.ref_pattern = str(cfg.get("tickets", "ref_pattern", DEFAULT_REF_PATTERN))
         self.delay = int(cfg.get("mail", "send_delay_seconds", 15))
         self.org = str(cfg.get("ledger", "org_email_domain", "")).lower()
         self._timers: dict[int, threading.Timer] = {}
@@ -103,6 +142,7 @@ class Composer:
         for v in d["versions"]:
             v["lint"] = json.loads(v["lint"] or "[]")
         d["current"] = d["versions"][-1] if d["versions"] else None
+        d["ticket_ref"] = self.ref_for(did)
         if d["kind"] == "slack" and d["state"] == "SENT":
             hit = self.store.cache_get(f"draft:{did}:sent_result")
             d["sent_result"] = hit[0] if hit else None
@@ -125,6 +165,7 @@ class Composer:
         """New draft from a thread (reply / reply_all / forward) or blank (new)."""
         now = time.time()
         to, cc, subject, body = "", "", "", ""
+        ref = ""
         thread_id = reply_to = in_reply_to = refs = None
         participants: set[str] = set()
         if thread and thread.get("messages"):
@@ -168,6 +209,11 @@ class Composer:
                     f"Subject: {base}\nTo: {target.get('to', '')}\n\n"
                     f"{target.get('body', '')}"
                 )
+        if kind in ("reply", "reply_all") and thread and thread.get("messages"):
+            # Only when the reply goes to the ticket system: a side conversation with
+            # people on the ticket (not the desk) is not filed on the ticket.
+            if any(self.is_ticket(a) for _, a in email.utils.getaddresses([to, cc])):
+                ref = ticket_ref(thread["messages"], self.is_ticket, self.ref_pattern)
         c = self._db()
         with c:
             cur = c.execute(
@@ -177,6 +223,8 @@ class Composer:
             )
             did = int(cur.lastrowid or 0)
         self.store.cache_put(f"draft:{did}:participants", sorted(participants))
+        if ref:
+            self.store.cache_put(f"draft:{did}:ticket_ref", ref)
         return self.save(
             did,
             {
@@ -232,9 +280,13 @@ class Composer:
         return [self.get(r[0]) for r in rows]
 
     # ---------------------------------------------------------------- versions
+    def ref_for(self, did: int) -> str:
+        hit = self.store.cache_get(f"draft:{did}:ticket_ref")
+        return str(hit[0]) if hit and hit[0] else ""
+
     def _lint(self, did: int, d: dict[str, Any], v: dict[str, Any]) -> list[Issue]:
         hit = self.store.cache_get(f"draft:{did}:participants")
-        return lint(
+        issues = lint(
             v,
             load_style(),
             thread_participants=set(hit[0]) if hit else set(),
@@ -242,6 +294,37 @@ class Composer:
             org_domain=self.org,
             kind=d["kind"],
         )
+        ref = self.ref_for(did)
+        if ref and d["kind"] in ("reply", "reply_all"):
+            body = v.get("body") or ""
+            found = re.findall(r"(?m)^[ \t]*(" + self.ref_pattern + r")[ \t]*$", body)
+            if found != [ref]:
+                if not found:
+                    msg = f"Ticket reply: the reference line {ref} is missing."
+                else:
+                    msg = f"Ticket reply: the reference line must be {ref}, once."
+                issues.append(Issue("error", "ticket_ref", msg + " Use Put back the Ref line."))
+            else:
+                last = [ln for ln in body.rstrip().splitlines() if ln.strip()][-1:]
+                if last != [ref] and (not last or last[0].strip() != ref):
+                    issues.append(
+                        Issue(
+                            "warning",
+                            "ticket_ref_place",
+                            f"Ticket reply: {ref} usually goes last, after your signature.",
+                        )
+                    )
+        return issues
+
+    def fix_ref(self, did: int) -> dict[str, Any]:
+        """Put the ticket reference line back (the operator's button)."""
+        d = self.get(did)
+        ref = self.ref_for(did)
+        if not ref:
+            raise ComposeError(409, "This draft has no ticket reference")
+        cur = d["current"] or {}
+        body = with_ref(cur.get("body") or "", ref, self.ref_pattern)
+        return self.save(did, {"body": body}, "me", f"put back {ref}")
 
     def save(
         self, did: int, fields: dict[str, Any], author: str, instruction: str = ""
@@ -251,6 +334,11 @@ class Composer:
             raise ComposeError(409, f"Draft is {d['state']}; it can't be edited")
         cur = d["current"] or {}
         v = {k: fields.get(k, cur.get(k, "")) or "" for k in FIELDS}
+        ref = self.ref_for(did)
+        if ref and author != "me":
+            # AI and Studio text always carries the reference; the operator's own edits
+            # are left alone (lint blocks approval until it is back, one click away).
+            v["body"] = with_ref(v["body"], ref, self.ref_pattern)
         if cur and all(v[k] == (cur.get(k) or "") for k in FIELDS) and author == "me":
             return d  # nothing changed
         issues = self._lint(did, d, v)
@@ -376,6 +464,7 @@ class Composer:
             "thread_id": d["thread_id"],
             "lint": v["lint"],
             "kind": d["kind"],
+            "ticket_ref": d.get("ticket_ref", ""),
         }
         if d["kind"] == "slack":
             out["slack"] = {

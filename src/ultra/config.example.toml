@@ -45,6 +45,7 @@ tool_prefix = "mcp__claude_ai_Slack__"
 [tickets]
 sender_patterns = ['@service-now\.com$']
 number_patterns = ['RITM\d{7}', 'INC\d{7}', 'SCTASK\d{7}', 'REQ\d{7}']
+ref_pattern = 'Ref:MSG\d{6,12}'   # reference line replies to the desk must carry (last line)
 
 [mail]
 vip_file = "~/.config/ultra-workstation/vip.txt"

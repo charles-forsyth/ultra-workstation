@@ -934,6 +934,25 @@ Operator rules (examples of what the private file holds; no real content here):
 ## 11. Rules engine (deterministic)
 
 
+**Ticket replies (v0.9.8).** Ticket systems thread an emailed reply by the reference line
+in their notice (`Ref:MSG########` for the one in use; `[tickets] ref_pattern` to change it).
+A reply without it can be filed as a new ticket or lost.
+
+- When a reply or reply-all goes to the ticket system's address (`[tickets]
+  sender_patterns`), the reference comes from the newest message the ticket system sent
+  in the thread, and within it the last match (notices quote older references first and
+  put their own at the bottom). The operator's own messages never supply it. A reply to a
+  person on the thread but not to the desk gets none.
+- AI and Draft Studio versions always end with exactly that line, after the signature;
+  a stale or duplicated reference in model text is replaced.
+- The operator's own edits are not rewritten. A missing, wrong or duplicated reference is
+  a lint error that blocks approval, with a one-click "Put back the Ref line"; a correct
+  line that is not last is only a warning. The review screen shows the reference.
+- Checked against the operator's sent replies to the desk over 60 days: where the
+  operator included a line it matched Ultra's choice; the replies without one include a
+  side conversation (now excluded), an old reply that bounced, and one where the line was
+  present only in the HTML part.
+
 **Task mode (v0.9.7).** The task view has a Draft email button that runs the same pipeline
 for an email that moves a ledger task forward (key `t-<uuid>`):
 
@@ -1303,6 +1322,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.25 | App v0.9.8: ticket replies carry and enforce the Ref:MSG line (section 9.6): chosen from the newest desk notice, added to AI text, lint error with one-click fix for operator edits, shown on review; only for replies that go to the desk. |
 | 2026-09-30 | 0.24 | App v0.9.7: Draft Studio task mode (section 9.6): Draft email from a task, related-mail gather, recipient allow-list, thread-or-new choice, internal keys scrubbed, standing-rule flags (no unasked meeting offers, no apologies) in both modes; hand-off to the composer as an AI version with both approvals; task log card after the send. |
 | 2026-09-30 | 0.23 | App v0.9.6: house facts are never stored in the gather cache; they are looked up fresh on every gather, so a fact the operator turns off or deletes drops out of the next brief at once. |
 | 2026-09-30 | 0.22 | App v0.9.5: Draft Studio (section 9.6) shipped. Opening a mail thread starts the gather in the background (thread; each participant's other threads over 120 days; precedents from Sent: two key-word queries plus the operator's own topic words, rarity-weighted and length-normalized, mass mail counted once, then one short model call picks the 2-3 that answer the same kind of request; dated work notes naming a participant; policy passages from the private source list via sitemap ranking; relevant house facts; the item's ledger context), then the brief (asks, constraints, audience, known with validated source tags, unknown for the operator, need_from_sender, at most two risks, plan, precedent shape). Question cards with option buttons and 'save as house fact'; draft with a claim map (only sentences present in the body, only real tags); check marks each factual sentence supported / unsupported / unclear with unverified defaulting to Cut (paraphrased verdicts dropped); the chosen text lands in the composer as an AI version (new `POST /api/drafts/<id>/studio`) and still needs both approvals. House facts: local table, operator-only CRUD dialog, blank topics = always applies. Private config `[draft] sources / notes_dir / generic_words`. Real run on a live thread with the operator's reply hidden: gather + brief 7 s, draft 4 s, check 4 s; it reached the operator's own structure and facts, flagged three process claims found only in past replies as unclear. |

@@ -116,8 +116,9 @@ function scheduleSave() {
 
 function lintHtml(v) {
   const xs = v?.lint || [];
-  if (!xs.length) return `<span class="ok-t">No issues.</span>`;
-  return xs.map((i) => `<div class="lint ${i.level}">${i.level === "error" ? "Fix:" : "Check:"} ${esc(i.message)}</div>`).join("");
+  const ref = D?.ticket_ref ? `<div class="dim small-t">Ticket reply: ${esc(D.ticket_ref)} goes last so the ticket system files it on the right request.</div>` : "";
+  if (!xs.length) return `<span class="ok-t">No issues.</span>${ref}`;
+  return xs.map((i) => `<div class="lint ${i.level}">${i.level === "error" ? "Fix:" : "Check:"} ${esc(i.message)}${i.code === "ticket_ref" ? ` <button class="btn tiny" id="cx-fixref">Put back the Ref line</button>` : ""}</div>`).join("") + ref;
 }
 
 function versionsHtml() {
@@ -172,7 +173,11 @@ function renderMeta() {
   if (!D) return;
   const [cls, text] = STATE_LABEL[D.state] || ["", D.state];
   const st = $("#cx-state"); if (st) { st.className = `cx-state ${cls}`; st.textContent = `v${D.current?.version || 0} - ${text}`; }
-  const ln = $("#cx-lint"); if (ln) ln.innerHTML = lintHtml(D.current);
+  const ln = $("#cx-lint"); if (ln) {
+    ln.innerHTML = lintHtml(D.current);
+    const fr = $("#cx-fixref", ln);
+    if (fr) fr.onclick = () => busy(fr, async () => { await saveNow(); D = await api(`/api/drafts/${D.id}/fix-ref`, { method: "POST" }); render(); });
+  }
   const hb = $("#cx-histbox"); if (hb && !hb.hidden) hb.innerHTML = versionsHtml();
   const acts = $("#cx-acts"); if (!acts) return;
   const hasErr = (D.current?.lint || []).some((i) => i.level === "error");
@@ -259,6 +264,7 @@ function showReview(r) {
         <span class="k">Subject</span><span>${esc(m.subject)}</span>
       </div>
       ${r.dropped?.length ? `<div class="lint warning">Not included from the thread: ${esc(r.dropped.join(", "))}</div>` : ""}
+      ${r.ticket_ref ? `<div class="dim small-t">Ticket reference ${esc(r.ticket_ref)} is the last line.</div>` : ""}
       ${warn.map((i) => `<div class="lint warning">${esc(i.message)}</div>`).join("")}
       <pre class="rv-body">${esc(m.body)}</pre>
       <div class="dim small-t">Version ${esc(r.version)}. Sends ${esc(r.delay)} s after you confirm; you can cancel until then. This approval expires in ${Math.round(r.expires_in / 60)} minutes.</div>

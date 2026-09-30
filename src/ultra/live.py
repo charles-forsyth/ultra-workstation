@@ -82,7 +82,9 @@ class Live:
         self.ledger = Ledger(cfg, self.store)
         self.slack = Slack(cfg, self.store)
         self.ai = AI(cfg)
-        self.compose = Composer(cfg, self.store, cfg.my_addresses)
+        self.compose = Composer(
+            cfg, self.store, cfg.my_addresses, is_ticket=self.rules.is_ticket_sender
+        )
         self.send_fn = gmail_send(cfg)
         self.slack_sender = SlackSender(self.slack) if self.slack.enabled else None
         self.operator = str(cfg.get("operator", "name", ""))
@@ -214,6 +216,7 @@ class Live:
         api.add("POST", r"/api/drafts/(\d+)/versions", self.r_draft_save)
         api.add("POST", r"/api/drafts/(\d+)/ai", self.r_draft_ai)
         api.add("POST", r"/api/drafts/(\d+)/fix-ascii", self.r_draft_ascii)
+        api.add("POST", r"/api/drafts/(\d+)/fix-ref", self.r_draft_fix_ref)
         api.add("POST", r"/api/drafts/(\d+)/studio", self.r_draft_studio)
         api.add("POST", r"/api/drafts/from-task", self.r_draft_from_task)
         api.add("GET", r"/api/drafts/task/([0-9a-f-]{36})", self.r_drafts_for_task)
@@ -775,6 +778,9 @@ class Live:
             if d["state"] not in ("SENT", "DISCARDED")
         ]
         return {"drafts": sorted(drafts, key=lambda d: -d["id"])}
+
+    def r_draft_fix_ref(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._wrap(self.compose.fix_ref, self._did(m))
 
     def r_draft_ascii(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         d = self._wrap(self.compose.get, self._did(m))

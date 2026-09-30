@@ -38,12 +38,12 @@ claude_cwd = "~"
 tool_prefix = "mcp__claude_ai_Slack__"
 
 [tickets]
-sender_patterns = ["@service-now\\.com$"]
-number_patterns = ["RITM\\d{7}", "INC\\d{7}", "SCTASK\\d{7}", "REQ\\d{7}"]
+sender_patterns = ['@service-now\.com$']
+number_patterns = ['RITM\d{7}', 'INC\d{7}', 'SCTASK\d{7}', 'REQ\d{7}']
 
 [mail]
 vip_file = "~/.config/ultra-workstation/vip.txt"
-noise_patterns = ["noreply", "no-reply", "newsletter", "notification"]
+noise_patterns = ['noreply', 'no-reply', 'newsletter', 'notification']
 send_delay_seconds = 15
 sent_lookback_days = 14
 self_cc = false
@@ -51,7 +51,7 @@ self_cc = false
 [court]
 waiting_amber_days = 3
 waiting_red_days = 5
-done_signal_patterns = ["\\bis ready\\b", "\\bcompleted\\b", "\\ball set\\b", "\\bdone\\b"]
+done_signal_patterns = ['\bis ready\b', '\bcompleted\b', '\ball set\b', '\bdone\b']
 
 [ai]
 provider = "gemini"                    # or "none"

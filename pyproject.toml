@@ -1,6 +1,6 @@
 [project]
 name = "ultra-workstation"
-version = "0.1.0"
+version = "0.2.0"
 description = "Ultra AI Workstation Desktop: email, calendar, Slack and a work ledger in one local web workstation, with AI drafting, double-approved sending, and drag-to-log."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -49,7 +49,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S105", "S106", "S108"]
+"tests/*" = ["S101", "S105", "S106", "S108", "E501"]  # fake CLIs are embedded strings
 
 [tool.mypy]
 python_version = "3.12"

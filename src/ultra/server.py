@@ -39,10 +39,16 @@ class Api:
         self.routes: list[tuple[str, re.Pattern[str], Handler]] = []
         self.add("GET", r"/api/health", self.health)
         self.add("GET", r"/api/session", self.session)
+        self.live: Any = None
         if demo:
             from ultra import demo as demo_data
 
             demo_data.register(self)
+        else:
+            from ultra.live import Live
+
+            self.live = Live(cfg)
+            self.live.register(self)
 
     def add(self, method: str, pattern: str, fn: Handler) -> None:
         self.routes.append((method, re.compile(f"^{pattern}$"), fn))
@@ -73,6 +79,7 @@ class Api:
             "demo": self.demo,
             "operator": self.cfg.get("operator", "name", ""),
             "timezone": self.cfg.timezone,
+            "slack": bool(self.live and self.live.slack.enabled) or self.demo,
         }
 
 
@@ -189,8 +196,10 @@ def build(
 
 
 def serve(cfg: Config, port: int, demo: bool = False) -> None:
-    httpd, _ = build(cfg, port, demo)
+    httpd, api = build(cfg, port, demo)
     print(f"[INFO] Ultra listening on http://127.0.0.1:{port}", flush=True)
+    if api.live is not None:
+        api.live.warm()
     try:
         httpd.serve_forever()
     finally:

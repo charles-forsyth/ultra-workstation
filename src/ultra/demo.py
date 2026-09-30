@@ -81,29 +81,37 @@ THREADS: dict[str, list[dict[str, str]]] = {
 CONTEXT = {
     "ben@example.org": {
         "name": "Ben Carter",
+        "netid": "bcarter",
         "title": "Deputy Director",
-        "labs": [],
+        "labs": ["Lovelace Lab"],
         "projects": ["ada-lab"],
-        "open_tasks": 2,
-        "last_log": "2026-09-28",
-        "replied": False,
+        "open_tasks": [
+            {
+                "id": "t-1",
+                "summary": "Hand over ada-lab to Ada: turn on APIs, add Ada.",
+            },
+            {
+                "id": "t-2",
+                "summary": "Confirm the budget alert covers the new account.",
+            },
+        ],
+        "interactions": [
+            {"id": "i-1", "summary": "Ben asked for the ada-lab handover plan."}
+        ],
+        "interaction_count": 1,
+        "matched_by": "address",
     }
 }
 
 
 def register(api: Api) -> None:
     def stream(q: dict, body: Any, m: re.Match[str]) -> dict:
-        f = (q.get("filter") or ["all"])[0]
-        items = [
-            s
-            for s in STREAM
-            if f == "all"
-            or (f == "mine" and s["court"] == "MINE")
-            or (f == "waiting" and s["court"] == "WAITING")
-            or (f == "slack" and s["source"] == "slack")
-            or (f == "tickets" and s["source"] == "ticket")
-        ]
-        return {"items": items, "demo": True}
+        from ultra.live import FILTERS
+
+        f = (q.get("filter") or ["mine"])[0]
+        keep = FILTERS.get(f, FILTERS["mine"])
+        counts = {k: sum(1 for s in STREAM if fn(s)) for k, fn in FILTERS.items()}
+        return {"items": [s for s in STREAM if keep(s)], "counts": counts, "demo": True}
 
     def thread(q: dict, body: Any, m: re.Match[str]) -> dict:
         key = m.group(1)

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.4 (build started)
+Status: v0.5 of the spec; app at v0.2.0 (read-only mail, tickets, court rules, ledger rail, Slack read)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-09-29
@@ -1154,6 +1154,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-29 | 0.5 | App v0.2.0 shipped: Gmail read (inbox + 14 days of Sent, cached by historyId, batched), ticket cards, court rules (MINE/WAITING/LOW, READY/VIP/SLOW/OVERDUE), calendar RSVP mail and notes-to-self hidden, ledger rail (people show / search / tree / tasks list, cached, parallel), Slack read via claude -p (ANTHROPIC_API_KEY stripped), `ultra auth google`, status bar. Existing token files are reused through config. TOML regex patterns are literal strings. |
 | 2026-09-29 | 0.4 | Build started. R-1 done (deep-research --json), R-2 decided (thread text sent to research only when ticked per run). Added Web search (Google Search grounding) to the selection bar and API. |
 | 2026-09-29 | 0.3 draft | Stays Python. Added selection functions (Search Nexus, Search research, Research this, Read aloud, Explain; highlights keep their functions), Research panel over the deep-research CLI (7.9), read aloud and AI voice audio (7.10), astropost parity in the mail adapter and composer (search, drafts list, labels create, attachments, send-as, forward, send saved draft), new tables and API routes, `[audio]` and `[research]` config, v0.45 milestone. Replaced X-1 with R-1/R-2. |
 | 2026-09-29 | 0.2 draft | Clarified Ultra is a separate app from the deep-research dashboard: borrows its theme (7.0 design tokens, layout, helpers) and its export/selection tools (7.8: Export menu, Copy, standalone HTML, Print/PDF, highlights and notes, AI brief builder). Added `annotations` table, export items in the delivery plan, audio exports as open item X-1. |

@@ -4,7 +4,7 @@
 level = "error"            # "error" blocks approval, "warning" only warns
 
 [[forbid]]
-pattern = "(?i)\\bsorry for the (slow|late) reply\\b"
+pattern = '(?i)\bsorry for the (slow|late) reply\b'
 message = "Skip apologetic openers."
 level = "warning"
 

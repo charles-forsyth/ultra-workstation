@@ -45,6 +45,26 @@ def test_example_config_has_no_real_data():
     assert "@" not in text.replace("@example.org", "").replace("@service-now", "")
 
 
+def test_example_config_regexes_actually_match():
+    """Regexes in the TOML examples are literal strings, so they really match."""
+    import re
+    import tomllib
+
+    c = tomllib.loads(config.example_config_text())
+    assert re.search(c["tickets"]["sender_patterns"][0], "desk@service-now.com")
+    assert all(
+        re.search(p, n)
+        for p, n in zip(
+            c["tickets"]["number_patterns"],
+            ["RITM0352361", "INC0388724", "SCTASK0000001", "REQ0000001"],
+            strict=True,
+        )
+    )
+    assert re.search(c["court"]["done_signal_patterns"][0], "the project is ready")
+    s = tomllib.loads(config.example_style_text())
+    assert re.search(s["forbid"][0]["pattern"], "Sorry for the slow reply")
+
+
 def test_env_file_parsing(xdg):
     d = config.private_dir(config.config_dir())
     (d / ".env").write_text("# c\nGEMINI_API_KEY='abc123'\nBAD LINE\n")

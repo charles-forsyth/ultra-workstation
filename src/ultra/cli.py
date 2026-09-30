@@ -35,6 +35,24 @@ def build_parser() -> argparse.ArgumentParser:
     fg.add_argument("--demo", action="store_true")
     sub.add_parser("doctor", help="Check config, file permissions, tools and keys")
 
+    a = sub.add_parser("auth", help="Authorize access to Google")
+    asub = a.add_subparsers(dest="auth_cmd")
+    g = asub.add_parser(
+        "google",
+        help="Run the Google sign-in for one capability and save its token",
+        description=(
+            "Opens a browser for Google sign-in and saves a token to the path set in "
+            "config ([google] token_<capability>). Only needed when a token is "
+            "missing, revoked, or lacks the scope; existing token files can be reused "
+            "by pointing config at them."
+        ),
+    )
+    g.add_argument(
+        "--capability",
+        choices=["read", "modify", "send", "calendar"],
+        required=True,
+    )
+
     c = sub.add_parser("config", help="Configuration files")
     csub = c.add_subparsers(dest="config_cmd")
     csub.add_parser(
@@ -112,6 +130,19 @@ def main(argv: list[str] | None = None) -> None:
             bad += int(c.required and not c.ok)
             print(f"  {mark} {c.name:26} {c.detail}")
         sys.exit(1 if bad else 0)
+    if cmd == "auth":
+        if args.auth_cmd != "google":
+            print("usage: ultra auth google --capability read|modify|send|calendar")
+            sys.exit(2)
+        from ultra import google_auth
+
+        try:
+            path = google_auth.authorize(cfg, args.capability)
+        except (FileNotFoundError, google_auth.AuthNeeded) as e:
+            print(f"[ERROR] {e}")
+            sys.exit(1)
+        print(f"[INFO] Saved {args.capability} token to {path}")
+        return
     if cmd == "config":
         if args.config_cmd == "init":
             sys.exit(_config_init())

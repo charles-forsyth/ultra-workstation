@@ -1,0 +1,88 @@
+"""Local SQLite store: caches and (later) drafts, approvals, journal. Mode 600."""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+from ultra.config import data_dir, private_dir
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS kv_cache (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    fetched_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT,
+    ok INTEGER NOT NULL,
+    detail TEXT
+);
+"""
+
+
+class Store:
+    def __init__(self, path: Path | None = None):
+        if path is None:
+            path = private_dir(data_dir()) / "state.db"
+        self.path = path
+        new = not path.exists()
+        self._local = threading.local()
+        with self._conn() as c:
+            c.executescript(SCHEMA)
+        if new:
+            os.chmod(path, 0o600)
+
+    def _conn(self) -> sqlite3.Connection:
+        c = getattr(self._local, "conn", None)
+        if c is None:
+            c = sqlite3.connect(self.path, timeout=10)
+            c.execute("PRAGMA journal_mode=WAL")
+            self._local.conn = c
+        return c
+
+    # ---------------------------------------------------------------- cache
+    def cache_get(self, key: str, ttl: float | None = None) -> tuple[Any, float] | None:
+        """(value, age_seconds) or None. With ttl, stale entries return None."""
+        row = (
+            self._conn()
+            .execute("SELECT value, fetched_at FROM kv_cache WHERE key = ?", (key,))
+            .fetchone()
+        )
+        if not row:
+            return None
+        age = time.time() - row[1]
+        if ttl is not None and age > ttl:
+            return None
+        return json.loads(row[0]), age
+
+    def cache_put(self, key: str, value: Any) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO kv_cache (key, value, fetched_at) "
+                "VALUES (?,?,?)",
+                (key, json.dumps(value, default=str), time.time()),
+            )
+
+    def cache_prune(self, max_age: float = 30 * 86400) -> None:
+        with self._conn() as c:
+            c.execute(
+                "DELETE FROM kv_cache WHERE fetched_at < ?", (time.time() - max_age,)
+            )
+
+    # ---------------------------------------------------------------- journal
+    def journal(self, action: str, target: str, ok: bool, detail: Any = None) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO journal (ts, action, target, ok, detail) "
+                "VALUES (?,?,?,?,?)",
+                (time.time(), action, target, int(ok), json.dumps(detail, default=str)),
+            )

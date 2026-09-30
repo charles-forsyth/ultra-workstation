@@ -85,6 +85,7 @@ class Desk:
         api.add("POST", r"/api/ledger/stage", self.r_stage)
         api.add("POST", r"/api/ledger/ai-text", self.r_ai_text)
         api.add("POST", r"/api/ledger/stage-task-log", self.r_stage_task_log)
+        api.add("POST", r"/api/ledger/stage-briefing", self.r_stage_briefing)
         api.add("POST", r"/api/ledger/commit", self.r_commit)
         api.add("GET", r"/api/ledger/commit/([A-Za-z0-9_-]+)", self.r_commit_status)
         api.add("POST", r"/api/ledger/link", self.r_link)
@@ -262,6 +263,37 @@ class Desk:
             raise _bad(str(e)) from e
         card["from_bucket"] = from_bucket
         self.stager.annotate(card["id"], from_bucket=from_bucket)
+        card["ledger"] = self.ledger.enabled
+        return card
+
+    def r_stage_briefing(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """A log card whose text is the (edited) item briefing, with the item's people
+        and things as chips. Same one-commit card as every other log; nothing is
+        written until the operator presses Commit on it."""
+        b = body or {}
+        key = str(b.get("key", ""))
+        text = ascii_fix(str(b.get("text") or "")).strip()
+        if not text:
+            raise _bad("briefing text is empty")
+        if len(text) > 20000:
+            raise _bad("briefing is over 20000 characters; shorten it first")
+        items: list[dict[str, Any]] = []
+        if KEY_RE.match(key):
+            items.append(snapshot_thread(key, self._thread(key), self.rules, _kind_of(key)))
+        ents = [e for e in (b.get("entities") or []) if isinstance(e, dict)][:30]
+        for e in ents:
+            if UUID.match(str(e.get("id", "")).lower()):
+                items.append(
+                    snapshot_entity(
+                        {"id": e["id"], "name": e.get("name", ""), "type": e.get("type", "")}
+                    )
+                )
+        if not items:
+            raise _bad("nothing to link the briefing to")
+        card = self.stager.stage("log", items)
+        card["text"] = text
+        self.stager.annotate(card["id"], from_bucket=False)
+        card["from_bucket"] = False
         card["ledger"] = self.ledger.enabled
         return card
 

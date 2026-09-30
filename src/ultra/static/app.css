@@ -323,3 +323,25 @@ li.ix.unlinked { opacity: .85; }
 .item .ra { background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; color: var(--dim); font-size: 11px; padding: 1px 7px; cursor: pointer; }
 .item .ra:hover { color: var(--cyan); border-color: var(--cyan); }
 @media (hover: none) { .item .ract { opacity: 1; max-height: 30px; } }  /* phones: always shown */
+
+/* ---- v0.8 item context: People + Full ---- */
+.chip-s { display: inline-block; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 6px; margin: 2px 2px 0 0; font-size: 11px; color: var(--text); }
+.sugg { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 6px; font-size: 12px; }
+.badge.warn { color: var(--amber); border-color: var(--amber); background: var(--amber-d); }
+.ibrief { border: 1px solid var(--magenta); background: var(--magenta-d); border-radius: var(--radius); padding: 8px 10px; margin: 10px 0; }
+.ibrief .aisum-head { flex-wrap: wrap; }
+.ibrief .aisum-head .btn { margin-left: 0; }
+.ibrief textarea { width: 100%; min-height: 260px; font: 12px/1.45 var(--mono); background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 4px; padding: 6px; }
+.brief-md { max-width: none; max-height: none; overflow: visible; font-family: var(--sans); font-size: 13px; line-height: 1.5; }
+.brief-md h3, .brief-md h4 { margin: 10px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--magenta); }
+.brief-md ul { margin: 0 0 6px 18px; padding: 0; }
+.brief-md p { margin: 0 0 6px; }
+.cite { background: transparent; border: 1px solid var(--line-2); border-radius: 3px; color: var(--cyan); font: 10px var(--mono); padding: 0 3px; margin: 0 1px; cursor: pointer; vertical-align: 1px; }
+.cite:hover { border-color: var(--cyan); background: var(--cyan-d); }
+li.ix.itemmsg { border-left: 2px solid var(--amber); padding-left: 6px; }
+li.ix.open .ix-t { display: block; -webkit-line-clamp: unset; }
+li.ix.flash { background: var(--cyan-d); transition: background .3s; }
+.btn.danger { border-color: var(--red); color: var(--red); }
+.btn.danger:not([disabled]):hover { background: var(--red-d); }
+#rt-full .clist { list-style: none; padding-left: 0; }
+#rt-full li.ix { margin-bottom: 6px; }

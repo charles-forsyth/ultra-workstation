@@ -2,8 +2,8 @@
 // Helpers adapted from the deep-research dashboard (MIT, same author).
 
 import { openDraft, openSlackDraft, resumeForThread, onSent } from "./compose.js";
-import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, showTaskPeople, openPersonByAddr } from "./ledger.js";
-import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog } from "./tools.js";
+import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, openPersonByAddr } from "./ledger.js";
+import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initToday, openToday, closeToday, todayOpen } from "./today.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -395,7 +395,7 @@ async function openTask(i) {
     if (await act({ action: "snooze", days: Number(v) }, `Snoozed for ${v} day(s). Only on this laptop.`)) removeRow(it);
   };
   th.ondragstart = (e) => { const li = e.target.closest("[data-ent]"); if (li) e.dataTransfer.setData("application/x-ultra-entity", li.dataset.ent); };
-  showTaskPeople(d.links);
+  if (S.key === it.key) loadPeople(it);  // v0.8: the task's people + everyone named in it, and the Full tab
 }
 
 function threadsOf(it) {
@@ -630,6 +630,7 @@ async function boot() {
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
   });
   window.addEventListener("ultra:person", (ev) => openPersonByAddr(ev.detail));
+  window.addEventListener("ultra:listen", (ev) => listen(ev.detail.text, ev.detail.title));
   await loadStream();
   pollStatus(); setInterval(pollStatus, 5000);
 }

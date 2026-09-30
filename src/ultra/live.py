@@ -21,6 +21,8 @@ from ultra.calendar import Calendar
 from ultra.compose import ComposeError, Composer, gmail_send
 from ultra.config import Config, expand
 from ultra.desk import Desk
+from ultra.itemctx import ItemContext
+from ultra.itemdesk import ItemDesk
 from ultra.ledger import Ledger, LedgerError
 from ultra.ledger_write import LedgerWriter
 from ultra.lint import ascii_fix, load_style
@@ -95,6 +97,18 @@ class Live:
             ai=self.ai,
             operator=self.operator,
         )
+        me_ids = {str(cfg.get("ledger", "my_id", "") or "")}
+        me_ids |= {a.split("@")[0] for a in addrs if "@" in a}
+        self.ictx = ItemContext(self.ledger, self.store, self.rules, me_ids)
+        self.itemdesk = ItemDesk(
+            self.ictx,
+            self.thread_any,
+            lambda tid: self.r_task_thread({}, None, re.match(r"(.+)", tid)),  # type: ignore[arg-type]
+            self.writer,
+            self.ai,
+            self.store,
+            self.operator,
+        )
         self.research = Research(cfg, self.store)
         self.audio = Audio(cfg, self.store, self.ai)
         self.tools = Tools(self.research, self.ai, self.audio, self.thread_text_for, self.operator)
@@ -152,6 +166,7 @@ class Live:
         api.add("POST", r"/api/slack/undone", self.r_slack_undone)
         api.add("GET", r"/api/context/([^/]+)", self.r_context)
         self.desk.register(api)
+        self.itemdesk.register(api)
         self.tools.register(api)
         self.today.register(api)
         # triage

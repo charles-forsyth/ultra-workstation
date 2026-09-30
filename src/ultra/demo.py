@@ -7,7 +7,7 @@ in demo mode: the adapters are not constructed at all.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from ultra.server import Api
@@ -68,7 +68,10 @@ THREADS: dict[str, list[dict[str, str]]] = {
         {
             "from": "Ben Carter <ben@example.org>",
             "ts": "2026-09-28 17:54",
-            "body": "The project is ready. Please work with Ada to hand it over.",
+            "body": "The project is ready. Please work with Ada to hand it over. "
+            "Dee Evans signed off on the budget, and Eli Fox will move the "
+            "lab-share data once the ada-lab APIs are on. Grant NSF-2400001 covers "
+            "the storage. Also looping in Grace for the Hopper Lab side.",
         },
         {
             "from": "Ada Lovelace <ada@example.org>",
@@ -310,6 +313,36 @@ class DemoAI:
         from ultra.ai import Result
 
         return Result(f"Demo: '{passage[:40]}' is explained here.", "demo", 0, 0.0)
+
+    def briefing(self, context_text: str, operator: str) -> Any:
+        from ultra.ai import Result
+
+        md = (
+            "## What this is about\n"
+            "Ben Carter is handing the ada-lab cloud project over to Ada, with storage "
+            "funded by NSF-2400001 [M1, L:11111111].\n\n"
+            "## History\n"
+            "* 2026-09-14: Kickoff for ada-lab; Ben is the admin contact [L:11111111].\n"
+            "* 2026-09-22: Dee Evans approved the storage budget [L:11111111].\n"
+            "* 2026-09-25: Eli Fox sized the lab-share move at 6 TB [L:11111111].\n"
+            "* 2026-09-28: Ben wrote that the project is ready to hand over [M1].\n\n"
+            "## Issues and open items\n"
+            "* The APIs must be on before Eli can move lab-share [M1].\n\n"
+            "## Current state\n"
+            "Ada asked when the account will be ready for her students [M2].\n\n"
+            "## Suggested next steps\n"
+            "* Turn on the ada-lab APIs, then tell Eli to start the move [M1].\n"
+        )
+        return Result(md, "demo", 0, 0.0)
+
+    def possible_matches(
+        self, item_text: str, candidates: list[dict[str, Any]], known: list[str]
+    ) -> list[dict[str, Any]]:
+        return [
+            {**c, "why": "'the storage' in message 1"}
+            for c in candidates
+            if c.get("name") == "Campus Storage"
+        ][:1]
 
 
 def _register_tools(api: Api) -> None:
@@ -594,6 +627,7 @@ class DemoLedger:
 
     def __init__(self) -> None:
         self.records: dict[str, dict[str, Any]] = {}
+        self.added: list[dict[str, Any]] = []
 
     def resolve(self, addr: str, name: str = "") -> dict[str, Any] | None:
         if addr == "ben@example.org":
@@ -613,6 +647,148 @@ class DemoLedger:
                 "matched_by": "address",
             }
         return None
+
+    # -- v0.8 item context (invented data only)
+    PEOPLE: ClassVar[list[dict[str, Any]]] = [
+        {"netid": "bcarter", "name": "Ben Carter", "title": "Deputy Director"},
+        {"netid": "cdunn", "name": "Cy Dunn", "title": "Analyst"},
+        {"netid": "devans", "name": "Dee Evans", "title": "Budget Officer"},
+        {"netid": "efox", "name": "Eli Fox", "title": "Storage Engineer"},
+        {"netid": "ghopper", "name": "Grace Hopper", "title": "Professor"},
+        {"netid": "gwu", "name": "Grace Wu", "title": "Postdoc"},
+    ]
+
+    def catalog(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "people": list(self.PEOPLE),
+            "labs": [
+                {"name": "Lovelace Lab (adal)"},
+                {"name": "Hopper Lab (ghopper)"},
+                {"name": "Research Computing"},
+            ],
+            "gcp": [{"project_id": "ada-lab", "name": "Ada Lab", "status": "ACTIVE"}],
+            "projects": [{"name": "Campus Storage", "status": "ACTIVE"}],
+            "grants": [{"c_number": "NSF-2400001", "title": "Campus storage upgrade"}],
+            "assets": [{"name": "lab-share", "type": "STORAGE"}],
+        }
+
+    def person_show(self, netid: str) -> dict[str, Any] | None:
+        p = next((x for x in self.PEOPLE + self.added if x["netid"] == netid), None)
+        return (
+            {**p, "id": DEMO_IDS.get("ben@example.org") if netid == "bcarter" else ""}
+            if p
+            else None
+        )
+
+    def _run(self, args: list[str], timeout: int = 0) -> Any:  # people show only
+        if args[:2] == ["people", "show"]:
+            return self.person_show(args[2])
+        raise RuntimeError("demo ledger: read not supported")
+
+    def dossier(self, netid: str) -> dict[str, Any] | None:
+        p = self.person_show(netid)
+        if not p:
+            return None
+        ix = {
+            "bcarter": [
+                {
+                    "id": "11111111-aaaa-4aaa-8aaa-000000000001",
+                    "date": "2026-09-14T10:00:00",
+                    "summary": "Kickoff for the ada-lab cloud project; Ben is the admin contact.",
+                },
+                {
+                    "id": "11111111-aaaa-4aaa-8aaa-000000000002",
+                    "date": "2026-09-28T09:30:00",
+                    "summary": "Ben asked for the ada-lab handover plan: APIs first, then owner, "
+                    "then billing.",
+                },
+            ],
+            "devans": [
+                {
+                    "id": "11111111-aaaa-4aaa-8aaa-000000000003",
+                    "date": "2026-09-22T15:00:00",
+                    "summary": "Dee approved the storage budget under NSF-2400001.",
+                },
+            ],
+            "efox": [
+                {
+                    "id": "11111111-aaaa-4aaa-8aaa-000000000004",
+                    "date": "2026-09-25T11:00:00",
+                    "summary": "Eli sized the lab-share move at 6 TB; waiting on the ada-lab APIs.",
+                },
+            ],
+        }.get(netid, [])
+        return {
+            "researcher": {
+                "id": p.get("id") or "",
+                "netid": netid,
+                "name": p["name"],
+                "title": p.get("title"),
+                "dept": "Research Computing",
+            },
+            "labs": [{"id": DEMO_IDS["lab"], "name": "Lovelace Lab (adal)", "entity_type": "Lab"}]
+            if netid in ("bcarter", "efox")
+            else [],
+            "grants": [],
+            "projects": [],
+            "assets": [],
+            "interactions": ix,
+            "connections": [
+                {"id": DEMO_IDS["project"], "name": "ada-lab", "entity_type": "GCPProject"},
+                {
+                    "id": "55555555-5555-4555-8555-555555555552",
+                    "name": "budget alert",
+                    "entity_type": "Task",
+                },
+            ]
+            if netid == "bcarter"
+            else [],
+            "external_state": [],
+        }
+
+    def tree(self, ident: str) -> dict[str, Any] | None:
+        roots = {
+            "ada-lab": {"id": DEMO_IDS["project"], "type": "GCPProject", "name": "ada-lab"},
+            "NSF-2400001": {
+                "id": "22222222-bbbb-4bbb-8bbb-000000000001",
+                "type": "Grant",
+                "name": "Campus storage upgrade",
+            },
+            "Hopper Lab (ghopper)": {
+                "id": "22222222-bbbb-4bbb-8bbb-000000000002",
+                "type": "Lab",
+                "name": "Hopper Lab (ghopper)",
+            },
+        }
+        r = roots.get(ident)
+        if not r:
+            return None
+        conns = (
+            [
+                {
+                    "id": "11111111-aaaa-4aaa-8aaa-000000000005",
+                    "entity_type": "Interaction",
+                    "name": "Budget alert set for ada-lab at 80 percent.",
+                }
+            ]
+            if ident == "ada-lab"
+            else []
+        )
+        return {"root": r, "connections": conns}
+
+    def search_raw(self, term: str, limit: int = 25) -> list[dict[str, Any]]:
+        return [
+            {"id": DEMO_IDS["lab"], "name": "Lovelace Lab (adal)", "type": "Lab", "score": 0.8},
+            {
+                "id": "33333333-cccc-4ccc-8ccc-000000000001",
+                "name": "Campus Storage",
+                "type": "ResearchProject",
+                "score": 0.7,
+            },
+        ]
+
+    def open_tasks(self) -> dict[str, dict[str, Any]]:
+        return {t["id"]: t for t in DEMO_TASKS if t.get("status") != "DONE"}
 
     def context(self, addr: str, name: str = "") -> dict[str, Any]:
         p = self.resolve(addr, name)
@@ -767,6 +943,22 @@ class DemoWriter:
         self.calls.append(("task_status", {"id": task_id, "status": status}))
         return {"ok": True, "rc": 0}
 
+    def person_add(self, fields: dict[str, str], exists: Any) -> dict[str, Any]:
+        from ultra.ledger_write import WriteError, check_person
+
+        f = check_person(
+            fields.get("netid", ""),
+            fields.get("name", ""),
+            fields.get("title", ""),
+            fields.get("dept", ""),
+        )
+        if exists(f["netid"]):
+            raise WriteError(f"{f['netid']} is already in the ledger")
+        self.calls.append(("person_add", dict(f)))
+        self.ledger.added.append({**f, "id": self._id()})
+        after = exists(f["netid"])
+        return {"ok": bool(after), "rc": 0, "record": after}
+
 
 def _register_desk(api: Api) -> None:
     import tempfile
@@ -815,6 +1007,18 @@ def _register_desk(api: Api) -> None:
         "America/New_York",
         me_netid="adal",
     ).register(api)
+
+    from ultra.itemctx import ItemContext
+    from ultra.itemdesk import ItemDesk
+
+    def task_fn(tid: str) -> dict[str, Any] | None:
+        t = next((x for x in DEMO_TASKS if x["id"] == tid), None)
+        return {"task": t, "links": []} if t else None
+
+    rules = Rules(me={"ada@example.org"})
+    ictx = ItemContext(ledger, store, rules, {"adal"})
+    api.demo_ictx = ictx  # type: ignore[attr-defined]
+    ItemDesk(ictx, thread_fn, task_fn, writer, DemoAI(), store, "Ada").register(api)
 
 
 DEMO_SLACK_CH = "C0DEMO0001"

@@ -30,7 +30,41 @@ LINK_TYPES = {"PARTICIPATED_IN", "REFERENCED_IN"}
 PRIORITIES = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
 STATUSES = {"TODO", "IN_PROGRESS", "BLOCKED", "DONE"}
 WRITE_COMMANDS = {("log",), ("tasks", "add"), ("tasks", "update"), ("link",), ("unlink",)}
+# `people add` is NOT in WRITE_COMMANDS: only person_add() below may run it, and only
+# with a server-issued, double-confirmed, single-use token (see desk.PersonAdd).
+PEOPLE_ADD = ("people", "add")
 MAX_TEXT = 20000
+
+NETID_RE = re.compile(r"^[a-z][a-z0-9]{1,15}$")
+NAME_RE = re.compile(r"^[A-Z][A-Za-z'.-]*( [A-Za-z][A-Za-z'.-]*){1,4}$")
+FIELD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 &,.'()/-]{0,119}$")
+
+
+def check_person(netid: str, name: str, title: str = "", dept: str = "") -> dict[str, str]:
+    """Strict checks for a new ledger person. Raises WriteError with a plain reason.
+
+    - netid: lowercase letters and digits, starts with a letter, 2-16 chars
+    - name: 2-5 words, starts with a capital, letters and ' . - only (no digits,
+      no brackets, no @, nothing that could be an option or markup)
+    - title / dept: optional, 1-120 chars of letters, digits and simple punctuation
+    Everything must be plain ASCII.
+    """
+    netid = (netid or "").strip()
+    name = " ".join((name or "").split())
+    title = " ".join((title or "").split())
+    dept = " ".join((dept or "").split())
+    for label, v in (("netid", netid), ("name", name), ("title", title), ("dept", dept)):
+        if not v.isascii():
+            raise WriteError(f"{label} must be plain ASCII")
+    if not NETID_RE.match(netid):
+        raise WriteError("netid must be 2-16 lowercase letters/digits, starting with a letter")
+    if not NAME_RE.match(name) or len(name) > 80:
+        raise WriteError("name must be 2-5 words of letters (First Last), under 80 characters")
+    if title and not FIELD_RE.match(title):
+        raise WriteError("title has characters that are not allowed")
+    if dept and not FIELD_RE.match(dept):
+        raise WriteError("dept has characters that are not allowed")
+    return {"netid": netid, "name": name, "title": title, "dept": dept}
 
 
 class WriteError(Exception):
@@ -62,10 +96,16 @@ class LedgerWriter:
         return env
 
     def _run(
-        self, args: list[str], stdin: str | None = None, timeout: int = 240
+        self,
+        args: list[str],
+        stdin: str | None = None,
+        timeout: int = 240,
+        _people_add: bool = False,
     ) -> tuple[int, str]:
         key = tuple(a for a in args[:2] if not a.startswith("-"))
-        if key not in WRITE_COMMANDS and key[:1] not in WRITE_COMMANDS:
+        if key == PEOPLE_ADD and not _people_add:
+            raise WriteError("people add is only allowed through the Add to ledger button")
+        if key != PEOPLE_ADD and key not in WRITE_COMMANDS and key[:1] not in WRITE_COMMANDS:
             raise WriteError(f"not an allowed write command: {' '.join(args[:2])}")
         if not self.enabled:
             raise WriteError("ledger CLI not found")
@@ -175,6 +215,44 @@ class LedgerWriter:
         self.store.journal("ledger_task_priority", tid, ok, {"priority": priority, "rc": rc})
         self._invalidate()
         return {"ok": ok, "rc": rc, "output_tail": _tail(out)}
+
+    # ---------------------------------------------------------------- people
+    def person_add(self, fields: dict[str, str], exists: Any) -> dict[str, Any]:
+        """`nexus people add NETID NAME [--title T] [--dept D]`. Never retried.
+
+        Called only by desk.PersonAdd after the second confirmation. Re-checks every
+        field here too (defence in depth), refuses if the netid already exists, then
+        reads the record back with ``exists(netid)`` and reports what the ledger holds.
+        """
+        f = check_person(
+            fields.get("netid", ""),
+            fields.get("name", ""),
+            fields.get("title", ""),
+            fields.get("dept", ""),
+        )
+        before = exists(f["netid"])
+        if before:
+            raise WriteError(f"{f['netid']} is already in the ledger ({before.get('name', '')})")
+        args = ["people", "add"]
+        if f["title"]:
+            args += ["--title", f["title"]]
+        if f["dept"]:
+            args += ["--dept", f["dept"]]
+        args += ["--", f["netid"], f["name"]]  # "--": nothing after it is an option
+        rc, out = self._run(args, timeout=180, _people_add=True)
+        after = exists(f["netid"])
+        ok = bool(after) and rc == 0
+        self.store.journal("ledger_people_add", f["netid"], ok, {"rc": rc})
+        self.store.cache_del_prefix("catalog:")
+        self.store.cache_del_prefix("person:")
+        return {
+            "ok": ok,
+            "rc": rc,
+            "record": {k: after.get(k) for k in ("id", "netid", "name", "title", "dept")}
+            if after
+            else None,
+            "output_tail": _tail(out),
+        }
 
     # ---------------------------------------------------------------- links
     def link(self, source: str, target: str, kind: str) -> dict[str, Any]:

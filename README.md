@@ -4,7 +4,7 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger by dragging it into a bucket.
 
-Status: v0.7.2. Mail read and write (double-approval send), AI summary and drafting,
+Status: v0.8.0. Mail read and write (double-approval send), AI summary and drafting,
 archive with undo, ticket cards, whose-court rules, Slack read, a context rail that
 covers everyone on a conversation, and the bucket: drag conversations and people in,
 then log or make a task in the ledger with links checked by read-back; web search

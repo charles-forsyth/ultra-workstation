@@ -249,3 +249,77 @@ class AI:
             f"Change requested: {instruction}"
         )
         return self._gen(prompt, system, 4096, require_complete=True)
+
+    # ---------------------------------------------------------------- item briefing
+    def briefing(self, context_text: str, operator: str) -> Result:
+        """Synthesis of one stream item's full ledger context (v0.8 Full tab).
+
+        The context is data (the item's messages plus ledger history), wrapped the same
+        way as mail. Every claim must cite the entry it came from, so the operator can
+        check it: [L:<8-char ledger id>] for a ledger interaction, [M<n>] for message n
+        of this item. Returns Markdown; the caller shows it as an editable draft.
+        """
+        system = (
+            f"You brief {operator or 'the operator'} on one conversation and everything "
+            "their work ledger knows about the people and things in it. "
+            + GUARD.replace("email content", "email content and ledger records")
+            + " Write in plain ASCII (no smart quotes, no em dashes, no emoji). "
+            "Use exactly these Markdown sections, in order:\n"
+            "## What this is about\n(2-4 sentences)\n"
+            "## History\n(bullets, oldest to newest: date, who did what, by which channel "
+            "(email, meeting, Slack, ticket, call), and why)\n"
+            "## Issues and open items\n(bullets; include open ledger tasks that matter, "
+            "citing them as [T:abcd1234] with the task id)\n"
+            "## Current state\n(2-4 sentences: where things stand right now, who owes what)\n"
+            "## Suggested next steps\n(1-4 bullets for the operator)\n"
+            "Cite every factual bullet: [L:abcd1234] (first 8 characters of a ledger "
+            "interaction id), [T:abcd1234] (a ledger task) or [M3] (message 3 of this "
+            "conversation). Never write ticket keys that start with RESCMP. Use only facts in "
+            "the data; if something is unclear, say so. Skip ledger entries unrelated to "
+            "this conversation. Names are as written in the data."
+        )
+        return self._gen(f"<mail>\n{context_text}\n</mail>", system, 3000, require_complete=True)
+
+    def possible_matches(
+        self, item_text: str, candidates: list[dict[str, Any]], known: list[str]
+    ) -> list[dict[str, Any]]:
+        """Suggest ledger entities the item likely refers to without naming them exactly.
+
+        ``candidates``: [{id, name, type}] ledger rows found by topic search (the model
+        may only pick from these, never invent). Returns [{id, name, type, why}]; the
+        caller shows them as "possible, confirm" and ignores ids not in the list.
+        """
+        if not candidates:
+            return []
+        import json as _json
+
+        cands = "\n".join(
+            f"{c['id']} | {c.get('type', '')} | {c.get('name', '')}" for c in candidates[:40]
+        )
+        system = (
+            "You match a conversation to records in a work ledger. "
+            + GUARD
+            + " From the CANDIDATES list only, pick records the conversation refers to "
+            "indirectly (for example 'the storage project' -> a storage asset, 'Ian's lab' "
+            "-> that lab) and that are NOT already in KNOWN. Pick at most 6; pick none if "
+            "unsure. Reply with JSON only: "
+            '[{"id": "<candidate id>", "why": "<short reason quoting the conversation>"}]'
+        )
+        prompt = (
+            f"<mail>\n{item_text[:60_000]}\n</mail>\n\nKNOWN: {', '.join(known)[:3000]}\n\n"
+            f"CANDIDATES (id | type | name):\n{cands}"
+        )
+        r = self._gen(prompt, system, 800)
+        raw = r.text.strip().strip("`")
+        raw = raw[raw.find("[") : raw.rfind("]") + 1] if "[" in raw else "[]"
+        try:
+            picks = _json.loads(raw)
+        except ValueError:
+            return []
+        by_id = {c["id"]: c for c in candidates}
+        out = []
+        for p in picks if isinstance(picks, list) else []:
+            c = by_id.get(str((p or {}).get("id", "")))
+            if c:
+                out.append({**c, "why": str(p.get("why", ""))[:200]})
+        return out[:6]

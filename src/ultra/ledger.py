@@ -34,6 +34,13 @@ READ_COMMANDS = {  # the only subcommands this adapter will ever run
     ("interactions", "show"),
     ("gcp", "show"),
     ("dossier",),
+    # v0.8 item context: the whole ledger's names, for exact matching in bodies
+    ("people", "list"),
+    ("labs", "list"),
+    ("gcp", "list"),
+    ("projects", "list"),
+    ("grants", "list"),
+    ("assets", "list"),
 }
 
 
@@ -211,6 +218,56 @@ class Ledger:
         }
 
     # ---------------------------------------------------------------- full context
+    # ---------------------------------------------------------------- item context
+    def catalog(self) -> dict[str, list[dict[str, Any]]]:
+        """Names of every person, lab, GCP project, project, grant and asset.
+
+        Six list reads side by side (about 35 s), cached six hours in the state DB.
+        Needs ledger v0.1.205+ for `--all` on the non-people lists.
+        """
+        hit = self.store.cache_get("catalog:v1", 6 * 3600)
+        if hit is not None:
+            return dict(hit[0])
+        from concurrent.futures import ThreadPoolExecutor
+
+        cmds = {
+            "people": ["people", "list", "--limit", "20000"],
+            "labs": ["labs", "list", "--all"],
+            "gcp": ["gcp", "list", "--all"],
+            "projects": ["projects", "list", "--all"],
+            "grants": ["grants", "list", "--all"],
+            "assets": ["assets", "list", "--all"],
+        }
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            futs = {k: ex.submit(self._run, a, 180) for k, a in cmds.items()}
+            out = {k: (f.result() if isinstance(f.result(), list) else []) for k, f in futs.items()}
+        if out["people"]:
+            self.store.cache_put("catalog:v1", out)
+        return out
+
+    def dossier(self, netid: str) -> dict[str, Any] | None:
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", netid or ""):
+            raise LedgerError("bad netid")
+        d = self._cached(f"dossier:{netid.lower()}", TTL_FULL, ["dossier", netid])
+        return d if isinstance(d, dict) else None
+
+    def tree(self, ident: str) -> dict[str, Any] | None:
+        """`tree` by UUID, netid, lab name, GCP project id, project name or grant number."""
+        ident = " ".join(str(ident or "").split())[:200]
+        if not ident or ident.startswith("-"):
+            raise LedgerError("bad tree id")
+        d = self._cached(f"tree:{ident.lower()}", TTL_TREE, ["tree", ident])
+        return d if isinstance(d, dict) else None
+
+    def search_raw(self, term: str, limit: int = 25) -> list[dict[str, Any]]:
+        term = " ".join(term.split())[:200]
+        if not term or term.startswith("-"):
+            return []
+        res = self._cached(
+            f"search:{limit}:{term.lower()}", TTL_SEARCH, ["search", "--limit", str(limit), term]
+        )
+        return [r for r in res or [] if isinstance(r, dict) and r.get("id")]
+
     def full_context(self, addr: str, name: str = "", fresh: bool = False) -> dict[str, Any]:
         """Everything the ledger knows that relates to one person (the Full context tab).
 

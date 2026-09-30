@@ -2,7 +2,7 @@
 // Every ledger write goes: stage -> operator edits -> Commit click -> server runs the
 // CLI -> read-back -> chips turn green or red. Nothing here writes on its own.
 
-import { api, esc, toast, busy, copyText } from "./app.js";
+import { api, esc, toast, busy, copyText, localDay } from "./app.js";
 import { setComposerContext } from "./compose.js";
 import { renderMd } from "./tools.js";
 
@@ -691,7 +691,7 @@ function renderCard() {
       if (CARD.state !== "staged") return;
       const n = b.dataset.due;
       let v = "";
-      if (n !== "") { const d = new Date(); d.setDate(d.getDate() + Number(n)); v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+      if (n !== "") v = localDay(Number(n));
       $("#lc-due").value = v; CARD.due = v;
     };
   });

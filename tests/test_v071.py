@@ -58,15 +58,17 @@ def _ai(replies: list[_Resp]) -> tuple[AI, _Models]:
     return ai, models
 
 
-def test_cut_off_answer_is_refused_then_fallback_used():
-    ai, _models = _ai(
+def test_cut_off_answer_is_refused_and_not_retried_on_another_model():
+    """v0.9.2: one model only (operator rule). A cut-off answer is refused outright."""
+    ai, models = _ai(
         [
             _Resp("Hi Ada, first item. Ben Carter has the same", "MAX_TOKENS"),
             _Resp("Complete briefing. Two items. Done.", "STOP"),
         ]
     )
-    r = ai._gen("x", "sys", 800, require_complete=True)
-    assert r.text == "Complete briefing. Two items. Done." and r.model == "m-fallback"
+    with pytest.raises(AIError, match="stopped early"):
+        ai._gen("x", "sys", 800, require_complete=True)
+    assert len(models.configs) == 1
 
 
 def test_cut_off_everywhere_raises_instead_of_voicing_half():

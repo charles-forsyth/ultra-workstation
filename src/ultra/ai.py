@@ -7,11 +7,13 @@ can approve or send (SPEC 9.5). Prompts and replies are never logged.
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ultra.config import Config, load_env_file
 
@@ -50,14 +52,29 @@ class AI:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.key = load_env_file().get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY", "")
+        # Operator rule (2026-09-30): every text-generating call uses gemini-3.8-flash.
+        # No silent fallback to another model; a failure is shown, not papered over.
         self.model = str(cfg.get("ai", "model", "") or "gemini-3.8-flash")
-        self.fallback = str(cfg.get("ai", "fallback_model", "") or "")
+        self.fallback = ""
+        self.tz = str(cfg.get("calendar", "timezone", "") or "America/New_York")
         self.enabled = cfg.get("ai", "provider", "gemini") != "none" and bool(self.key)
         # an internal ticket-key prefix the briefing must never repeat (private config)
         self.hide_prefix = str(cfg.get("ai", "hide_ticket_prefix", "") or "")
         self._client: Any = None
         self._lock = threading.Lock()
         self.state: dict[str, Any] = {"ok": None, "error": "", "tokens": 0}
+
+    def now_line(self) -> str:
+        """The real local date and time, read from the clock at call time.
+
+        Operator rule: nothing reasons about "today", "overdue" or "this week" from an
+        assumed date. Every generation starts with this line.
+        """
+        now = dt.datetime.now(ZoneInfo(self.tz))
+        return (
+            f"Current local date and time: {now:%A %Y-%m-%d %H:%M} ({self.tz}). "
+            "Use it for anything relative (today, tomorrow, overdue, this week)."
+        )
 
     def client(self) -> Any:
         # One shared client, created under a lock: a genai.Client closes its HTTP
@@ -78,6 +95,7 @@ class AI:
             raise AIError("AI is off: set GEMINI_API_KEY in ~/.config/ultra-workstation/.env")
         from google.genai import types
 
+        system = f"{self.now_line()} {system}"
         last: Exception | None = None
         for model in [m for m in (self.model, self.fallback) if m]:
             t0 = time.monotonic()
@@ -134,9 +152,13 @@ class AI:
         if len(q) < 3:
             raise AIError("question is too short")
         system = (
-            "Answer the question using Google Search. 3 to 8 sentences, plain ASCII, "
-            "concrete and current. Say when sources disagree or the answer is uncertain. "
-            + (f"{GUARD} " if context else "")
+            self.now_line()
+            + " "
+            + (
+                "Answer the question using Google Search. 3 to 8 sentences, plain ASCII, "
+                "concrete and current. Say when sources disagree or the answer is uncertain. "
+                + (f"{GUARD} " if context else "")
+            )
         )
         prompt = q
         if context:

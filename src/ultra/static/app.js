@@ -94,13 +94,22 @@ function fmtTime(ts) {
   return d.toLocaleString([], { timeZone: S.tz, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-// Local calendar dates (not UTC: toISOString() rolls over at 8pm Eastern).
-function localDay(n) {
-  const d = new Date(); d.setDate(d.getDate() + n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// Calendar dates in the operator's configured time zone (S.tz), read from the clock
+// at call time. Not UTC (toISOString() rolls over at 8pm Eastern) and not the device
+// zone (a phone on Pacific time while travelling would be a day off near midnight).
+function tzParts(d) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: S.tz || undefined, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" }).formatToParts(d).map((x) => [x.type, x.value]));
+  return p;
+}
+export function localDay(n = 0) {
+  const p = tzParts(new Date());
+  const base = new Date(`${p.year}-${p.month}-${p.day}T12:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + n);
+  return base.toISOString().slice(0, 10);
 }
 function nextFriday() {
-  const d = new Date(); const k = (5 - d.getDay() + 7) % 7 || 7;
+  const wd = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[tzParts(new Date()).weekday] ?? new Date().getDay();
+  const k = (5 - wd + 7) % 7 || 7;
   return localDay(k);
 }
 function dayName(iso) {

@@ -20,8 +20,11 @@ export function closeDay() {
 export async function openDay(tab = null) {
   D.open = true; D.onOpen?.();
   $("#btn-day")?.classList.add("on");
+  // Check the real date and time first (server clock, the configured time zone): a
+  // phone tab or a laptop waking from sleep can be hours or days stale.
+  try { D.now = await api("/api/now"); } catch { D.now = null; }
   if (tab) D.tab = tab;
-  else D.tab = new Date().getHours() >= 15 ? "report" : "plan";  // afternoon: the report
+  else D.tab = (D.now ? D.now.hour : new Date().getHours()) >= 15 ? "report" : "plan";  // afternoon: the report
   $("#thread-empty").hidden = true;
   const th = $("#thread"); th.hidden = false;
   render();
@@ -29,7 +32,7 @@ export async function openDay(tab = null) {
 
 function head() {
   return `<div class="today-head">
-    <h2>Day</h2>
+    <h2>Day</h2>${D.now ? `<span class="dim small-t" id="day-now" title="Read from the clock when this page was built">${esc(D.now.weekday)} ${esc(D.now.date)}, ${esc(D.now.time)}</span>` : ""}
     <div class="seg" id="day-seg"><button data-dt="plan" class="${D.tab === "plan" ? "on" : ""}">Check-in plan</button><button data-dt="report" class="${D.tab === "report" ? "on" : ""}">End-of-day report</button></div>
     <span class="grow"></span>
     <a class="btn small ghost" href="/api/day/agenda.ics" download title="Today's agenda as a calendar file">Agenda .ics</a>
@@ -41,6 +44,8 @@ function head() {
 
 async function render() {
   const th = $("#thread");
+  // re-read the clock on every build (the tab may have sat open past midnight)
+  try { D.now = await api("/api/now"); } catch { /* keep the last reading */ }
   th.innerHTML = head() + `<div class="dim">Building the ${D.tab === "plan" ? "plan" : "report"}...</div>`;
   wireHead();
   try {

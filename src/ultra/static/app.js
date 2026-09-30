@@ -2,8 +2,9 @@
 // Helpers adapted from the deep-research dashboard (MIT, same author).
 
 import { openDraft, resumeForThread, onSent } from "./compose.js";
-import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, showTaskPeople } from "./ledger.js";
+import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, showTaskPeople, openPersonByAddr } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog } from "./tools.js";
+import { initToday, openToday, closeToday, todayOpen } from "./today.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -121,6 +122,7 @@ async function loadStream(keepSel = false) {
 
 async function openItem(i) {
   const it = S.items[i]; if (!it) return;
+  if (todayOpen()) closeToday();
   if (it.source === "task") return openTask(i);
   S.sel = i; S.key = it.key; renderStream();
   $("#thread-empty").hidden = true;
@@ -148,6 +150,7 @@ async function openItem(i) {
         <button class="btn small" data-a="bucket" title="Add to bucket (b)">+ Bucket</button>
         <button class="btn small" data-a="log" title="Log this conversation in the ledger (l)">Log</button>
         <button class="btn small" data-a="task" title="Make a ledger task from it (t)">Task</button>
+        <button class="btn small" data-a="block" title="Block time for this on your calendar">Block time</button>
         ${t.permalink ? `<a class="btn small" href="${esc(t.permalink)}" target="_blank" rel="noopener noreferrer">Open in Slack</a>` : ""}
       </div>
       <div class="aisum" id="aisum" hidden></div>
@@ -171,6 +174,7 @@ async function openItem(i) {
     setToolsThread(it.key, it.subject);
     $('[data-a="log"]', th).onclick = () => stage("log", it.key);
     $('[data-a="task"]', th).onclick = () => stage("task", it.key);
+    $('[data-a="block"]', th).onclick = () => window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));
     wireSelection(th, it);
     const ab = $('[data-a="archive"]', th);
     if (it.source === "slack") { ab.disabled = false; ab.textContent = "Mark done"; ab.title = "Hide until a new message arrives (e). Nothing is sent to Slack."; ab.onclick = () => busy(ab, () => slackDone(it)); }
@@ -293,6 +297,7 @@ async function openTask(i) {
       <select id="t-snooze" title="Hide from the stream for a while (local only)"><option value="">Snooze...</option><option value="1">1 day</option><option value="3">3 days</option><option value="7">1 week</option>${t.snoozed_until ? `<option value="0">Unsnooze</option>` : ""}</select>
       <button class="btn small" data-t="log" title="Log progress on this task (l)">Log update</button>
       <button class="btn small" data-t="bucket" title="Add to bucket (b)">+ Bucket</button>
+      <button class="btn small" data-t="block" title="Block time for this task on your calendar">Block time</button>
       <button class="btn small" data-t="copy">Copy</button>
     </div>
     <div class="sect"><span class="label">Linked in the ledger (${d.links.length})</span>
@@ -309,6 +314,7 @@ async function openTask(i) {
     if (a === "copy") { copyText(`${t.summary} (${t.priority}, ${t.status})`); return; }
     if (a === "bucket") { addEntityToBucket({ id: t.id, name: t.summary, type: "Task" }); return; }
     if (a === "log") { stageTaskLog(t, d.links); return; }
+    if (a === "block") { window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: `t-${t.id}`, subject: t.summary } })); return; }
     busy(b, async () => {
       if (a === "complete") {
         if (!confirm(`Mark this task DONE in the ledger?\n\n${t.summary}`)) return;
@@ -460,7 +466,9 @@ function wire() {
       if (e.key === "t") { e.preventDefault(); click("task"); return; }
     }
     if (e.key === "c") { e.preventDefault(); openDraft("new", null).catch((x) => toast(x.message, "err")); return; }
-    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, c compose, m Mine, w Waiting, Ctrl+K commands"); return; }
+    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, c compose, m Mine, w Waiting, g Today, Esc close Today, Ctrl+K commands"); return; }
+    if (e.key === "g") { e.preventDefault(); todayOpen() ? closeToday() : openToday(); return; }
+    if (e.key === "Escape" && todayOpen()) { closeToday(); return; }
     if (e.key === "j") { S.sel = Math.min(S.items.length - 1, S.sel + 1); renderStream(); }
     else if (e.key === "k") { S.sel = Math.max(0, S.sel - 1); renderStream(); }
     else if (e.key === "Enter" && S.sel >= 0) openItem(S.sel);
@@ -493,6 +501,7 @@ function commands() {
     { t: "Web search...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tw-q")?.focus(); } },
     { t: "Search past research...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tr-q")?.focus(); } },
     { t: "New deep research...", run: () => launcher("") },
+    { t: "Today (calendar)", run: () => openToday() },
     ...["mine", "waiting", "all", "tasks", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
   if (it && S.key === it.key) {
@@ -547,6 +556,11 @@ async function boot() {
     if (d?.thread_id) stageAfterSend("g-" + d.thread_id);  // send-then-log
   });
   initRail(); wireSearch(); initTools();
+  initToday(S.tz, {
+    onOpen: () => { S.key = null; S.sel = -1; renderStream(); },
+    onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
+  });
+  window.addEventListener("ultra:person", (ev) => openPersonByAddr(ev.detail));
   await loadStream();
   pollStatus(); setInterval(pollStatus, 5000);
 }

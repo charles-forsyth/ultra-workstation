@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.12 of the spec; app at v0.5.4 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
+Status: v0.13 of the spec; app at v0.6.0 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-09-29
@@ -1127,7 +1127,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | v0.4 Ledger (shipped 0.4.0) | Context rail tabs (People on the whole conversation, Person, Ledger search); bucket (conversations, people, labs, projects, snippets) with drag and drop; staged Log and Task cards with pre-resolved chips (every resolved participant, labs via graph, GCP ids and ticket numbers in the text), deterministic template text, Rewrite with AI; commit through the CLI with UUID-only args, text on stdin, one commit per card, progress steps, read-back, Link now on missing chips; mark task Done; send-then-log; selection bar (Search ledger, Add to bucket, Copy); inbox-only stream by default |
 | v0.45 Listen + Research (shipped 0.5.0) | Read aloud (browser voice, block highlight, rate/voice, prev/next); AI audio (spoken summary or full read, Gemini TTS, cached by text+mode+voice, MP3 via ffmpeg, mode 600, served with HTTP Range, player with speed/download/script, `ultra purge --audio`); Research tab (web search with Google grounding and sources, past-research search, recent runs, report viewer, launcher with estimate, confirm flag, opt-in thread upload); selection bar Copy / Quote in reply / Search ledger / Web search / Add to bucket / More: Explain, Search research, Research this, Read aloud. Highlights with notes and export menus move to v0.46 |
 | v0.5 Slack reply | Slack composer, double approval, send via connector, verification read |
-| v0.6 Calendar | Today view, drag-to-block, free/busy slot finder, meeting prep |
+| v0.6 Calendar (shipped 0.6.0) | Today view (day timeline, prev/next day, now line, work hours band, overlapping events in columns, all-day row, response and privacy marks); drag a stream item onto a time to stage a block (title Focus: subject, notes from the last message, open draft and link, 15-120 min, personal = private); Block time buttons on threads, tasks and the bucket open a block card at the next free slot; move and delete only Ultra-tagged blocks (server-enforced), re-read after every write; meeting prep (invite notes, attendees with responses, click one for ledger context); Find a time (free/busy over work hours, others you cannot see are listed, Copy as text, Hold); `g` toggles Today. Check-in and end-of-day move to v0.8 |
 | v0.7 Board | Court board, nudge-all, drag between columns |
 | v0.8 Day | Check-in plan, end-of-day report, AI brief builder, remaining exports (Board, agenda .ics, journal CSV) |
 | v1.0 | Polish, keyboard help, docs, public release |
@@ -1155,6 +1155,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.13 | App v0.6.0: Today view (see the delivery table). Calendar writes carry the private extended property `ultra=1` and move/delete refuse anything without it or not organised by the operator (409); blocks never have attendees. Positions use CSSOM because the CSP forbids inline styles. |
 | 2026-09-30 | 0.12 | App v0.5.4: fix, an idle open tab never refreshed (refresh only started on /api/stream, which an idle tab does not call). The 5 s status poll now starts any refresh older than its interval (mail 120 s, Slack 15 min, tasks 5 min); one job per source at a time; nothing polls with no tab open. Task data changes also rebuild the stream. |
 | 2026-09-30 | 0.11 | App v0.5.3 (operator ask): tailnet access narrowed from the whole 100.64.0.0/10 range to the operator's own devices. `tailnet:mine` in `[server] remote_networks` (default with 192.168.0.0/16) = addresses of nodes owned by the same Tailscale user as this machine, from `tailscale status --json`; shared-in nodes and other users' devices are refused. An unknown tailnet address triggers at most one refresh a minute, so new devices work without a restart. |
 | 2026-09-30 | 0.10 | App v0.5.2 (operator ask): the access key did not work on the phone and is removed. Remote mode (`--host 0.0.0.0`) now admits clients by address only: this machine, the Tailscale range 100.64.0.0/10 and 192.168.0.0/16 (`[server] remote_networks`); all others get 403 before routing. Host allow-list, Origin check and CSRF token still apply. `ultra remote` lists the addresses. |

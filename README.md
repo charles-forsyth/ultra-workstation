@@ -4,7 +4,7 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger by dragging it into a bucket.
 
-Status: v0.5.1. Mail read and write (double-approval send), AI summary and drafting,
+Status: v0.6.0. Mail read and write (double-approval send), AI summary and drafting,
 archive with undo, ticket cards, whose-court rules, Slack read, a context rail that
 covers everyone on a conversation, and the bucket: drag conversations and people in,
 then log or make a task in the ledger with links checked by read-back; web search
@@ -61,6 +61,14 @@ missing one). A card commits once; nothing is retried automatically.
 
 The ledger adapter only runs `log`, `tasks add`, `tasks update`, `link` and `unlink`,
 passes entities as full UUIDs, and sends text on stdin.
+
+## Today (calendar)
+
+Press `g` or click Today. Drag an email, Slack conversation or task onto a time to block
+it on your calendar (only you, nobody is invited). Drag your own blocks to move them;
+click one to rename or delete it. Click a meeting for prep: the invite notes and who is
+coming, and click a person for their ledger context. Find a time checks free/busy for
+you and anyone you list. Ultra only ever changes blocks it created.
 
 ## Tasks and Slack in the stream
 

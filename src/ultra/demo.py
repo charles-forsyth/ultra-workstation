@@ -220,6 +220,7 @@ def register(api: Api) -> None:
     _register_composer(api)
     _register_desk(api)
     _register_tools(api)
+    _register_today(api)
 
 
 class DemoResearch:
@@ -321,6 +322,252 @@ def _register_tools(api: Api) -> None:
         return "\n\n".join(f"{m['from']}: {m['body']}" for m in THREADS.get(key, []))
 
     Tools(research, DemoAI(), audio, text, "Ada").register(api)
+
+
+# ---------------------------------------------------------------- demo calendar
+class DemoCalendar:
+    """In-memory calendar with the same surface as ultra.calendar.Calendar.
+
+    Seeded with invented meetings on today's date. Writes follow the real rules: only
+    blocks tagged ultra can be moved or deleted; a verify step re-reads the event.
+    """
+
+    def __init__(self) -> None:
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        self.tz = ZoneInfo("America/New_York")
+        self.state: dict[str, Any] = {"ok": True, "error": ""}
+        self.events: dict[str, dict[str, Any]] = {}
+        self.n = 0
+        today = dt.datetime.now(self.tz).date()
+
+        def at(h: int, m: int = 0, day: int = 0) -> str:
+            return dt.datetime.combine(
+                today + dt.timedelta(days=day), dt.time(h, m), self.tz
+            ).isoformat()
+
+        seed = [
+            (
+                "Storage planning with Ben",
+                at(10),
+                at(10, 30),
+                False,
+                [
+                    ("ben@example.org", "Ben Carter", "accepted"),
+                    ("ada@example.org", "Ada Lovelace", "accepted"),
+                ],
+                "https://meet.example.org/abc",
+                "Agenda: quota for the new lab share.",
+            ),
+            (
+                "Weekly team sync",
+                at(13),
+                at(14),
+                False,
+                [
+                    ("cy@example.org", "Cy Young", "needsAction"),
+                    ("ben@example.org", "Ben Carter", "declined"),
+                    ("ada@example.org", "Ada Lovelace", "accepted"),
+                ],
+                "",
+                "",
+            ),
+            ("Focus: budget alert check", at(15), at(15, 30), True, [], "", "Made by Ultra."),
+            (
+                "Vendor review",
+                at(11, 0, 1),
+                at(12, 0, 1),
+                False,
+                [("cy@example.org", "Cy Young", "accepted")],
+                "",
+                "",
+            ),
+        ]
+        for summary, s, e, mine, att, link, desc in seed:
+            self.n += 1
+            self.events[f"demo{self.n:04d}"] = {
+                "id": f"demo{self.n:04d}",
+                "cal": "primary",
+                "summary": summary,
+                "start": s,
+                "end": e,
+                "all_day": False,
+                "visibility": "default",
+                "color": "11" if mine else "",
+                "status": "confirmed",
+                "type": "default",
+                "organizer_self": mine,
+                "organizer": "ada@example.org" if mine else "ben@example.org",
+                "my_response": "accepted",
+                "attendees": [
+                    {
+                        "email": a,
+                        "name": n,
+                        "response": r,
+                        "self": a == "ada@example.org",
+                        "organizer": False,
+                        "resource": False,
+                    }
+                    for a, n, r in att
+                ],
+                "attendee_count": len(att),
+                "link": link,
+                "html_link": "",
+                "location": "",
+                "has_description": bool(desc),
+                "ultra": mine,
+                "recurring": False,
+                "description": desc,
+            }
+
+    def parse_local(self, s: str) -> Any:
+        import datetime as dt
+
+        from ultra.calendar import CalendarError
+
+        try:
+            t = dt.datetime.fromisoformat(s)
+        except (TypeError, ValueError) as e:
+            raise CalendarError(f"bad time: {s!r}") from e
+        return t.replace(tzinfo=self.tz) if t.tzinfo is None else t.astimezone(self.tz)
+
+    def day(self, day: str, fresh: bool = False) -> dict[str, Any]:
+        evs = sorted(
+            (e for e in self.events.values() if e["start"][:10] == day), key=lambda e: e["start"]
+        )
+        return {
+            "day": day,
+            "tz": "America/New_York",
+            "age": 0.0,
+            "work_hours": ["08:00", "17:00"],
+            "events": [{k: v for k, v in e.items() if k != "description"} for e in evs],
+        }
+
+    def event(self, cal: str, eid: str) -> dict[str, Any]:
+        from ultra.calendar import CalendarError
+
+        if eid not in self.events:
+            raise CalendarError("not found")
+        return dict(self.events[eid])
+
+    def _check(self, summary: str, start: Any, end: Any) -> None:
+        from ultra.calendar import MAX_BLOCK_MIN, CalendarError
+
+        if not summary.strip():
+            raise CalendarError("A block needs a title.")
+        mins = (end - start).total_seconds() / 60
+        if mins < 5 or mins > MAX_BLOCK_MIN:
+            raise CalendarError("A block must be between 5 minutes and 8 hours.")
+
+    def create_block(
+        self,
+        summary: str,
+        start: Any,
+        end: Any,
+        description: str = "",
+        personal: bool = False,
+        color: str = "",
+        source: str = "",
+    ) -> dict:
+        self._check(summary, start, end)
+        self.n += 1
+        eid = f"demo{self.n:04d}"
+        self.events[eid] = {
+            "id": eid,
+            "cal": "primary",
+            "summary": summary.strip(),
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "all_day": False,
+            "visibility": "private" if personal else "default",
+            "color": "11",
+            "status": "confirmed",
+            "type": "default",
+            "organizer_self": True,
+            "organizer": "ada@example.org",
+            "my_response": "",
+            "attendees": [],
+            "attendee_count": 0,
+            "link": "",
+            "html_link": "",
+            "location": "",
+            "has_description": bool(description),
+            "ultra": True,
+            "recurring": False,
+            "description": description,
+        }
+        return {"ok": True, "problems": [], "event": dict(self.events[eid])}
+
+    def _owned(self, eid: str) -> dict[str, Any]:
+        from ultra.calendar import CalendarError
+
+        e = self.events.get(eid)
+        if not e or not e["ultra"]:
+            raise CalendarError(
+                "Ultra only changes blocks it created. Edit this event in Google Calendar."
+            )
+        return e
+
+    def move_block(
+        self, cal: str, eid: str, start: Any, end: Any, summary: str | None = None
+    ) -> dict:
+        e = self._owned(eid)
+        self._check(summary if summary is not None else e["summary"], start, end)
+        e["start"], e["end"] = start.isoformat(), end.isoformat()
+        if summary is not None:
+            e["summary"] = summary.strip()
+        return {"ok": True, "problems": [], "event": dict(e)}
+
+    def delete_block(self, cal: str, eid: str) -> dict:
+        self._owned(eid)
+        del self.events[eid]
+        return {"ok": True, "deleted": eid}
+
+    def freebusy(self, emails: list[str], start: Any, end: Any, min_minutes: int) -> dict:
+        import datetime as dt
+
+        from ultra.calendar import free_windows
+
+        busy = [
+            (dt.datetime.fromisoformat(e["start"]), dt.datetime.fromisoformat(e["end"]))
+            for e in self.events.values()
+            if e["my_response"] != "declined"
+        ]
+        wins = []
+        d = start.date()
+        while dt.datetime.combine(d, dt.time(0), self.tz) < end:
+            ws = max(start, dt.datetime.combine(d, dt.time(8), self.tz))
+            we = min(end, dt.datetime.combine(d, dt.time(17), self.tz))
+            if we > ws and d.weekday() < 5:
+                wins += free_windows(busy, ws, we, min_minutes)
+            d += dt.timedelta(days=1)
+        return {
+            "windows": [{"start": s.isoformat(), "end": e.isoformat()} for s, e in wins],
+            "unknown": [x for x in emails if not x.endswith("@example.org")],
+            "checked": emails,
+        }
+
+
+def _register_today(api: Api) -> None:
+    from ultra.rules import Rules
+    from ultra.today import Today
+
+    cal = DemoCalendar()
+    api.demo_calendar = cal  # type: ignore[attr-defined]
+
+    def info(key: str) -> dict[str, Any]:
+        msgs = THREADS.get(key, [])
+        row = next((s for s in STREAM if s["key"] == key), {})
+        return {
+            "subject": row.get("subject", ""),
+            "summary": f"Last from {msgs[-1]['from']}: {msgs[-1]['body'][:300]}" if msgs else "",
+            "draft": "",
+            "task_id": key[2:] if key.startswith("t-") else "",
+            "url": "",
+        }
+
+    Today(cal, info, Rules(me={"ada@example.org"})).register(api)
 
 
 # ---------------------------------------------------------------- demo ledger

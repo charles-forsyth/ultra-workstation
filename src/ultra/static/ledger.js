@@ -67,6 +67,11 @@ export async function loadPeople(it) {
   if (first) openPerson(first, false);
 }
 
+export function openPersonByAddr(p) {
+  R.key = null;
+  return openPerson({ addr: p.addr, name: p.name || "" });
+}
+
 async function openPerson(p, jump = true) {
   const el = $("#rt-person");
   if (jump) showTab("person");
@@ -237,7 +242,11 @@ export async function stageTaskLog(task, links) {
 let CARD = null;
 
 export async function stage(action, key = null, sent = false) {
-  if (action === "block") { toast("Calendar blocks arrive with the Today view (v0.6)."); return; }
+  if (action === "block") {
+    const conv = key ? { key, subject: "" } : R.bucket.find((b) => b.kind === "conversation");
+    window.dispatchEvent(new CustomEvent("ultra:block", { detail: conv ? { key: conv.key, subject: conv.subject || "" } : { subject: R.bucket[0]?.subject || "follow-up" } }));
+    return;
+  }
   const dlg = $("#ledger-card");
   dlg.hidden = false;
   dlg.innerHTML = `<div class="lc-card"><div class="dim">Building the ${action === "log" ? "log entry" : "task"}: resolving people, labs and projects...</div></div>`;

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from ultra import google_auth
 from ultra.ai import AI, AIError
 from ultra.audio import Audio
+from ultra.calendar import Calendar
 from ultra.compose import ComposeError, Composer, gmail_send
 from ultra.config import Config, expand
 from ultra.desk import Desk
@@ -35,6 +36,7 @@ from ultra.tasks import (
     task_rows,
     unsnooze_task,
 )
+from ultra.today import Today
 from ultra.tools import Tools
 
 if TYPE_CHECKING:
@@ -94,6 +96,8 @@ class Live:
         self.research = Research(cfg, self.store)
         self.audio = Audio(cfg, self.store, self.ai)
         self.tools = Tools(self.research, self.ai, self.audio, self.thread_text_for, self.operator)
+        self.calendar = Calendar(cfg, self.store)
+        self.today = Today(self.calendar, self.block_info, self.rules)
         self.show_tasks = bool(cfg.get("ledger", "tasks_in_stream", True))
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -147,6 +151,7 @@ class Live:
         api.add("GET", r"/api/context/([^/]+)", self.r_context)
         self.desk.register(api)
         self.tools.register(api)
+        self.today.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -244,6 +249,7 @@ class Live:
                 },
                 "ledger": {**self.ledger.state, "enabled": self.ledger.enabled},
                 "tasks": {"age": t_hit[1] if t_hit else None},
+                "calendar": {**self.calendar.state},
                 "ai": {**self.ai.state, "enabled": self.ai.enabled, "model": self.ai.model},
                 "research": {**self.research.state, "enabled": self.research.enabled},
             },
@@ -433,6 +439,34 @@ class Live:
         return {"unarchived": tids}
 
     # ---------------------------------------------------------------- AI
+    def block_info(self, key: str) -> dict[str, Any]:
+        """Title and description material for a calendar block from a stream item.
+
+        Deterministic: the subject, the last message trimmed, and the open draft if one
+        exists. No AI call (the operator can paste an AI summary in before creating).
+        """
+        info: dict[str, Any] = {"subject": "", "summary": "", "draft": "", "task_id": "", "url": ""}
+        if key.startswith("t-"):
+            t = self.ledger.task(key[2:]) or {}
+            info["subject"] = t.get("summary", "task")
+            info["task_id"] = key[2:]
+            return info
+        t = self.thread_any(key)
+        msgs = t.get("messages") or []
+        info["subject"] = next((x.get("subject") for x in msgs if x.get("subject")), "")
+        if msgs:
+            last = msgs[-1]
+            body = re.sub(r"\s+", " ", str(last.get("body") or "")).strip()
+            info["summary"] = f"Last from {last.get('from', '')}: {body[:600]}"
+        if key.startswith("g-"):
+            info["url"] = f"https://mail.google.com/mail/u/0/#inbox/{key[2:]}"
+            drafts = self.compose.for_thread(key[2:])
+            cur = (drafts[0].get("current") or {}) if drafts else {}
+            info["draft"] = str(cur.get("body") or "")[:3000]
+        elif t.get("permalink"):
+            info["url"] = t["permalink"]
+        return info
+
     def thread_text_for(self, key: str, for_speech: bool = False) -> str:
         """Plain text of any conversation, for research uploads, web context, audio."""
         t = self.thread_any(key)

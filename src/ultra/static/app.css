@@ -396,3 +396,16 @@ li.ix.flash { background: var(--cyan-d); transition: background .3s; }
 .st-env input, .st-env select, .st-wide { width: 100%; box-sizing: border-box; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; color: var(--text); padding: 5px 8px; font: inherit; }
 .st-env input:focus, .st-env select:focus, .st-wide:focus { outline: none; border-color: var(--cyan); }
 .st-row .st-wide { margin-top: 2px; }
+
+/* composer: before/after and source check (v0.9.9) */
+.cx-cmp, .cx-check { border: 1px solid var(--line-2); border-radius: 6px; padding: 8px 10px; margin: 6px 0; background: var(--bg-2); }
+.cmp-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+.cmp-head select { background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 4px; font: inherit; font-size: 12px; }
+.cmp-body { white-space: pre-wrap; font: 13px/1.5 var(--mono); max-height: 360px; overflow: auto; }
+.cmp-body ins, .cmp-field ins, .rv-cmp ins { background: rgba(80, 200, 120, 0.22); color: inherit; text-decoration: none; }
+.cmp-body del, .cmp-field del, .rv-cmp del { background: rgba(240, 90, 90, 0.22); color: inherit; }
+.cmp-field { font-size: 12px; margin-bottom: 4px; }
+.cmp-field .k { color: var(--dim); margin-right: 4px; }
+.cx-check .st-claim { display: block; margin: 4px 0; font-size: 13px; }
+.rv-cmp { margin: 6px 0; font-size: 12px; }
+.rv-cmp .cmp-body { max-height: 200px; }

@@ -22,8 +22,10 @@ from ultra.compose import ComposeError, Composer, gmail_send
 from ultra.config import Config, expand
 from ultra.day import Day
 from ultra.desk import Desk
+from ultra.drafttools import compare, cut_sentences, tidy
 from ultra.itemctx import ItemContext
 from ultra.itemdesk import ItemDesk
+from ultra.learn import EditLearner
 from ultra.ledger import Ledger, LedgerError
 from ultra.ledger_write import LedgerWriter
 from ultra.lint import ascii_fix, load_style
@@ -33,7 +35,7 @@ from ultra.rules import Rules
 from ultra.slack import Slack, SlackError, SlackSender, slack_reply_target
 from ultra.sources import HouseFacts, Sources, set_extra_generic
 from ultra.store import Store
-from ultra.studio import Studio
+from ultra.studio import Studio, StudioError
 from ultra.tasks import (
     slack_done,
     slack_undone,
@@ -132,6 +134,7 @@ class Live:
         )
         set_extra_generic(list(cfg.get("draft", "generic_words", []) or []))
         self.facts = HouseFacts(self.store)
+        self.learner = EditLearner(self.store)
         self.studio = Studio(
             self.store,
             self.ai,
@@ -217,6 +220,13 @@ class Live:
         api.add("POST", r"/api/drafts/(\d+)/ai", self.r_draft_ai)
         api.add("POST", r"/api/drafts/(\d+)/fix-ascii", self.r_draft_ascii)
         api.add("POST", r"/api/drafts/(\d+)/fix-ref", self.r_draft_fix_ref)
+        api.add("POST", r"/api/drafts/(\d+)/check", self.r_draft_check)
+        api.add("POST", r"/api/drafts/(\d+)/cut", self.r_draft_cut)
+        api.add("GET", r"/api/drafts/(\d+)/compare", self.r_draft_compare)
+        api.add("POST", r"/api/drafts/(\d+)/tidy", self.r_draft_tidy)
+        api.add("GET", r"/api/learn", self.r_learn)
+        api.add("POST", r"/api/learn/accept", self.r_learn_accept)
+        api.add("POST", r"/api/learn/dismiss", self.r_learn_dismiss)
         api.add("POST", r"/api/drafts/(\d+)/studio", self.r_draft_studio)
         api.add("POST", r"/api/drafts/from-task", self.r_draft_from_task)
         api.add("GET", r"/api/drafts/task/([0-9a-f-]{36})", self.r_drafts_for_task)
@@ -687,7 +697,35 @@ class Live:
         d = self._wrap(self.compose.get, self._did(m))
         if d["kind"] == "forward" and (d["current"] or {}).get("body"):
             text = text + "\n" + d["current"]["body"]
-        return self._wrap(self.compose.save, d["id"], {"body": text}, "ai", label)
+        out = self._wrap(self.compose.save, d["id"], {"body": text}, "ai", label)
+        self._keep_check(out, b.get("check"))
+        return self._wrap(self.compose.get, d["id"])
+
+    def _keep_check(self, d: dict[str, Any], check: Any) -> None:
+        """Keep the Studio panel's check with the version it produced. Only verdicts
+        for sentences still in the saved text survive (put_check filters them), and
+        the operator's Cut/Keep choices are kept as 'action'."""
+        if not isinstance(check, dict) or not isinstance(check.get("claims"), list):
+            return
+        claims = []
+        for c in check["claims"][:60]:
+            if not isinstance(c, dict) or c.get("verdict") not in (
+                "supported",
+                "unsupported",
+                "unclear",
+            ):
+                continue
+            claims.append(
+                {
+                    "text": str(c.get("text", ""))[:600],
+                    "verdict": c["verdict"],
+                    "sources": [str(s)[:20] for s in (c.get("sources") or [])][:8],
+                    "note": str(c.get("note", ""))[:300],
+                    "action": "keep" if c.get("action") == "keep" else "cut",
+                    "rule": bool(c.get("rule")),
+                }
+            )
+        self.compose.put_check(d["id"], d["current"]["version"], {"claims": claims})
 
     def r_draft_from_task(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         """Draft Studio task mode: make (or reuse) a composer draft for a task email.
@@ -758,6 +796,8 @@ class Live:
         if not thread:
             fields.update({"to_addrs": to, "cc": cc, "subject": subject})
         d = self._wrap(self.compose.save, d["id"], fields, "ai", label)
+        self._keep_check(d, b.get("check"))
+        d = self._wrap(self.compose.get, d["id"])
         d["task_id"] = tid
         return d
 
@@ -791,12 +831,187 @@ class Live:
     def r_draft_restore(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         return self._wrap(self.compose.restore, self._did(m), int((body or {})["version"]))
 
+    def _studio_key(self, d: dict[str, Any]) -> str:
+        """The Draft Studio key for a composer draft: its task, else its mail thread."""
+        t = self.store.cache_get(f"draft:{d['id']}:task")
+        if t and t[0]:
+            return f"t-{t[0]}"
+        if d["kind"] in ("reply", "reply_all") and d.get("thread_id"):
+            return f"g-{d['thread_id']}"
+        return ""
+
+    def _studio_ai(self, d: dict[str, Any], instruction: str) -> dict[str, Any] | None:
+        """Composer Draft / Revise through Draft Studio (same sources and rules), then a
+        source check of the new version. None when the draft has no studio key (new
+        blank email, forward, Slack): the plain path runs instead."""
+        key = self._studio_key(d)
+        if not key or not self.ai.enabled:
+            return None
+        cur = d["current"] or {}
+        has_body = bool((cur.get("body") or "").strip())
+        try:
+            run = self.studio.ensure(key, need_brief=not has_body)
+            g = run["gather"]
+            if has_body and instruction:
+                r = self.studio.revise(g, cur["body"], instruction)
+                label = f"AI revise (sourced): {instruction}"
+            else:
+                r = self.studio.draft(g, run["brief"], [], instruction)
+                label = "AI draft (sourced)" + (f": {instruction}" if instruction else "")
+        except StudioError as e:
+            raise _bad(str(e), 502) from e
+        except AIError as e:
+            raise _bad(str(e), 502) from e
+        text = ascii_fix(r["body"]).strip()
+        out = self._wrap(self.compose.save, d["id"], {"body": text}, "ai", label[:300])
+        v = out["current"]["version"]
+        try:
+            ck = self.studio.check(g, out["current"]["body"], r.get("claims") or [], [])
+        except Exception as e:  # noqa: BLE001 - shown on the draft; approval still possible
+            ck = {"claims": [], "error": f"check failed: {str(e)[:200]}"}
+        self.compose.put_check(d["id"], v, ck)
+        out = self._wrap(self.compose.get, d["id"])
+        out["ai"] = {"model": r.get("model"), "seconds": r.get("seconds"), "sourced": True}
+        return out
+
+    def r_draft_check(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Check the current version against the gathered sources (after edits)."""
+        d = self._wrap(self.compose.get, self._did(m))
+        key = self._studio_key(d)
+        if not key:
+            raise _bad("Source check works on replies and task emails")
+        cur = d["current"] or {}
+        try:
+            run = self.studio.ensure(key)
+            ck = self.studio.check(run["gather"], cur.get("body") or "", [], [])
+        except StudioError as e:
+            raise _bad(str(e), 502) from e
+        except Exception as e:
+            raise _bad(str(e)[:300], 502) from e
+        self.compose.put_check(d["id"], cur["version"], ck)
+        return self._wrap(self.compose.get, d["id"])
+
+    def r_draft_cut(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Cut the flagged sentences the operator chose (a new version by 'me')."""
+        d = self._wrap(self.compose.get, self._did(m))
+        cur = d["current"] or {}
+        ck = cur.get("check") or {}
+        want = {str(x) for x in (body or {}).get("texts") or []}
+        flagged = [
+            c["text"]
+            for c in ck.get("claims") or []
+            if c.get("verdict") != "supported" and c["text"] in want
+        ]
+        if not flagged:
+            raise _bad("nothing to cut")
+        text = cut_sentences(cur.get("body") or "", flagged)
+        out = self._wrap(
+            self.compose.save, d["id"], {"body": text}, "me", f"cut {len(flagged)} flagged"
+        )
+        # the remaining verdicts still hold for the sentences that are left
+        self.compose.put_check(d["id"], out["current"]["version"], ck)
+        return self._wrap(self.compose.get, d["id"])
+
+    def r_draft_compare(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Before/after between two versions (default: previous vs current). ``a=ai``
+        compares the last AI version with the current one (what you changed)."""
+        d = self._wrap(self.compose.get, self._did(m))
+        vs = {v["version"]: v for v in d["versions"]}
+        if not vs:
+            raise _bad("no versions")
+        cur = d["current"]["version"]
+
+        def pick(name: str, default: int) -> int:
+            raw = (q.get(name) or [""])[0]
+            if raw == "ai":
+                ai = [v["version"] for v in d["versions"] if v["author"] == "ai"]
+                return ai[-1] if ai else default
+            if raw == "approved" and d.get("approved_version"):
+                return int(d["approved_version"])
+            try:
+                return int(raw) if raw else default
+            except ValueError as e:
+                raise _bad("bad version") from e
+
+        b = pick("b", cur)
+        a = pick("a", max(1, b - 1))
+        if a not in vs or b not in vs:
+            raise _bad("no such version", 404)
+        out = compare(vs[a], vs[b])
+        out["a_author"], out["b_author"] = vs[a]["author"], vs[b]["author"]
+        out["a_label"], out["b_label"] = (
+            vs[a].get("instruction") or "",
+            vs[b].get("instruction") or "",
+        )
+        out["versions"] = [
+            {"version": v["version"], "author": v["author"], "label": v.get("instruction") or ""}
+            for v in d["versions"]
+        ]
+        return out
+
+    def r_learn(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return {"suggestions": self.learner.suggestions(), "stats": self.learner.stats()}
+
+    def r_learn_accept(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        key = str((body or {}).get("key", ""))
+        try:
+            rule = self.learner.accept_rule(key)
+        except KeyError as e:
+            raise _bad("That suggestion is no longer open", 404) from e
+        self.store.journal("style_rule_added", key, True, rule)
+        return {"ok": True, "rule": rule}
+
+    def r_learn_dismiss(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        self.learner.dismiss(str((body or {}).get("key", ""))[:80])
+        return {"ok": True}
+
+    def r_draft_tidy(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Form-only fixes (no model): characters, spacing, repeated greeting or
+        signature, reference line placement. A new version by 'me' if anything
+        changed, with the list of changes."""
+        from ultra.compose import DEFAULT_REF_PATTERN
+
+        d = self._wrap(self.compose.get, self._did(m))
+        cur = d["current"] or {}
+        sig = (
+            ""
+            if d["kind"] == "slack"
+            else str((load_style().get("signature") or {}).get("text", ""))
+        )
+        text, changes = tidy(
+            cur.get("body") or "",
+            sig,
+            d.get("ticket_ref") or "",
+            str(self.cfg.get("tickets", "ref_pattern", DEFAULT_REF_PATTERN)),
+        )
+        subj = ascii_fix(cur.get("subject") or "")
+        if subj != (cur.get("subject") or ""):
+            changes.append("subject characters to plain ASCII")
+        if not changes:
+            return {**d, "tidy": []}
+        prev = cur.get("check")
+        out = self._wrap(
+            self.compose.save,
+            d["id"],
+            {"body": text, "subject": subj},
+            "me",
+            "Tidy: " + "; ".join(changes),
+        )
+        if prev:  # Tidy changes form only, so the source check still holds
+            self.compose.put_check(d["id"], out["current"]["version"], prev)
+            out = self._wrap(self.compose.get, d["id"])
+        return {**out, "tidy": changes}
+
     def r_draft_ai(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         """AI draft (empty body) or AI revise (existing body). Result is a new DRAFT
-        version marked author=ai; it still needs both approvals."""
+        version marked author=ai; it still needs both approvals. Replies and task
+        emails go through Draft Studio (sources, house facts, check)."""
         body = body or {}
         instruction = str(body.get("instruction", "")).strip()[:2000]
         d = self._wrap(self.compose.get, self._did(m))
+        sourced = self._studio_ai(d, instruction)
+        if sourced is not None:
+            return sourced
         cur = d["current"] or {}
         slack = d["kind"] == "slack"
         if slack:
@@ -878,6 +1093,10 @@ class Live:
             return res
         r = self.send_fn(d, v)
         self._job("mail", self.mail.refresh)
+        try:  # learning from edits never gets in the way of a send
+            self.learner.record(self.compose.get(d["id"]))
+        except Exception as e:  # noqa: BLE001
+            self.store.journal("learn_failed", str(d["id"]), False, str(e)[:200])
         return r
 
     def r_slack_draft_find(self, q: dict, body: Any, m: re.Match[str]) -> dict:

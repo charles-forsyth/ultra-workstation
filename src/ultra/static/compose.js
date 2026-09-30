@@ -15,22 +15,22 @@ export function setComposerContext(text) { ctxText = text || ""; }
 
 // Draft Studio hands over finished text: open (or resume) the reply draft for the
 // thread and save the text as a new AI version. It still needs both approvals.
-export async function applyStudioDraft(threadKey, body, label) {
+export async function applyStudioDraft(threadKey, body, label, check = null) {
   if (!D || D.thread_id !== threadKey.slice(2) || !["reply", "reply_all"].includes(D.kind)) {
     await openDraft("reply_all", threadKey);
   }
   if (!D) return;
   if (D.state !== "DRAFT" && D.state !== "APPROVED") { toast(`The draft is ${D.state.toLowerCase()}; start a new one.`, "err"); return; }
   await saveNow();
-  D = await api(`/api/drafts/${D.id}/studio`, { method: "POST", body: { body, label } });
+  D = await api(`/api/drafts/${D.id}/studio`, { method: "POST", body: { body, label, check } });
   render();
   box().scrollIntoView({ block: "nearest" });
 }
 // Draft Studio task mode: the server makes (or reuses) the draft for the task and
 // saves the text as an AI version. New email or reply-all on the chosen thread.
-export async function applyTaskDraft(taskId, body, envelope, label) {
+export async function applyTaskDraft(taskId, body, envelope, label, check = null) {
   if (D && D.state !== "SENT" && D.state !== "DISCARDED") await saveNow();
-  D = await api("/api/drafts/from-task", { method: "POST", body: { task: taskId, body, envelope, label } });
+  D = await api("/api/drafts/from-task", { method: "POST", body: { task: taskId, body, envelope, label, check } });
   render();
   box().scrollIntoView({ block: "nearest" });
 }
@@ -127,8 +127,52 @@ function versionsHtml() {
       <span class="mono">v${v.version}</span>
       <span class="badge ${v.author === "ai" ? "ai" : ""}">${v.author === "ai" ? "AI" : "you"}</span>
       <span class="dim grow">${esc(v.instruction || "")}</span>
+      ${v.version > 1 ? `<button class="btn tiny ghost" data-cmp="${v.version}" title="What changed from v${v.version - 1}">Changes</button>` : ""}
       ${v.version !== D.current?.version ? `<button class="btn tiny" data-restore="${v.version}">Restore</button>` : ""}
     </div>`).join("");
+}
+
+// ---------------------------------------------------------------- before / after
+export function diffHtml(c) {
+  if (!c) return "";
+  if (c.same) return `<div class="dim small-t">No changes.</div>`;
+  const fields = (c.fields || []).map((f) => `<div class="cmp-field"><span class="k">${esc(f.field)}</span> <del>${esc(f.old || "(empty)")}</del> <ins>${esc(f.new || "(empty)")}</ins></div>`).join("");
+  const body = (c.body || []).map((o) => o.op === "same" ? esc(o.text) : o.op === "add" ? `<ins>${esc(o.text)}</ins>` : `<del>${esc(o.text)}</del>`).join("");
+  return `${fields}<div class="cmp-body">${body}</div><div class="dim small-t">+${c.added_words} / -${c.removed_words} words</div>`;
+}
+
+async function showCompare(a, b) {
+  const q = new URLSearchParams(); if (a) q.set("a", a); if (b) q.set("b", b);
+  const c = await api(`/api/drafts/${D.id}/compare?${q}`);
+  const vs = c.versions || [];
+  const opt = (sel) => vs.map((v) => `<option value="${v.version}" ${v.version === sel ? "selected" : ""}>v${v.version} ${v.author === "ai" ? "AI" : "you"}${v.label ? ` - ${esc(v.label.slice(0, 40))}` : ""}</option>`).join("");
+  const hb = $("#cx-cmp");
+  hb.hidden = false;
+  hb.innerHTML = `<div class="cmp-head"><span class="label">Changes</span>
+      <select id="cmp-a">${opt(c.from)}</select> <span class="dim">to</span> <select id="cmp-b">${opt(c.to)}</select>
+      <button class="btn tiny ghost" id="cmp-ai" title="Everything you changed since the last AI version">Since the AI</button>
+      <span class="grow"></span><button class="btn tiny ghost" id="cmp-x">Close</button></div>
+    ${diffHtml(c)}`;
+  $("#cmp-x").onclick = () => { hb.hidden = true; };
+  $("#cmp-a").onchange = $("#cmp-b").onchange = () => showCompare($("#cmp-a").value, $("#cmp-b").value).catch((e) => toast(e.message, "err"));
+  $("#cmp-ai").onclick = () => showCompare("ai", "").catch((e) => toast(e.message, "err"));
+}
+
+// ---------------------------------------------------------------- source check
+function checkHtml() {
+  const ck = D.current?.check;
+  const eligible = D.kind === "reply" || D.kind === "reply_all" || D.task_id;
+  if (!eligible || D.kind === "slack") return "";
+  if (!ck) return `<div class="cx-check dim small-t">Not checked against the sources. <button class="btn tiny ghost" id="cx-check">Check sources</button></div>`;
+  const rows = (ck.claims || []).filter((c) => c.verdict !== "supported");
+  const head = `<span class="label">Source check v${ck.version}</span> <span class="ok-t">${ck.counts.supported} supported</span>, <span class="bad-t">${ck.counts.unsupported} unsupported</span>, ${ck.counts.unclear} unclear
+    <button class="btn tiny ghost" id="cx-check" title="Check this version again">Re-check</button>`;
+  if (ck.error) return `<div class="cx-check">${head}<div class="lint warning">${esc(ck.error)}</div></div>`;
+  if (!rows.length) return `<div class="cx-check">${head} <span class="ok-t small-t">Every factual sentence has a source.</span></div>`;
+  return `<div class="cx-check">${head}
+    ${rows.map((c, i) => `<label class="st-claim ${esc(c.verdict)}"><input type="checkbox" data-cut="${i}" ${c.action === "cut" ? "checked" : ""}>
+      <span class="badge ${c.verdict === "unsupported" ? "warn" : ""}">${esc(c.rule ? "rule" : c.verdict)}</span> ${esc(c.text)} <span class="dim small-t">${esc(c.note || "")}</span></label>`).join("")}
+    <div class="st-acts"><button class="btn tiny" id="cx-cut">Cut the ticked sentences</button><span class="dim small-t">Ticked = cut by default (unsupported or unclear). Untick to keep.</span></div></div>`;
 }
 
 function render() {
@@ -163,16 +207,21 @@ function render() {
       <label class="dim small-t cx-chk" title="Give the AI the sender's labs, projects, open tasks and recent logs"><input type="checkbox" id="cx-ctx" ${ctxText ? "checked" : "disabled"}><span>ledger context</span></label>
     </div>
     <div class="cx-lint" id="cx-lint"></div>
+    <div id="cx-checkbox"></div>
+    <div id="cx-learn"></div>
+    <div class="cx-cmp" id="cx-cmp" hidden></div>
     <div class="cx-hist" id="cx-histbox" hidden></div>
     <div class="cx-acts" id="cx-acts"></div>`;
   wire();
   renderMeta();
+  if (D.state === "DRAFT") renderLearn();
 }
 
 function renderMeta() {
   if (!D) return;
   const [cls, text] = STATE_LABEL[D.state] || ["", D.state];
   const st = $("#cx-state"); if (st) { st.className = `cx-state ${cls}`; st.textContent = `v${D.current?.version || 0} - ${text}`; }
+  const cb = $("#cx-checkbox"); if (cb) { cb.innerHTML = checkHtml(); wireCheck(); }
   const ln = $("#cx-lint"); if (ln) {
     ln.innerHTML = lintHtml(D.current);
     const fr = $("#cx-fixref", ln);
@@ -183,7 +232,8 @@ function renderMeta() {
   const hasErr = (D.current?.lint || []).some((i) => i.level === "error");
   if (D.state === "DRAFT") {
     acts.innerHTML = `
-      <button class="btn small" id="cx-ascii">Fix ASCII</button>
+      <button class="btn small" id="cx-tidy" title="Fix form only, no AI: plain ASCII, spacing, a repeated greeting or signature, the Ref line placement. Never changes facts.">Tidy</button>
+      <button class="btn small" id="cx-cmpbtn" title="What changed between versions">Changes</button>
       ${D.kind === "slack" ? "" : `<button class="btn small" id="cx-gmail" title="Save to Gmail Drafts so you can see it on your phone">Save to Gmail drafts</button>`}
       <button class="btn small" id="cx-copy">Copy</button>
       <button class="btn small ghost" id="cx-discard">Discard</button>
@@ -213,6 +263,8 @@ function wire() {
   $("#cx-close").onclick = async () => { await saveNow().catch(() => {}); box().hidden = true; };
   $("#cx-hist").onclick = () => { const hb = $("#cx-histbox"); hb.hidden = !hb.hidden; hb.innerHTML = versionsHtml(); };
   $("#cx-histbox").onclick = (e) => {
+    const c = e.target.closest("[data-cmp]");
+    if (c) { const v = Number(c.dataset.cmp); showCompare(String(v - 1), String(v)).catch((x) => toast(x.message, "err")); return; }
     const b = e.target.closest("[data-restore]"); if (!b) return;
     busy(b, async () => { D = await api(`/api/drafts/${D.id}/restore`, { method: "POST", body: { version: Number(b.dataset.restore) } }); render(); $("#cx-histbox").hidden = false; renderMeta(); });
   };
@@ -222,17 +274,67 @@ function wire() {
     const instruction = $("#cx-instr").value.trim();
     if ((D.current?.body || "").trim() && !instruction) { toast("Say what to change, or clear the text for a fresh draft."); return; }
     const context = $("#cx-ctx")?.checked ? ctxText : "";
+    const prev = D.current?.version || 0;
     D = await api(`/api/drafts/${D.id}/ai`, { method: "POST", body: { instruction, context } });
     render();
-    toast(`AI wrote v${D.current.version} (${D.ai?.model || "AI"}, ${D.ai?.seconds ?? "?"} s). Read it before approving.`, "ok");
+    const ck = D.current?.check;
+    const flags = ck ? (ck.counts.unsupported + ck.counts.unclear) : 0;
+    toast(`AI wrote v${D.current.version}${D.ai?.sourced ? " from the Draft Studio sources" : ""}${ck ? `; ${flags ? `${flags} sentence(s) flagged` : "every fact has a source"}` : ""}. Read it before approving.`, flags ? "err" : "ok");
+    if (prev > 0 && (D.current?.body || "").trim()) showCompare(String(prev), String(D.current.version)).catch(() => {});
   });
   $("#cx-instr")?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#cx-ai").click(); } });
+}
+
+// ---------------------------------------------------------------- learned from your edits
+let learnCache = null;
+async function renderLearn() {
+  const el = $("#cx-learn"); if (!el || D?.kind === "slack") return;
+  let r;
+  if (learnCache && Date.now() - learnCache.at < 60000) r = learnCache.r;
+  else { try { r = await api("/api/learn"); learnCache = { at: Date.now(), r }; } catch { return; } }
+  const s = (r.suggestions || [])[0];
+  if (!s) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="cx-learn lint warning">Learned from your edits: ${esc(s.text)}${s.examples ? `<div class="dim small-t">e.g. "${esc(s.examples[0])}"</div>` : ""}
+    <span class="st-opts"><button class="btn tiny" data-learn="accept">Make it a style rule</button><button class="btn tiny ghost" data-learn="dismiss">No, leave it</button></span>
+    <div class="dim small-t">A rule is a warning in the composer and a rule for the AI; it goes in your private style.toml, where you can edit or remove it.</div></div>`;
+  el.querySelectorAll("[data-learn]").forEach((b) => b.onclick = () => busy(b, async () => {
+    const act = b.dataset.learn;
+    if (act === "accept" && !confirm(`Add this style rule?\n\n${s.rule.message}\n\nIt warns when a draft contains "${s.phrase}", and the AI is told to avoid it.`)) return;
+    await api(`/api/learn/${act}`, { method: "POST", body: { key: s.key } });
+    toast(act === "accept" ? "Style rule added. It applies to the next save and the next AI draft." : "Dismissed. It will not come back.", "ok");
+    learnCache = null; renderLearn();
+  }));
+}
+
+function wireCheck() {
+  const b = $("#cx-check");
+  if (b) b.onclick = () => busy(b, async () => { await saveNow(); D = await api(`/api/drafts/${D.id}/check`, { method: "POST" }); render(); });
+  const cut = $("#cx-cut");
+  if (cut) cut.onclick = () => busy(cut, async () => {
+    const rows = (D.current?.check?.claims || []).filter((c) => c.verdict !== "supported");
+    const texts = [...document.querySelectorAll("#cx-checkbox [data-cut]")].filter((x) => x.checked).map((x) => rows[Number(x.dataset.cut)]?.text).filter(Boolean);
+    if (!texts.length) { toast("Nothing ticked."); return; }
+    await saveNow();
+    const prev = D.current?.version;
+    D = await api(`/api/drafts/${D.id}/cut`, { method: "POST", body: { texts } });
+    render(); toast(`Cut ${texts.length} sentence(s). Read it before approving.`, "ok");
+    showCompare(String(prev), String(D.current.version)).catch(() => {});
+  });
 }
 
 function wireActs() {
   const on = (id, fn) => { const b = $("#" + id); if (b) b.onclick = () => busy(b, fn); };
   on("cx-ascii", async () => { await saveNow(); D = await api(`/api/drafts/${D.id}/fix-ascii`, { method: "POST" }); render(); });
+  on("cx-tidy", async () => {
+    await saveNow();
+    const prev = D.current?.version;
+    const r = await api(`/api/drafts/${D.id}/tidy`, { method: "POST" });
+    D = r; render();
+    if (!r.tidy?.length) toast("Tidy: nothing to fix.", "ok");
+    else { toast(`Tidy: ${r.tidy.join("; ")}.`, "ok"); showCompare(String(prev), String(D.current.version)).catch(() => {}); }
+  });
   on("cx-copy", async () => { await saveNow(); copyText(D.current?.body || ""); });
+  on("cx-cmpbtn", async () => { await saveNow(); if ((D.versions || []).length < 2) { toast("Only one version so far."); return; } await showCompare("", ""); });
   on("cx-gmail", async () => { await saveNow(); await api(`/api/drafts/${D.id}/gmail`, { method: "POST" }); toast("Saved to Gmail Drafts.", "ok"); });
   on("cx-discard", async () => {
     if (!confirm("Discard this draft? Its versions stay in the local history.")) return;
@@ -247,6 +349,14 @@ function wireActs() {
 // ---------------------------------------------------------------- review dialog (approval 2)
 let countdown = null;
 function stopCountdown() { clearInterval(countdown); countdown = null; $("#sendbar").hidden = true; }
+
+function reviewCheckHtml(r) {
+  const ck = r.check;
+  if (!ck) return (r.kind === "reply" || r.kind === "reply_all") ? `<div class="dim small-t">This version was not checked against the sources.</div>` : "";
+  const left = (ck.claims || []).filter((c) => c.verdict !== "supported");
+  if (!left.length) return `<div class="ok-t small-t">Source check: every factual sentence has a source.</div>`;
+  return `<div class="lint warning">Still in the text without a source (${left.length}):<ul>${left.map((c) => `<li>${esc(c.text)} <span class="dim small-t">${esc(c.rule ? c.note : c.verdict)}</span></li>`).join("")}</ul></div>`;
+}
 
 function showReview(r) {
   const dlg = $("#review");
@@ -266,6 +376,8 @@ function showReview(r) {
       ${r.dropped?.length ? `<div class="lint warning">Not included from the thread: ${esc(r.dropped.join(", "))}</div>` : ""}
       ${r.ticket_ref ? `<div class="dim small-t">Ticket reference ${esc(r.ticket_ref)} is the last line.</div>` : ""}
       ${warn.map((i) => `<div class="lint warning">${esc(i.message)}</div>`).join("")}
+      ${reviewCheckHtml(r)}
+      ${r.last_ai && !r.last_ai.same ? `<details class="rv-cmp"><summary>Your changes since the AI version (+${r.last_ai.added_words} / -${r.last_ai.removed_words} words)</summary>${diffHtml(r.last_ai)}</details>` : ""}
       <pre class="rv-body">${esc(m.body)}</pre>
       <div class="dim small-t">Version ${esc(r.version)}. Sends ${esc(r.delay)} s after you confirm; you can cancel until then. This approval expires in ${Math.round(r.expires_in / 60)} minutes.</div>
       <div class="rv-acts">

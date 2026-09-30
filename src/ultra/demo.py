@@ -1208,6 +1208,122 @@ class DemoStudioAI:
         return Result(json.dumps(out), "demo", 0, 0.0)
 
 
+def _register_draft_tools(api: Api, comp: Any, wrap: Any, did: Any) -> None:
+    """Before/after, Tidy, source check (canned verdicts), cut, and learned rules on the
+    demo composer. Same code paths as live where no network or model is involved."""
+    import tempfile
+    from pathlib import Path
+
+    from ultra.drafttools import compare, cut_sentences, tidy
+    from ultra.learn import EditLearner
+
+    learner = EditLearner(
+        comp.store, Path(tempfile.mkdtemp(prefix="ultra-demo-style-")) / "style.toml"
+    )
+
+    def cmp(q: dict, b: Any, m: re.Match[str]) -> dict:
+        d = wrap(comp.get, did(m))
+        vs = {v["version"]: v for v in d["versions"]}
+        cur = d["current"]["version"]
+
+        def pick(name: str, default: int) -> int:
+            raw = (q.get(name) or [""])[0]
+            if raw == "ai":
+                ai = [v["version"] for v in d["versions"] if v["author"] == "ai"]
+                return ai[-1] if ai else default
+            return int(raw) if raw.isdigit() else default
+
+        bv = pick("b", cur)
+        av = pick("a", max(1, bv - 1))
+        out = compare(vs[av], vs[bv])
+        out["versions"] = [
+            {"version": v["version"], "author": v["author"], "label": v.get("instruction") or ""}
+            for v in d["versions"]
+        ]
+        return out
+
+    def tidy_r(q: dict, b: Any, m: re.Match[str]) -> dict:
+        d = wrap(comp.get, did(m))
+        cur = d["current"] or {}
+        text, changes = tidy(cur.get("body") or "", "Ada")
+        if not changes:
+            return {**d, "tidy": []}
+        return {
+            **wrap(comp.save, d["id"], {"body": text}, "me", "Tidy: " + "; ".join(changes)),
+            "tidy": changes,
+        }
+
+    def check_r(q: dict, b: Any, m: re.Match[str]) -> dict:
+        d = wrap(comp.get, did(m))
+        body = (d["current"] or {}).get("body") or ""
+        claims = []
+        for sent in re.split(r"(?<=[.!?])\s+|\n+", body):
+            t = " ".join(sent.split())
+            if not t or len(t.split()) < 4 or t.endswith("?"):
+                continue
+            v = "unclear" if re.search(r"usually|about a day|always", t, re.I) else "supported"
+            claims.append(
+                {
+                    "text": t,
+                    "verdict": v,
+                    "sources": ["M1"] if v == "supported" else [],
+                    "note": "" if v == "supported" else "Only in a past reply; may be stale.",
+                    "action": "keep" if v == "supported" else "cut",
+                }
+            )
+        comp.put_check(d["id"], d["current"]["version"], {"claims": claims})
+        return wrap(comp.get, d["id"])
+
+    def cut_r(q: dict, b: Any, m: re.Match[str]) -> dict:
+        d = wrap(comp.get, did(m))
+        cur = d["current"] or {}
+        want = {str(x) for x in (b or {}).get("texts") or []}
+        ck = cur.get("check") or {}
+        flagged = [
+            c["text"]
+            for c in ck.get("claims") or []
+            if c["verdict"] != "supported" and c["text"] in want
+        ]
+        if not flagged:
+            raise ApiError(400, "nothing to cut")
+        out = wrap(
+            comp.save,
+            d["id"],
+            {"body": cut_sentences(cur.get("body") or "", flagged)},
+            "me",
+            f"cut {len(flagged)} flagged",
+        )
+        comp.put_check(d["id"], out["current"]["version"], ck)
+        return wrap(comp.get, d["id"])
+
+    from ultra.server import ApiError
+
+    api.add("GET", r"/api/drafts/(\d+)/compare", cmp)
+    api.add("POST", r"/api/drafts/(\d+)/tidy", tidy_r)
+    api.add("POST", r"/api/drafts/(\d+)/check", check_r)
+    api.add("POST", r"/api/drafts/(\d+)/cut", cut_r)
+    api.add(
+        "GET",
+        r"/api/learn",
+        lambda q, b, m: {"suggestions": learner.suggestions(), "stats": learner.stats()},
+    )
+
+    def dismiss(q: dict, b: Any, m: re.Match[str]) -> dict:
+        learner.dismiss(str((b or {}).get("key", "")))
+        return {"ok": True}
+
+    api.add("POST", r"/api/learn/dismiss", dismiss)
+
+    def accept(q: dict, b: Any, m: re.Match[str]) -> dict:
+        try:
+            return {"ok": True, "rule": learner.accept_rule(str((b or {}).get("key", "")))}
+        except KeyError as e:
+            raise ApiError(404, "That suggestion is no longer open") from e
+
+    api.add("POST", r"/api/learn/accept", accept)
+    api.demo_learner = learner  # type: ignore[attr-defined]
+
+
 def _register_studio(api: Api, store: Any) -> None:
     from ultra.sources import HouseFacts, Sources
     from ultra.studio import Studio
@@ -1412,17 +1528,24 @@ def _register_composer(api: Api) -> None:
         r"/api/drafts/(\d+)/restore",
         lambda q, b, m: wrap(comp.restore, did(m), int((b or {})["version"])),
     )
-    api.add(
-        "POST",
-        r"/api/drafts/(\d+)/studio",
-        lambda q, b, m: wrap(
+
+    def studio_save(q: dict, b: Any, m: re.Match[str]) -> dict:
+        from ultra.live import Live
+
+        b = b or {}
+        out = wrap(
             comp.save,
             did(m),
-            {"body": ascii_fix(str((b or {}).get("body", "")))},
+            {"body": ascii_fix(str(b.get("body", "")))},
             "ai",
-            str((b or {}).get("label", "Draft Studio"))[:200],
-        ),
-    )
+            str(b.get("label", "Draft Studio"))[:200],
+        )
+        shim = Live.__new__(Live)
+        shim.compose = comp
+        shim._keep_check(out, b.get("check"))  # same filtering as live
+        return wrap(comp.get, did(m))
+
+    api.add("POST", r"/api/drafts/(\d+)/studio", studio_save)
 
     def from_task(q: dict, b: Any, m: re.Match[str]) -> dict:
         b = b or {}
@@ -1447,7 +1570,12 @@ def _register_composer(api: Api) -> None:
                 {"to_addrs": to, "cc": ", ".join(env.get("cc") or []), "subject": subject}
             )
         d = wrap(comp.save, d["id"], fields, "ai", str(b.get("label", "Draft Studio (task)")))
-        return {**d, "task_id": tid}
+        from ultra.live import Live
+
+        shim = Live.__new__(Live)
+        shim.compose = comp
+        shim._keep_check(d, b.get("check"))
+        return {**wrap(comp.get, d["id"]), "task_id": tid}
 
     def for_task(q: dict, b: Any, m: re.Match[str]) -> dict:
         ds = [comp.get(i) for i in task_drafts.get(m.group(1), [])]
@@ -1473,6 +1601,7 @@ def _register_composer(api: Api) -> None:
 
     api.add("POST", r"/api/drafts/(\d+)/ai", ai)
     api.add("POST", r"/api/drafts/(\d+)/gmail", lambda q, b, m: {"gmail_draft_id": None})
+    _register_draft_tools(api, comp, wrap, did)
 
     def send(q: dict, b: Any, m: re.Match[str]) -> dict:
         b = b or {}

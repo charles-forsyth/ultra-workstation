@@ -241,11 +241,11 @@ async function useDraft() {
     const e = envelope();
     if (!e.thread && !e.to.length) { toast("Add a To address, or pick a thread to reply to.", "err"); return; }
     if (!e.thread && !e.subject.trim()) { toast("Add a subject for the new email.", "err"); $("#st-subj")?.focus(); return; }
-    await applyTaskDraft(ST.key.slice(2), body, e, label);
+    await applyTaskDraft(ST.key.slice(2), body, e, label, ST.check);
     toast(e.thread ? "In the composer as a reply-all on that thread. Read it, then approve twice." : "In the composer as a new email. Read it, then approve twice.", "ok");
     return;
   }
-  await applyStudioDraft(ST.key, body, label);
+  await applyStudioDraft(ST.key, body, label, ST.check);
   toast("Draft Studio text is in the composer as a new AI version. Read it, then approve twice.", "ok");
 }
 

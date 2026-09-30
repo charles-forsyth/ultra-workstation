@@ -31,6 +31,20 @@ FIELDS = ("from_addr", "to_addrs", "cc", "bcc", "subject", "body")
 DEFAULT_REF_PATTERN = r"Ref:MSG\d{6,12}"
 
 
+def addresses(*fields: str) -> list[tuple[str, str]]:
+    """(name, address) pairs from any number of header values.
+
+    Each field is parsed on its own: on Python 3.13 ``getaddresses`` given a list that
+    contains an empty string returns only a single empty pair for the whole list, so
+    one blank Cc used to hide every To address.
+    """
+    out: list[tuple[str, str]] = []
+    for f in fields:
+        if f and f.strip():
+            out.extend((n, a) for n, a in email.utils.getaddresses([f]) if a)
+    return out
+
+
 def ticket_ref(msgs: list[dict[str, Any]], is_ticket: Any, pattern: str) -> str:
     """The reference line to carry in a reply: from the newest message sent by the
     ticket system (never the operator's own mail, whose quoted text can hold an older
@@ -143,6 +157,8 @@ class Composer:
             v["lint"] = json.loads(v["lint"] or "[]")
         d["current"] = d["versions"][-1] if d["versions"] else None
         d["ticket_ref"] = self.ref_for(did)
+        if d["current"]:
+            d["current"]["check"] = self.get_check(did, d["current"]["version"])
         if d["kind"] == "slack" and d["state"] == "SENT":
             hit = self.store.cache_get(f"draft:{did}:sent_result")
             d["sent_result"] = hit[0] if hit else None
@@ -190,13 +206,11 @@ class Composer:
                 subject = _reply_subject(base)
                 to = target["from"] if not mine(target) else target.get("to", "")
                 if kind == "reply_all":
-                    first = {a.lower() for _, a in email.utils.getaddresses([to])}
+                    first = {a.lower() for _, a in addresses(to)}
                     rest = [
                         f"{n} <{a}>" if n else a
-                        for n, a in email.utils.getaddresses(
-                            [target.get("to") or "", target.get("cc") or ""]
-                        )
-                        if a and a.lower() not in self.me and a.lower() not in first
+                        for n, a in addresses(target.get("to") or "", target.get("cc") or "")
+                        if a.lower() not in self.me and a.lower() not in first
                     ]
                     cc = ", ".join(dict.fromkeys(rest))
             elif kind == "forward":
@@ -212,7 +226,7 @@ class Composer:
         if kind in ("reply", "reply_all") and thread and thread.get("messages"):
             # Only when the reply goes to the ticket system: a side conversation with
             # people on the ticket (not the desk) is not filed on the ticket.
-            if any(self.is_ticket(a) for _, a in email.utils.getaddresses([to, cc])):
+            if any(self.is_ticket(a) for _, a in addresses(to, cc)):
                 ref = ticket_ref(thread["messages"], self.is_ticket, self.ref_pattern)
         c = self._db()
         with c:
@@ -280,6 +294,48 @@ class Composer:
         return [self.get(r[0]) for r in rows]
 
     # ---------------------------------------------------------------- versions
+    # ---------------------------------------------------------------- check results
+    def put_check(self, did: int, version: int, check: dict[str, Any]) -> None:
+        """Keep a version's source check with the draft (shown in the composer and on
+        review). Only verdicts for sentences still in that version are kept."""
+        d = self.get(did)
+        v = next((x for x in d["versions"] if x["version"] == version), None)
+        if not v:
+            return
+        body = " ".join((v.get("body") or "").split())
+        claims = [
+            {k: c.get(k) for k in ("text", "verdict", "sources", "note", "action", "rule")}
+            for c in check.get("claims") or []
+            if isinstance(c, dict) and " ".join(str(c.get("text", "")).split())[:40] in body
+        ]
+        self.store.cache_put(
+            f"draft:{did}:check:{version}",
+            {
+                "version": version,
+                "claims": claims,
+                "counts": {
+                    k: sum(1 for c in claims if c.get("verdict") == k)
+                    for k in ("supported", "unsupported", "unclear")
+                },
+                "checked_at": time.time(),
+                "error": str(check.get("error", ""))[:300],
+            },
+        )
+
+    def get_check(self, did: int, version: int) -> dict[str, Any] | None:
+        hit = self.store.cache_get(f"draft:{did}:check:{version}")
+        return hit[0] if hit else None
+
+    def _last_ai_compare(self, d: dict[str, Any], v: dict[str, Any]) -> dict[str, Any] | None:
+        """On review: how the approved text differs from the last AI version (your
+        edits), so the second approval sees exactly what you changed by hand."""
+        from ultra.drafttools import compare
+
+        ai = [x for x in d["versions"] if x["author"] == "ai" and x["version"] <= v["version"]]
+        if not ai or ai[-1]["version"] == v["version"]:
+            return None
+        return compare(ai[-1], v)
+
     def ref_for(self, did: int) -> str:
         hit = self.store.cache_get(f"draft:{did}:ticket_ref")
         return str(hit[0]) if hit and hit[0] else ""
@@ -446,10 +502,7 @@ class Composer:
             )
         hit = self.store.cache_get(f"draft:{did}:participants")
         present = {
-            a.lower()
-            for _, a in email.utils.getaddresses(
-                [v["to_addrs"] or "", v["cc"] or "", v["bcc"] or ""]
-            )
+            a.lower() for _, a in addresses(v["to_addrs"] or "", v["cc"] or "", v["bcc"] or "")
         }
         dropped = (
             sorted(set(hit[0]) - present - self.me) if hit and d["kind"] == "reply_all" else []
@@ -465,6 +518,8 @@ class Composer:
             "lint": v["lint"],
             "kind": d["kind"],
             "ticket_ref": d.get("ticket_ref", ""),
+            "check": self.get_check(did, v["version"]),
+            "last_ai": self._last_ai_compare(d, v),
         }
         if d["kind"] == "slack":
             out["slack"] = {

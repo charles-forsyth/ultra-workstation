@@ -984,6 +984,46 @@ for an email that moves a ledger task forward (key `t-<uuid>`):
   AI version and still needs both approvals. `GET /api/drafts/task/<uuid>` resumes it
   when the task is reopened; after the send the task's progress-log card opens.
 
+
+### 9.7 One drafting path, checked versions, before/after, Tidy (v0.9.9)
+
+- *Composer AI goes through Draft Studio.* For replies and task emails, "Draft with AI"
+  uses the Studio brief and gathered sources, and "Revise with AI" applies the change
+  with the same sources, house facts and rules (no new facts without a source; keep the
+  Ref line). New blank emails, forwards and Slack keep the plain path. The result is an
+  AI version as before.
+- *Every AI version is checked.* The source check runs after each AI draft or revise
+  and is stored with that version (only verdicts for sentences still in the text). The
+  composer shows it with the flagged sentences ticked for cutting; "Cut the ticked
+  sentences" makes a new version by the operator. A hand edit makes a new, unchecked
+  version ("Check sources" re-runs it). Draft Studio's hand-off keeps its check and the
+  operator's Cut/Keep choices.
+- *Before/after.* Word-level comparison between any two versions (whitespace changes are
+  not counted), header fields included; opened automatically after an AI revise, a cut or
+  a Tidy. "Since the AI" compares the last AI version with the current text. The review
+  screen (approval 2) shows the source check of the exact version being sent and, when
+  the operator edited after the AI, those changes.
+- *Tidy* is deterministic and form-only: typographic characters to ASCII, trailing and
+  double spaces, extra blank lines, a repeated greeting or signature, and the Ref line
+  placed once, last. It never adds or removes a content word; the version's source check
+  carries over.
+- *Reply-all recipients fix.* On Python 3.13, `email.utils.getaddresses` given a list
+  with two blank fields returns nothing; header fields are now parsed one at a time
+  (`compose.addresses`). This removed a false "not included from the thread" warning on
+  review and could have dropped To recipients from a reply-all Cc when the notice had
+  no Cc. Checked: no sent reply-all was affected (the two live reply-all drafts kept
+  their recipients).
+
+### 9.8 Learning from edits (v0.9.9)
+
+After a send, the last AI version is compared with the sent text; removed sentences
+(three or more words) and short replaced phrases are recorded locally. When the same
+edit repeats in three different emails (shared 4-6 word phrases count as the same
+habit), the composer offers "Make it a style rule" or "No, leave it". Accepting appends a
+`[[forbid]]` warning to the private style.toml (backed up first, and only if the result
+parses); the AI is told to avoid it and the composer warns when it appears. Dismissed or
+accepted suggestions do not return. No model is involved.
+
 ### 11.1 Person resolution
 
 In order, stopping at the first confident hit:
@@ -1322,6 +1362,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.26 | App v0.9.9 (sections 9.7, 9.8): composer AI through Draft Studio with a check on every AI version, check stored per version and shown in composer and review, before/after comparison, deterministic Tidy, learning from edits into style rules; Python 3.13 address-parsing fix for reply-all. |
 | 2026-09-30 | 0.25 | App v0.9.8: ticket replies carry and enforce the Ref:MSG line (section 9.6): chosen from the newest desk notice, added to AI text, lint error with one-click fix for operator edits, shown on review; only for replies that go to the desk. |
 | 2026-09-30 | 0.24 | App v0.9.7: Draft Studio task mode (section 9.6): Draft email from a task, related-mail gather, recipient allow-list, thread-or-new choice, internal keys scrubbed, standing-rule flags (no unasked meeting offers, no apologies) in both modes; hand-off to the composer as an AI version with both approvals; task log card after the send. |
 | 2026-09-30 | 0.23 | App v0.9.6: house facts are never stored in the gather cache; they are looked up fresh on every gather, so a fact the operator turns off or deletes drops out of the next brief at once. |

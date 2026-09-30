@@ -4,6 +4,7 @@
 import { openDraft, openSlackDraft, resumeForThread, onSent } from "./compose.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, openPersonByAddr } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
+import { initDay, openDay, closeDay, dayOpen } from "./day.js";
 import { initToday, openToday, closeToday, todayOpen } from "./today.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -176,6 +177,7 @@ async function resumeSlack(it) {
 async function openItem(i) {
   const it = S.items[i]; if (!it) return;
   if (todayOpen()) closeToday();
+  if (dayOpen()) closeDay();
   if (it.source === "task") return openTask(i);
   S.sel = i; S.key = it.key; renderStream();
   $("#thread-empty").hidden = true;
@@ -535,6 +537,7 @@ function wire() {
     if (e.key === "c") { e.preventDefault(); openDraft("new", null).catch((x) => toast(x.message, "err")); return; }
     if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, c compose, m Mine, w Waiting, g Today, Esc close Today, Ctrl+K commands"); return; }
     if (e.key === "g") { e.preventDefault(); todayOpen() ? closeToday() : openToday(); return; }
+    if (e.key === "d") { e.preventDefault(); dayOpen() ? closeDay() : openDay(); return; }
     if (e.key === "Escape" && todayOpen()) { closeToday(); return; }
     if (e.key === "j") { S.sel = Math.min(S.items.length - 1, S.sel + 1); renderStream(); }
     else if (e.key === "k") { S.sel = Math.max(0, S.sel - 1); renderStream(); }
@@ -626,8 +629,13 @@ async function boot() {
   });
   initRail(); wireSearch(); initTools();
   initToday(S.tz, {
-    onOpen: () => { S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (dayOpen()) closeDay(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
+  });
+  initDay({
+    onOpen: () => { if (todayOpen()) closeToday(); S.key = null; S.sel = -1; renderStream(); },
+    onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
+    openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter.", "err"); },
   });
   window.addEventListener("ultra:person", (ev) => openPersonByAddr(ev.detail));
   window.addEventListener("ultra:listen", (ev) => listen(ev.detail.text, ev.detail.title));

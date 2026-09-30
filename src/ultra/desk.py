@@ -288,8 +288,19 @@ class Desk:
                         {"id": e["id"], "name": e.get("name", ""), "type": e.get("type", "")}
                     )
                 )
-        if not items:
+        if not items and not b.get("allow_unlinked"):
             raise _bad("nothing to link the briefing to")
+        if not items:  # e.g. the end-of-day report: a log with no links (add some on the card)
+            items = [
+                {
+                    "kind": "note",
+                    "key": "",
+                    "subject": str(b.get("title") or "Note")[:120],
+                    "people": [],
+                    "tickets": [],
+                    "gcp": [],
+                }
+            ]
         card = self.stager.stage("log", items)
         card["text"] = text
         self.stager.annotate(card["id"], from_bucket=False)

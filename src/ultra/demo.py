@@ -314,6 +314,17 @@ class DemoAI:
 
         return Result(f"Demo: '{passage[:40]}' is explained here.", "demo", 0, 0.0)
 
+    def _gen(self, prompt: str, system: str, max_tokens: int = 0, **kw: Any) -> Any:
+        from ultra.ai import Result
+
+        return Result(
+            "- Protect 3:30-5:00 for the handover plan.\n- Answer Ben first: he is waiting "
+            "on you.\n- Dee can wait until tomorrow.",
+            "demo",
+            0,
+            0.0,
+        )
+
     def briefing(self, context_text: str, operator: str) -> Any:
         from ultra.ai import Result
 
@@ -609,6 +620,52 @@ def _register_today(api: Api) -> None:
         }
 
     Today(cal, info, Rules(me={"ada@example.org"})).register(api)
+
+    import datetime as dt
+    import tempfile
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    from ultra.day import Day
+    from ultra.store import Store
+
+    store = Store(Path(tempfile.mkdtemp(prefix="ultra-demo-day-")) / "day.db")
+    api.demo_day_store = store  # type: ignore[attr-defined]
+    now = dt.datetime.now(ZoneInfo("America/New_York")).timestamp()
+    for i, (action, target, detail) in enumerate(
+        [
+            ("archive", "t1", {"subject": "Newsletter"}),
+            ("archive", "t2", {"subject": "Weekly digest"}),
+            ("sent", "1", {"subject": "Re: Lab project handover", "to": ["ben@example.org"]}),
+            ("ledger_log", "i-1", {"links": 2}),
+            ("ledger_task_status", "t-1", {"status": "DONE"}),
+            ("slack_done", "s-D0DEMO1", None),
+            ("cal_block", "b1", {"summary": "Focus: budget alert check"}),
+        ]
+    ):
+        store.journal(action, target, True, detail)
+        with store._conn() as c:  # spread them over the morning
+            c.execute(
+                "UPDATE journal SET ts=? WHERE id=(SELECT MAX(id) FROM journal)",
+                (now - 3600 * (7 - i) / 2,),
+            )
+
+    def stream_rows() -> list[dict[str, Any]]:
+        return [dict(s) for s in STREAM]
+
+    def tasks() -> dict[str, dict[str, Any]]:
+        return {t["id"]: t for t in DEMO_TASKS if t.get("status") != "DONE"}
+
+    Day(
+        store,
+        ZoneInfo("America/New_York"),
+        cal.day,
+        stream_rows,
+        tasks,
+        DemoAI(),
+        "Ada",
+        (9, 17),
+    ).register(api)
 
 
 # ---------------------------------------------------------------- demo ledger

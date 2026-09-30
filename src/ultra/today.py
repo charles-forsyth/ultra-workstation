@@ -114,7 +114,7 @@ class Today:
         if color and color.lower() not in COLORS:
             raise _bad("unknown colour")
         try:
-            return self.cal.create_block(
+            res = self.cal.create_block(
                 str(b.get("summary", "")),
                 start,
                 end,
@@ -125,6 +125,8 @@ class Today:
             )
         except CalendarError as e:
             raise _bad(str(e)) from e
+        self._journal("cal_block", res, {"summary": str(b.get("summary", ""))[:80]})
+        return res
 
     def r_move(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         b = body or {}
@@ -133,11 +135,13 @@ class Today:
             raise _bad("bad event id")
         start, end = self._times(b)
         try:
-            return self.cal.move_block(
+            res = self.cal.move_block(
                 cal, eid, start, end, summary=b.get("summary") if "summary" in b else None
             )
         except CalendarError as e:
             raise _bad(str(e), 409) from e
+        self._journal("cal_move", res, {"id": eid})
+        return res
 
     def r_delete(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         b = body or {}
@@ -145,9 +149,18 @@ class Today:
         if not CAL_RE.fullmatch(cal) or not EID_RE.fullmatch(eid):
             raise _bad("bad event id")
         try:
-            return self.cal.delete_block(cal, eid)
+            res = self.cal.delete_block(cal, eid)
         except CalendarError as e:
             raise _bad(str(e), 409) from e
+        self._journal("cal_delete", res, {"id": eid})
+        return res
+
+    def _journal(self, action: str, res: Any, detail: dict[str, Any]) -> None:
+        store = getattr(self.cal, "store", None)
+        if store is not None and hasattr(store, "journal"):
+            ok = bool((res or {}).get("ok", True)) if isinstance(res, dict) else True
+            ev = (res or {}).get("event") or {} if isinstance(res, dict) else {}
+            store.journal(action, str(ev.get("id") or detail.get("id") or ""), ok, detail)
 
     def r_slots(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         b = body or {}

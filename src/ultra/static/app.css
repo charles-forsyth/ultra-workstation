@@ -345,3 +345,13 @@ li.ix.flash { background: var(--cyan-d); transition: background .3s; }
 .btn.danger:not([disabled]):hover { background: var(--red-d); }
 #rt-full .clist { list-style: none; padding-left: 0; }
 #rt-full li.ix { margin-bottom: 6px; }
+
+/* ---- v0.9 Day ---- */
+.day-sum { margin: 6px 0 10px; color: var(--dim); }
+.day-sec { margin: 14px 0; }
+.day-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.day-list li { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+.day-item { cursor: pointer; }
+.day-item:hover { background: var(--panel); }
+.rep-text { width: 100%; font: 13px/1.5 var(--mono); background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 4px; padding: 8px; margin-top: 6px; }
+#day-seg { margin-left: 10px; }

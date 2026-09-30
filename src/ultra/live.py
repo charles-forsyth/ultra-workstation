@@ -20,6 +20,7 @@ from ultra.audio import Audio
 from ultra.calendar import Calendar
 from ultra.compose import ComposeError, Composer, gmail_send
 from ultra.config import Config, expand
+from ultra.day import Day
 from ultra.desk import Desk
 from ultra.itemctx import ItemContext
 from ultra.itemdesk import ItemDesk
@@ -114,6 +115,17 @@ class Live:
         self.tools = Tools(self.research, self.ai, self.audio, self.thread_text_for, self.operator)
         self.calendar = Calendar(cfg, self.store)
         self.today = Today(self.calendar, self.block_info, self.rules)
+        wh = [int(str(x).split(":")[0]) for x in self.calendar.work_hours]
+        self.day = Day(
+            self.store,
+            self.calendar.tz,
+            self.calendar.day,
+            lambda: self._merged()[0],
+            self._open_tasks_cached,
+            self.ai,
+            self.operator,
+            (int(wh[0]), int(wh[1])),
+        )
         self.show_tasks = bool(cfg.get("ledger", "tasks_in_stream", True))
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -169,6 +181,7 @@ class Live:
         self.itemdesk.register(api)
         self.tools.register(api)
         self.today.register(api)
+        self.day.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -210,6 +223,11 @@ class Live:
         if hit is None or hit[1] > 300:
             self._job("tasks", self._refresh_tasks)
         return task_rows((hit or [[]])[0] or [], self.store)
+
+    def _open_tasks_cached(self) -> dict[str, dict[str, Any]]:
+        hit = self.store.cache_get("tasks:open")
+        rows: list[dict[str, Any]] = (hit or [[]])[0] or []
+        return {t["id"]: t for t in rows if t.get("status") != "DONE"}
 
     def _refresh_tasks(self) -> None:
         self.store.cache_put("tasks:open", self.ledger._run(["tasks", "list"]) or [])
@@ -448,7 +466,13 @@ class Live:
     def r_archive(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         tids = _thread_ids(body)
         done = self.mail.archive(tids)
-        self.store.journal("archive", ",".join(done), True)
+        subj = ""
+        stream, _ = self.mail.stream(0)
+        for it in (stream or {}).get("items") or []:
+            if set(it.get("threads") or [it.get("key", "")[2:]]) & set(done):
+                subj = str(it.get("subject") or "")[:80]
+                break
+        self.store.journal("archive", ",".join(done), True, {"subject": subj} if subj else None)
         return {"archived": done}
 
     def r_unarchive(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -673,7 +697,14 @@ class Live:
             if not self.slack_sender:
                 raise RuntimeError("Slack sending is not available")
             channel = (d["thread_id"] or "").removeprefix("slack:")
-            return self.slack_sender.send(channel, d["in_reply_to"] or "", v["body"])
+            res = self.slack_sender.send(channel, d["in_reply_to"] or "", v["body"])
+            self.store.journal(
+                "slack_sent",
+                str(d["id"]),
+                bool(res.get("verified", True)),
+                {"channel": channel, "chars": len(v["body"])},
+            )
+            return res
         r = self.send_fn(d, v)
         self._job("mail", self.mail.refresh)
         return r

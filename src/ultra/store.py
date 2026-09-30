@@ -151,6 +151,22 @@ class Store:
         with self._conn() as c:
             c.execute("DELETE FROM bucket")
 
+    def journal_between(self, t0: float, t1: float) -> list[dict[str, Any]]:
+        """Journal rows in [t0, t1), oldest first; detail left as the stored JSON text."""
+        rows = (
+            self._conn()
+            .execute(
+                "SELECT ts, action, target, ok, detail FROM journal WHERE ts >= ? AND ts < ? "
+                "ORDER BY id",
+                (t0, t1),
+            )
+            .fetchall()
+        )
+        return [
+            {"ts": r[0], "action": r[1], "target": r[2], "ok": bool(r[3]), "detail": r[4]}
+            for r in rows
+        ]
+
     def journal_recent(self, limit: int = 50, prefix: str = "") -> list[dict[str, Any]]:
         rows = (
             self._conn()

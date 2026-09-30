@@ -182,7 +182,22 @@ def make_handler(
                 return self._json(500, {"error": f"{type(e).__name__}: {e}"})
             if isinstance(obj, FileResponse):
                 return self._file(obj)
+            if hasattr(obj, "text") and hasattr(obj, "ctype") and hasattr(obj, "name"):
+                return self._text_file(obj)
             return self._json(status, obj)
+
+        def _text_file(self, f: Any) -> None:
+            data = f.text.encode("utf-8")
+            name = re.sub(r"[^A-Za-z0-9._-]", "_", f.name)[:80]
+            self.send_response(200)
+            self.send_header("Content-Type", f.ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", guard.CSP)
+            self.end_headers()
+            self.wfile.write(data)
 
         def _file(self, f: FileResponse) -> None:
             try:

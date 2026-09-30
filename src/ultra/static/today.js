@@ -28,8 +28,9 @@ export function initToday(tz, { onOpen, onClose }) {
   $("#btn-today")?.addEventListener("click", () => (T.open ? closeToday() : openToday()));
   // "Block" from the bucket or a thread: open Today and a block card at the next free slot
   window.addEventListener("ultra:block", async (ev) => {
-    await openToday();
-    newBlock(ev.detail || {}, nextSlot());
+    const d = ev.detail || {};
+    await openToday(d.day || null);
+    newBlock(d, d.startMin ?? nextSlot(), d.minutes || 30);
   });
 }
 

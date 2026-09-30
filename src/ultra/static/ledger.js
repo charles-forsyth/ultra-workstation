@@ -632,6 +632,17 @@ export async function stage(action, key = null, sent = false) {
   renderCard();
 }
 
+// A log card from free text (the end-of-day report): same review-then-commit card.
+window.addEventListener("ultra:stage-text", async (ev) => {
+  const dlg = $("#ledger-card");
+  dlg.hidden = false;
+  dlg.innerHTML = `<div class="lc-card"><div class="dim">Building the log entry...</div></div>`;
+  try {
+    CARD = await api("/api/ledger/stage-briefing", { method: "POST", body: { key: "", text: ev.detail.text, title: ev.detail.title, allow_unlinked: true, entities: [] } });
+  } catch (e) { dlg.hidden = true; toast(e.message, "err"); return; }
+  renderCard();
+});
+
 export function stageAfterSend(threadKey) {
   stage("log", threadKey, true);
 }

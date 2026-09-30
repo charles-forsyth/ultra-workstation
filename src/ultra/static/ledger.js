@@ -25,6 +25,7 @@ function showTab(tab) {
   $$("#rail-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
   $$(".rtab").forEach((p) => { p.hidden = p.id !== `rt-${tab}`; });
   if (tab === "search") $("#ls-q")?.focus();
+  if (tab === "tools") $("#tw-q")?.focus();
 }
 
 // ---------------------------------------------------------------- people tab

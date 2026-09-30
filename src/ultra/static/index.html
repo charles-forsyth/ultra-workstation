@@ -46,12 +46,14 @@
         <div class="seg" id="rail-tabs" role="tablist">
           <button data-tab="people" class="on">People</button>
           <button data-tab="person">Person</button>
-          <button data-tab="search">Ledger search</button>
+          <button data-tab="search">Ledger</button>
+          <button data-tab="tools">Research</button>
         </div>
       </div>
       <div class="rbody" id="context">
         <div class="rtab" id="rt-people"><div class="dim">Nothing selected.</div></div>
         <div class="rtab" id="rt-person" hidden><div class="dim">Pick someone on the People tab.</div></div>
+        <div class="rtab" id="rt-tools" hidden></div>
         <div class="rtab" id="rt-search" hidden>
           <input id="ls-q" class="rinput" placeholder="Search people, labs, projects, tasks..." autocomplete="off">
           <div id="ls-out" class="ls-out"></div>
@@ -81,6 +83,8 @@
 <div class="modal pal" id="palette" hidden></div>
 <div class="modal" id="ledger-card" hidden></div>
 <div class="selbar" id="selbar" hidden></div>
+<div class="modal" id="report" hidden></div>
+<div class="listenbar" id="listenbar" hidden></div>
 <div class="sendbar" id="sendbar" hidden></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <script src="/app.js" type="module"></script>

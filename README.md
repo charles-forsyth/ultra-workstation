@@ -4,10 +4,11 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger by dragging it into a bucket.
 
-Status: v0.4.0. Mail read and write (double-approval send), AI summary and drafting,
+Status: v0.5.0. Mail read and write (double-approval send), AI summary and drafting,
 archive with undo, ticket cards, whose-court rules, Slack read, a context rail that
 covers everyone on a conversation, and the bucket: drag conversations and people in,
-then log or make a task in the ledger with links checked by read-back. Calendar and
+then log or make a task in the ledger with links checked by read-back; web search
+and deep-research from any highlight; read aloud and AI audio summaries. Calendar and
 Slack replies are next. See [SPEC.md](SPEC.md) section 19.
 
 Nothing here contains credentials or personal data. Runtime config and tokens live in
@@ -49,6 +50,20 @@ missing one). A card commits once; nothing is retried automatically.
 
 The ledger adapter only runs `log`, `tasks add`, `tasks update`, `link` and `unlink`,
 passes entities as full UUIDs, and sends text on stdin.
+
+## Research and listening
+
+Highlight text in a message for Copy, Quote in reply, Search ledger, Web search (a
+short Google-grounded answer with sources) and Add to bucket; More has Explain,
+Search research (your past deep-research runs), Research this, and Read aloud.
+
+The Research tab searches past research, lists recent runs, opens reports, and starts
+a new run. Starting costs money, so it only happens from the launcher after an
+estimate, and the conversation text is included only if you tick it for that run.
+
+Read aloud uses the browser voice (free, nothing leaves the machine). AI audio makes
+a spoken summary or a full read with a Gemini voice; files are cached, stay in the
+data folder, and `ultra purge --audio` deletes them.
 
 ## Keys
 

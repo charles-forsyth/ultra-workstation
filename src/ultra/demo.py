@@ -123,6 +123,108 @@ def register(api: Api) -> None:
     api.add("GET", r"/api/context/([^/]+)", context)
     _register_composer(api)
     _register_desk(api)
+    _register_tools(api)
+
+
+class DemoResearch:
+    """Canned research client: nothing runs and nothing is spent."""
+
+    enabled = True
+    dashboard_url = ""
+    depth, breadth = 1, 3
+
+    def __init__(self) -> None:
+        self.started: list[dict[str, Any]] = []
+        self.state: dict[str, Any] = {"ok": True, "error": ""}
+
+    def search(self, q: str, limit: int = 5) -> dict[str, Any]:
+        return {
+            "query": q,
+            "answer": f"Demo: two earlier reports discuss {q[:40]}.",
+            "matches": [{"session_id": 7, "score": 0.81, "prompt": "Lab storage options"}],
+            "model": "demo",
+        }
+
+    def runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": 7,
+                "prompt": "Lab storage options",
+                "status": "completed",
+                "created_at": "2026-09-28T10:00:00",
+            }
+        ]
+
+    def show(self, sid: int) -> dict[str, Any]:
+        return {
+            "id": sid,
+            "prompt": "Lab storage options",
+            "status": "completed",
+            "result": "## Summary\n\nDemo report text about storage tiers.",
+        }
+
+    def estimate(self, prompt: str, depth: int, breadth: int, upload: Any) -> dict[str, Any]:
+        return {
+            "prompt": prompt,
+            "depth": depth,
+            "breadth": breadth,
+            "cost_usd": 0.95,
+            "note": "Demo estimate.",
+        }
+
+    def start(self, prompt: str, depth: int, breadth: int, thread: str | None) -> dict:
+        self.started.append({"prompt": prompt, "thread": bool(thread)})
+        return {"session_id": 100 + len(self.started), "status": "running", "demo": True}
+
+    def _thread_file(self, text: str) -> Any:
+        import tempfile
+        from pathlib import Path
+
+        fd, name = tempfile.mkstemp()
+        import os
+
+        os.close(fd)
+        return Path(name)
+
+
+class DemoAI:
+    enabled = True
+    model = "demo"
+
+    def web_search(self, q: str, context: str = "") -> dict[str, Any]:
+        return {
+            "text": f"Demo web answer about {q[:60]}.",
+            "grounded": True,
+            "sources": [{"title": "example.org", "url": "https://example.org/"}],
+            "queries": [q],
+            "model": "demo",
+            "seconds": 0,
+        }
+
+    def explain(self, passage: str, thread: str, operator: str) -> Any:
+        from ultra.ai import Result
+
+        return Result(f"Demo: '{passage[:40]}' is explained here.", "demo", 0, 0.0)
+
+
+def _register_tools(api: Api) -> None:
+    import tempfile
+    from pathlib import Path
+
+    from ultra.audio import Audio
+    from ultra.config import Config
+    from ultra.store import Store
+    from ultra.tools import Tools
+
+    store = Store(Path(tempfile.mkdtemp(prefix="ultra-demo-tools-")) / "t.db")
+    research = DemoResearch()
+    api.demo_research = research  # type: ignore[attr-defined]
+    audio = Audio(Config({}), store, type("Off", (), {"enabled": False})())
+
+    def text(key: str, for_speech: bool = False) -> str:
+        return "\n\n".join(f"{m['from']}: {m['body']}" for m in THREADS.get(key, []))
+
+    Tools(research, DemoAI(), audio, text, "Ada").register(api)
 
 
 # ---------------------------------------------------------------- demo ledger

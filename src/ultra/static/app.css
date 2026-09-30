@@ -217,3 +217,31 @@
 .chip { text-transform: none; font-family: var(--sans); letter-spacing: 0; }
 .chip.linked::after { content: " \2713"; }
 .chip.missing::after { content: " !"; }
+
+/* ---- v0.45: research, web, audio ---- */
+#rail-tabs button { padding: 3px 6px; }
+.tsect { margin-bottom: 14px; }
+.trow { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+.trow .rinput { flex: 1; }
+.aicard { border: 1px solid var(--magenta); background: var(--magenta-d); border-radius: var(--radius); padding: 8px 10px; margin-top: 8px; }
+.aicard .body { white-space: pre-wrap; font-size: 12.5px; }
+.srcs { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
+.srcs a, .md a { color: var(--cyan); }
+.runs { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.run { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.lc-card.rep { width: min(900px, 96vw); }
+.md { font-family: var(--serif); font-size: 15px; line-height: 1.6; max-height: 70vh; overflow-y: auto; padding-right: 6px; }
+.md h3, .md h4, .md h5, .md h6 { font-family: var(--sans); margin: 16px 0 6px; }
+#rl-q { width: 100%; box-sizing: border-box; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; color: var(--text); padding: 6px 8px; font: inherit; }
+.lc-card select { background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 4px; }
+.listenbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 32px; z-index: 54; display: flex; gap: 8px; align-items: center; background: var(--panel-2); border: 1px solid var(--cyan); border-radius: 8px; padding: 6px 12px; max-width: 96vw; flex-wrap: wrap; }
+.listenbar[hidden] { display: none; }
+.listenbar audio { height: 30px; max-width: 360px; }
+.listenbar select { background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 4px; }
+.reading { background: var(--amber-d); outline: 1px solid var(--amber); border-radius: 3px; }
+.selbar { flex-wrap: wrap; max-width: 560px; }
+.selbar .more { position: relative; }
+.more-menu { display: inline-flex; gap: 4px; margin-left: 4px; }
+.more-menu[hidden] { display: none; }
+.md { max-width: 78ch; }
+.modal { background: rgba(0, 0, 0, .72); }

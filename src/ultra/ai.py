@@ -93,6 +93,80 @@ class AI:
         self.state = {**self.state, "ok": False, "error": msg[:200]}
         raise AIError(msg[:300])
 
+    # ---------------------------------------------------------------- grounded search
+    def web_search(self, question: str, context: str = "") -> dict[str, Any]:
+        """Short answer grounded in Google Search, with numbered sources.
+
+        Only the question (and the thread text when the operator ticks it) is sent.
+        """
+        if not self.enabled:
+            raise AIError("AI is off: set GEMINI_API_KEY in ~/.config/ultra-workstation/.env")
+        from google.genai import types
+
+        q = " ".join(question.split())[:1000]
+        if len(q) < 3:
+            raise AIError("question is too short")
+        system = (
+            "Answer the question using Google Search. 3 to 8 sentences, plain ASCII, "
+            "concrete and current. Say when sources disagree or the answer is uncertain. "
+            + (f"{GUARD} " if context else "")
+        )
+        prompt = q
+        if context:
+            prompt = f"{q}\n\nContext from the operator's email:\n<mail>\n{context[:8000]}\n</mail>"
+        last: Exception | None = None
+        for model in [m for m in (self.model, self.fallback) if m]:
+            t0 = time.monotonic()
+            try:
+                r = self.client().models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system,
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
+                        temperature=0.3,
+                        max_output_tokens=2048,
+                    ),
+                )
+            except Exception as e:  # noqa: BLE001
+                last = e
+                continue
+            text = (r.text or "").strip()
+            if not text:
+                last = AIError(f"{model} returned no text")
+                continue
+            sources: list[dict[str, str]] = []
+            queries: list[str] = []
+            gm = getattr(r.candidates[0], "grounding_metadata", None) if r.candidates else None
+            if gm is not None:
+                for ch in getattr(gm, "grounding_chunks", None) or []:
+                    web = getattr(ch, "web", None)
+                    if web is not None and getattr(web, "uri", None):
+                        sources.append({"title": str(web.title or web.uri), "url": str(web.uri)})
+                queries = [str(x) for x in (getattr(gm, "web_search_queries", None) or [])]
+            tokens = int(getattr(r.usage_metadata, "total_token_count", 0) or 0)
+            self.state = {"ok": True, "error": "", "tokens": self.state.get("tokens", 0) + tokens}
+            return {
+                "text": text,
+                "sources": sources[:12],
+                "queries": queries[:6],
+                "model": model,
+                "seconds": round(time.monotonic() - t0, 1),
+                "grounded": bool(sources),
+            }
+        msg = str(last) if last else "no model configured"
+        self.state = {**self.state, "ok": False, "error": msg[:200]}
+        raise AIError(msg[:300])
+
+    def explain(self, passage: str, thread_text: str, operator: str) -> Result:
+        system = (
+            f"You help {operator or 'the operator'} understand their email. {GUARD} "
+            "Explain the selected passage in plain ASCII, 2 to 5 sentences: what it means, "
+            "and why it matters in this thread. If it is a term or acronym, define it."
+        )
+        prompt = f"<mail>\n{thread_text[-20000:]}\n</mail>\n\nSelected passage: {passage[:2000]}"
+        return self._gen(prompt, system, 1024)
+
     # ---------------------------------------------------------------- tasks
     def summary(self, thread_text: str, operator: str) -> Result:
         system = (

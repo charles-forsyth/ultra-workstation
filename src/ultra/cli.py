@@ -53,6 +53,10 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
 
+    pg = sub.add_parser("purge", help="Delete local copies (audio files, research uploads)")
+    pg.add_argument("--audio", action="store_true", help="Delete generated audio files")
+    pg.add_argument("--uploads", action="store_true", help="Delete research thread uploads")
+
     c = sub.add_parser("config", help="Configuration files")
     csub = c.add_subparsers(dest="config_cmd")
     csub.add_parser("init", help="Write example config.toml and style.toml (never overwrites)")
@@ -128,6 +132,26 @@ def main(argv: list[str] | None = None) -> None:
             bad += int(c.required and not c.ok)
             print(f"  {mark} {c.name:26} {c.detail}")
         sys.exit(1 if bad else 0)
+    if cmd == "purge":
+        if not (args.audio or args.uploads):
+            print("usage: ultra purge [--audio] [--uploads]")
+            sys.exit(2)
+        from ultra.store import Store
+
+        store = Store()
+        if args.audio:
+            from ultra.audio import Audio
+
+            n = Audio(cfg, store, None).purge()
+            print(f"[INFO] Deleted {n} audio file(s).")
+        if args.uploads:
+            folder = config.data_dir() / "research-uploads"
+            n = 0
+            for p in folder.glob("thread-*.txt") if folder.exists() else []:
+                p.unlink(missing_ok=True)
+                n += 1
+            print(f"[INFO] Deleted {n} research upload(s).")
+        return
     if cmd == "auth":
         if args.auth_cmd != "google":
             print("usage: ultra auth google --capability read|modify|send|calendar")

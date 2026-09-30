@@ -23,6 +23,15 @@ MAX_BODY = 25 * 1024 * 1024  # attachments ride in JSON as base64 later
 Handler = Callable[[dict[str, list[str]], Any, re.Match[str]], Any]
 
 
+class FileResponse:
+    """Returned by a route to stream a local file (audio) with HTTP Range support."""
+
+    def __init__(self, path: Any, ctype: str, download_name: str = ""):
+        self.path = path
+        self.ctype = ctype
+        self.download_name = download_name
+
+
 class ApiError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -164,7 +173,46 @@ def make_handler(api: Api, port: int) -> type[BaseHTTPRequestHandler]:
                 return self._json(e.status, {"error": str(e)})
             except Exception as e:  # noqa: BLE001 - never leak a traceback to the page
                 return self._json(500, {"error": f"{type(e).__name__}: {e}"})
+            if isinstance(obj, FileResponse):
+                return self._file(obj)
             return self._json(status, obj)
+
+        def _file(self, f: FileResponse) -> None:
+            try:
+                data = f.path.read_bytes()
+            except OSError:
+                return self._json(404, {"error": "File not found"})
+            size = len(data)
+            start, end, status = 0, size - 1, 200
+            rng = self.headers.get("Range", "")
+            m = re.fullmatch(r"bytes=(\d*)-(\d*)", rng.strip())
+            if m and size:
+                a, b = m.group(1), m.group(2)
+                if a:
+                    start = int(a)
+                    end = min(int(b), size - 1) if b else size - 1
+                elif b:  # suffix range: last N bytes
+                    start = max(0, size - int(b))
+                if start > end or start >= size:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.end_headers()
+                    return
+                status = 206
+            chunk = data[start : end + 1]
+            self.send_response(status)
+            self.send_header("Content-Type", f.ctype)
+            self.send_header("Content-Length", str(len(chunk)))
+            self.send_header("Accept-Ranges", "bytes")
+            if status == 206:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            if f.download_name:
+                self.send_header("Content-Disposition", f'attachment; filename="{f.download_name}"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", guard.CSP)
+            self.end_headers()
+            self.wfile.write(chunk)
 
         def do_GET(self) -> None:
             self._handle("GET")

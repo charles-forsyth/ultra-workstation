@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from ultra import google_auth
 from ultra.ai import AI, AIError
+from ultra.audio import Audio
 from ultra.compose import ComposeError, Composer, gmail_send
 from ultra.config import Config, expand
 from ultra.desk import Desk
@@ -22,9 +23,11 @@ from ultra.ledger import Ledger, LedgerError
 from ultra.ledger_write import LedgerWriter
 from ultra.lint import ascii_fix, load_style
 from ultra.mail import Mail
+from ultra.research import Research
 from ultra.rules import Rules
 from ultra.slack import Slack, SlackError
 from ultra.store import Store
+from ultra.tools import Tools
 
 if TYPE_CHECKING:
     from ultra.server import Api
@@ -79,6 +82,9 @@ class Live:
             ai=self.ai,
             operator=self.operator,
         )
+        self.research = Research(cfg, self.store)
+        self.audio = Audio(cfg, self.store, self.ai)
+        self.tools = Tools(self.research, self.ai, self.audio, self.thread_text_for, self.operator)
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jl = threading.Lock()
@@ -126,6 +132,7 @@ class Live:
         api.add("GET", r"/api/thread/s-([A-Za-z0-9_.:-]+)", self.r_slack_thread)
         api.add("GET", r"/api/context/([^/]+)", self.r_context)
         self.desk.register(api)
+        self.tools.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -193,6 +200,7 @@ class Live:
                 },
                 "ledger": {**self.ledger.state, "enabled": self.ledger.enabled},
                 "ai": {**self.ai.state, "enabled": self.ai.enabled, "model": self.ai.model},
+                "research": {**self.research.state, "enabled": self.research.enabled},
             },
         }
 
@@ -292,6 +300,22 @@ class Live:
         return {"unarchived": tids}
 
     # ---------------------------------------------------------------- AI
+    def thread_text_for(self, key: str, for_speech: bool = False) -> str:
+        """Plain text of any conversation, for research uploads, web context, audio."""
+        t = self.thread_any(key)
+        msgs = t.get("messages") or []
+        if for_speech:
+            return "\n\n".join(f"From {x.get('from', '')}. {x.get('body', '')}" for x in msgs)[
+                -60000:
+            ]
+        subject = next((x.get("subject") for x in msgs if x.get("subject")), "")
+        parts = [
+            f"From: {x.get('from', '')}\nTo: {x.get('to', '')}\nCc: {x.get('cc', '')}\n"
+            f"Date: {x.get('ts', '')}\n\n{x.get('body', '')}"
+            for x in msgs
+        ]
+        return (f"Subject: {subject}\n\n" + "\n\n-----\n\n".join(parts))[-60000:]
+
     def _thread_text(self, tid: str, limit: int = 30000) -> str:
         t = self.mail.thread(tid)
         parts = [

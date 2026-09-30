@@ -3,6 +3,7 @@
 
 import { openDraft, resumeForThread, onSent } from "./compose.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, searchFor, stage, stageAfterSend } from "./ledger.js";
+import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog } from "./tools.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -141,6 +142,8 @@ async function openItem(i) {
         <button class="btn small ai" data-a="summary" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="AI summary (s)">Summarize</button>
         <button class="btn small" data-a="archive" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="Archive (e). Never deletes.">Archive</button>
         <button class="btn small" data-a="copy">Copy</button>
+        <button class="btn small" data-a="listen" title="Read aloud with the browser voice (free)">Read aloud</button>
+        <button class="btn small ai" data-a="aiaudio" title="AI voice: spoken summary or full read">AI audio</button>
         <button class="btn small" data-a="bucket" title="Add to bucket (b)">+ Bucket</button>
         <button class="btn small" data-a="log" title="Log this conversation in the ledger (l)">Log</button>
         <button class="btn small" data-a="task" title="Make a ledger task from it (t)">Task</button>
@@ -162,6 +165,9 @@ async function openItem(i) {
     }
     const sb = $('[data-a="summary"]', th); sb.onclick = () => busy(sb, () => summarize(it));
     $('[data-a="bucket"]', th).onclick = () => addConversation(it.key);
+    $('[data-a="listen"]', th).onclick = () => readAloud(th);
+    $('[data-a="aiaudio"]', th).onclick = () => audioDialog({ thread: it.key }, it.subject || "Conversation");
+    setToolsThread(it.key, it.subject);
     $('[data-a="log"]', th).onclick = () => stage("log", it.key);
     $('[data-a="task"]', th).onclick = () => stage("task", it.key);
     wireSelection(th, it);
@@ -180,20 +186,60 @@ function wireSelection(th, it) {
     const text = (sel?.toString() || "").trim();
     if (!text || !th.contains(sel.anchorNode)) { hide(); return; }
     const r = sel.getRangeAt(0).getBoundingClientRect();
-    bar.innerHTML = `<button class="btn tiny" data-s="search" ${text.length > 200 ? "disabled title=\"Select 200 characters or fewer\"" : ""}>Search ledger</button><button class="btn tiny" data-s="bucket">Add to bucket</button><button class="btn tiny" data-s="copy">Copy</button>`;
+    const short = text.length <= 200;
+    bar.innerHTML = `<button class="btn tiny" data-s="copy">Copy</button>
+      <button class="btn tiny" data-s="quote">Quote in reply</button>
+      <button class="btn tiny" data-s="search" ${short ? "" : "disabled title=\"Select 200 characters or fewer\""}>Search ledger</button>
+      <button class="btn tiny" data-s="web">Web search</button>
+      <button class="btn tiny" data-s="bucket">Add to bucket</button>
+      <span class="more"><button class="btn tiny" data-s="more">More</button>
+        <span class="more-menu" hidden>
+          <button class="btn tiny ai" data-s="explain">Explain</button>
+          <button class="btn tiny" data-s="rsearch">Search research</button>
+          <button class="btn tiny" data-s="research">Research this...</button>
+          <button class="btn tiny" data-s="read">Read aloud</button>
+        </span></span>`;
     bar.style.left = `${Math.max(8, Math.min(window.innerWidth - 300, r.left))}px`;
     bar.style.top = `${Math.max(50, r.top - 38)}px`;
     bar.hidden = false;
     bar.onmousedown = (e) => e.preventDefault();  // keep the selection
     bar.onclick = (e) => {
       const b = e.target.closest("[data-s]"); if (!b) return;
-      if (b.dataset.s === "search") searchFor(text);
-      else if (b.dataset.s === "bucket") addSnippet(text, it.key, it.subject, it.ts);
+      const a = b.dataset.s;
+      if (a === "more") { bar.querySelector(".more-menu").hidden = false; return; }
+      if (a === "search") searchFor(text);
+      else if (a === "bucket") addSnippet(text, it.key, it.subject, it.ts);
+      else if (a === "web") webSearch(text.slice(0, 1000));
+      else if (a === "explain") explain(text);
+      else if (a === "rsearch") researchSearch(text.slice(0, 500));
+      else if (a === "research") launcher(text.slice(0, 2000));
+      else if (a === "read") readAloud(null, text);
+      else if (a === "quote") quoteIntoReply(text);
       else copyText(text);
       hide(); sel.removeAllRanges();
     };
   }, 0);
   document.addEventListener("scroll", hide, { capture: true, once: true });
+}
+
+function quoteIntoReply(text) {
+  const quoted = text.split("\n").map((l) => `> ${l}`).join("\n") + "\n\n";
+  const body = $("#cx-body");
+  if (body && !body.disabled) {
+    const at = body.selectionStart ?? body.value.length;
+    body.value = body.value.slice(0, at) + quoted + body.value.slice(at);
+    body.dispatchEvent(new Event("input"));
+    body.focus();
+    return;
+  }
+  const b = $('#thread [data-a="reply"]');
+  if (!b || b.disabled) { copyText(quoted); return; }
+  b.click();
+  const wait = setInterval(() => {
+    const nb = $("#cx-body");
+    if (nb && !nb.disabled) { clearInterval(wait); nb.value = quoted + nb.value; nb.dispatchEvent(new Event("input")); nb.focus(); }
+  }, 150);
+  setTimeout(() => clearInterval(wait), 8000);
 }
 
 function threadsOf(it) {
@@ -353,6 +399,9 @@ function commands() {
     { t: "Log the bucket", run: () => stage("log") },
     { t: "Task from the bucket", run: () => stage("task") },
     { t: "Search the ledger", run: () => searchFor("") },
+    { t: "Web search...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tw-q")?.focus(); } },
+    { t: "Search past research...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tr-q")?.focus(); } },
+    { t: "New deep research...", run: () => launcher("") },
     ...["mine", "waiting", "all", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
   if (it && S.key === it.key) {
@@ -406,7 +455,7 @@ async function boot() {
     setTimeout(() => loadStream(true), 3000);
     if (d?.thread_id) stageAfterSend("g-" + d.thread_id);  // send-then-log
   });
-  initRail(); wireSearch();
+  initRail(); wireSearch(); initTools();
   await loadStream();
   pollStatus(); setInterval(pollStatus, 5000);
 }

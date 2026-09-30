@@ -31,11 +31,11 @@ To use it from your phone or another laptop on your network or tailnet:
 
 ```bash
 ultra restart --host 0.0.0.0
-ultra remote-key          # prints http://<ip>:7440/?key=... links; open one on the device
+ultra remote              # prints the http://<ip>:7440/ addresses to open on the device
 ```
 
-Other devices must present the access key (it is stored as a cookie after the first
-visit). `ultra remote-key --rotate` signs every device out.
+Only clients on the Tailscale range (100.64.0.0/10) and 192.168 LANs may connect;
+everything else is refused. Change the list with `[server] remote_networks`.
 
 ## Sending mail
 

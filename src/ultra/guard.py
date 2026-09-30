@@ -53,7 +53,15 @@ def split_host(host_header: str) -> tuple[str, int | None]:
 
 # Names that only resolve on a LAN or tailnet. A DNS-rebinding page is served from a
 # public domain, so its requests carry that domain in Host (rule from deep-research).
-LOCAL_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".localdomain", ".internal", ".ts.net")
+LOCAL_SUFFIXES = (
+    ".local",
+    ".lan",
+    ".home",
+    ".home.arpa",
+    ".localdomain",
+    ".internal",
+    ".ts.net",
+)
 
 
 def host_allowed(host_header: str, port: int, remote: bool = False) -> bool:
@@ -76,20 +84,30 @@ def host_allowed(host_header: str, port: int, remote: bool = False) -> bool:
     return bool(host) and ("." not in host or host.endswith(LOCAL_SUFFIXES))
 
 
-REMOTE_COOKIE = "ultra_key"
+# Remote mode (--host 0.0.0.0) admits only these client networks: the Tailscale
+# address range and private 192.168 LANs. Everything else is refused before routing.
+DEFAULT_REMOTE_NETWORKS = ("100.64.0.0/10", "192.168.0.0/16")
 
 
-def remote_key_ok(cookie_header: str | None, query_key: str | None, expected: str) -> bool:
-    """Remote clients must present the access key, as a cookie or once in ?key=."""
-    if not expected:
-        return False
-    if query_key and hmac.compare_digest(query_key, expected):
+def parse_networks(
+    specs: list[str] | tuple[str, ...],
+) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    return tuple(ipaddress.ip_network(s.strip(), strict=False) for s in specs if s.strip())
+
+
+def peer_allowed(
+    addr: str, networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = ()
+) -> bool:
+    """This machine always; other clients only from an allowed network."""
+    if loopback_peer(addr):
         return True
-    for part in (cookie_header or "").split(";"):
-        name, _, value = part.strip().partition("=")
-        if name == REMOTE_COOKIE and value and hmac.compare_digest(value, expected):
-            return True
-    return False
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return False
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return any(ip.version == n.version and ip in n for n in networks)
 
 
 def origin_allowed(origin: str | None, host_header: str) -> bool:

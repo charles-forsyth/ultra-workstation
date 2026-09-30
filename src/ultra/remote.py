@@ -1,39 +1,13 @@
-"""Remote access (--host 0.0.0.0): an access key, so only the operator's devices get in.
+"""Remote access helpers (--host 0.0.0.0).
 
-Ultra has the operator's mail, send and ledger write powers, so network access is
-never open. The key lives in the private data folder (mode 600), is generated once,
-and is presented by a remote browser as a cookie after visiting the link that
-`ultra remote-key` prints. `ultra remote-key --rotate` invalidates every device.
+Access is limited by client address in guard.peer_allowed (Tailscale range and 192.168
+LANs by default); this module only lists the addresses other devices can use.
 """
 
 from __future__ import annotations
 
-import os
-import secrets
 import socket
 import subprocess
-from pathlib import Path
-
-from ultra.config import data_dir, private_dir
-
-
-def key_file() -> Path:
-    return data_dir() / "remote.key"
-
-
-def access_key(rotate: bool = False) -> str:
-    p = key_file()
-    if p.exists() and not rotate:
-        k = p.read_text().strip()
-        if len(k) >= 32:
-            return k
-    private_dir(data_dir())
-    k = secrets.token_urlsafe(32)
-    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(k + "\n")
-    os.chmod(p, 0o600)
-    return k
 
 
 def addresses() -> list[str]:

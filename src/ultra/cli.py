@@ -28,8 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument(
         "--host",
         default=None,
-        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices, which "
-        "must present the access key (see `ultra remote-key`).",
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices from the "
+        "Tailscale range and 192.168 LANs only ([server] remote_networks).",
     )
     sub.add_parser("stop", help="Stop the background server")
     r = sub.add_parser("restart", help="Stop and start again")
@@ -38,8 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument(
         "--host",
         default=None,
-        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices, which "
-        "must present the access key (see `ultra remote-key`).",
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices from the "
+        "Tailscale range and 192.168 LANs only ([server] remote_networks).",
     )
     sub.add_parser("status", help="Is it running?")
     sub.add_parser("open", help="Open the running workstation in the browser")
@@ -49,12 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
     fg.add_argument(
         "--host",
         default=None,
-        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices, which "
-        "must present the access key (see `ultra remote-key`).",
+        help="Bind address (default 127.0.0.1). 0.0.0.0 allows other devices from the "
+        "Tailscale range and 192.168 LANs only ([server] remote_networks).",
     )
     sub.add_parser("doctor", help="Check config, file permissions, tools and keys")
-    rk = sub.add_parser("remote-key", help="Print the link other devices use (with --host 0.0.0.0)")
-    rk.add_argument("--rotate", action="store_true", help="New key: signs out every device")
+    sub.add_parser("remote", help="Print the addresses other devices can use")
 
     a = sub.add_parser("auth", help="Authorize access to Google")
     asub = a.add_subparsers(dest="auth_cmd")
@@ -131,7 +130,9 @@ def main(argv: list[str] | None = None) -> None:
         # keep the previous bind address unless one is given
         sys.exit(
             daemon.start(
-                port, args.demo, getattr(args, "host", None) or prev.get("host") or "127.0.0.1"
+                port,
+                args.demo,
+                getattr(args, "host", None) or prev.get("host") or "127.0.0.1",
             )
         )
     if cmd == "status":
@@ -160,22 +161,24 @@ def main(argv: list[str] | None = None) -> None:
             bad += int(c.required and not c.ok)
             print(f"  {mark} {c.name:26} {c.detail}")
         sys.exit(1 if bad else 0)
-    if cmd == "remote-key":
-        from ultra.remote import access_key, addresses
+    if cmd == "remote":
+        from ultra import guard
+        from ultra.remote import addresses
 
-        key = access_key(rotate=args.rotate)
         state = daemon.read_state() or {}
         p = state.get("port", port)
-        if args.rotate:
-            print("[INFO] New access key: every device must open the new link.")
         if state.get("host", "127.0.0.1") in ("127.0.0.1", "localhost", "::1"):
             print(
                 "[INFO] Ultra is only listening on this machine. Restart with "
                 "`ultra restart --host 0.0.0.0` to allow other devices."
             )
-        print("Open one of these on the other device (the key is saved as a cookie):")
+        nets = config.load().get("server", "remote_networks", None) or list(
+            guard.DEFAULT_REMOTE_NETWORKS
+        )
+        print(f"Allowed client networks: {', '.join(nets)}")
+        print("Open one of these on the other device:")
         for a in addresses():
-            print(f"  http://{a}:{p}/?key={key}")
+            print(f"  http://{a}:{p}/")
         return
     if cmd == "purge":
         if not (args.audio or args.uploads):

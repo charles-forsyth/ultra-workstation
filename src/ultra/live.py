@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from ultra import google_auth
@@ -472,20 +473,31 @@ class Live:
         return info
 
     def thread_text_for(self, key: str, for_speech: bool = False) -> str:
-        """Plain text of any conversation, for research uploads, web context, audio."""
+        """Plain text of the WHOLE conversation, for audio, research uploads, web context.
+
+        Every message in order, oldest first. No character cap here: callers that must
+        limit size (audio, uploads) apply their own, far larger, limits. The spoken
+        version names the speaker and date for each message so a listener can follow.
+        """
         t = self.thread_any(key)
         msgs = t.get("messages") or []
-        if for_speech:
-            return "\n\n".join(f"From {x.get('from', '')}. {x.get('body', '')}" for x in msgs)[
-                -60000:
-            ]
         subject = next((x.get("subject") for x in msgs if x.get("subject")), "")
+        if for_speech:
+            n = len(msgs)
+            parts = [
+                f"Message {i} of {n}, from {_spoken_name(x.get('from', ''))}"
+                + (f", {_spoken_date(x.get('ts', ''))}" if x.get("ts") else "")
+                + f".\n{x.get('body', '')}"
+                for i, x in enumerate(msgs, 1)
+            ]
+            head = f"{subject}.\n\n" if subject else ""
+            return head + "\n\n".join(parts)
         parts = [
             f"From: {x.get('from', '')}\nTo: {x.get('to', '')}\nCc: {x.get('cc', '')}\n"
             f"Date: {x.get('ts', '')}\n\n{x.get('body', '')}"
             for x in msgs
         ]
-        return (f"Subject: {subject}\n\n" + "\n\n-----\n\n".join(parts))[-60000:]
+        return f"Subject: {subject}\n\n" + "\n\n-----\n\n".join(parts)
 
     def _slack_text(self, d: dict[str, Any]) -> str:
         """The Slack conversation a Slack draft answers, as plain text for the AI."""
@@ -498,9 +510,12 @@ class Live:
             and (slack_reply_target(r) or {}).get("thread_ts") == (d["in_reply_to"] or "")
         ]
         msgs = sorted((rows[0]["messages"] if rows else []), key=lambda x: float(x.get("ts") or 0))
-        return "\n\n".join(f"{x.get('from', '')}: {x.get('text', '')}" for x in msgs)[-20000:]
+        return "\n\n".join(f"{x.get('from', '')}: {x.get('text', '')}" for x in msgs)[-400_000:]
 
-    def _thread_text(self, tid: str, limit: int = 30000) -> str:
+    def _thread_text(self, tid: str, limit: int = 400_000) -> str:
+        """Whole email thread for the AI (summary, draft, revise). The limit is a
+        runaway guard far above real threads; when it applies, the OLDEST messages are
+        dropped and the text says so, rather than silently losing context."""
         t = self.mail.thread(tid)
         parts = [
             f"From: {x['from']}\nTo: {x.get('to', '')}\nDate: {x['ts']}\n"
@@ -508,7 +523,9 @@ class Live:
             for x in t["messages"]
         ]
         text = "\n\n-----\n\n".join(parts)
-        return text[-limit:]
+        if len(text) > limit:
+            text = "[Earlier messages omitted for length]\n\n" + text[-limit:]
+        return text
 
     def r_summary(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         tid = str((body or {}).get("thread", "")).removeprefix("g-")
@@ -681,6 +698,19 @@ class Live:
         return self._wrap(self.compose.cancel, self._did(m))
 
 
+def _spoken_name(frm: str) -> str:
+    """'Ben Carter <ben@example.org>' -> 'Ben Carter'; a bare address -> its name part."""
+    name = re.sub(r"\s*<[^>]*>\s*", "", frm or "").strip().strip('"')
+    return name or (frm or "").split("@")[0] or "someone"
+
+
+def _spoken_date(ts: str) -> str:
+    try:
+        return datetime.fromisoformat(ts).strftime("%A %B %-d at %-I:%M %p")
+    except (TypeError, ValueError):
+        return ""
+
+
 def _bad(msg: str, status: int = 400) -> Exception:
     from ultra.server import ApiError
 
@@ -696,8 +726,6 @@ def _thread_ids(body: Any) -> list[str]:
 
 
 def _slack_time(ts: str) -> str:
-    from datetime import datetime
-
     try:
         return datetime.fromtimestamp(float(ts)).astimezone().isoformat()
     except ValueError:

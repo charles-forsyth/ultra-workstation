@@ -305,3 +305,13 @@
 /* ---- v0.5 Slack reply: disabled send buttons must look disabled ---- */
 .btn:disabled, .btn.send:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.6); }
 .cx-slack-note { margin: -2px 0 8px; }
+
+/* ---- Full context tab ---- */
+.fsect { margin-top: 10px; }
+.fsect > summary { cursor: pointer; list-style: none; }
+.fsect > summary::before { content: "\25B8 "; color: var(--faint); }
+.fsect[open] > summary::before { content: "\25BE "; }
+li.ix { cursor: pointer; }
+li.ix .ix-t { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+li.ix.open .ix-t { display: inline; -webkit-line-clamp: unset; white-space: pre-wrap; }
+li.ix.unlinked { opacity: .85; }

@@ -218,7 +218,7 @@ class _FakeTTS:
     def __init__(self) -> None:
         self.calls = 0
 
-    def _gen(self, prompt: str, system: str, max_tokens: int = 0) -> Any:
+    def _gen(self, prompt: str, system: str, max_tokens: int = 0, **kw: Any) -> Any:
         return type("R", (), {"text": "Spoken summary. Ben needs 10 TB by Friday."})()
 
     def client(self) -> Any:

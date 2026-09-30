@@ -138,7 +138,7 @@ class Research:
         folder = private_dir(data_dir() / "research-uploads")
         fd, name = tempfile.mkstemp(prefix="thread-", suffix=".txt", dir=folder)
         with os.fdopen(fd, "w") as f:
-            f.write(text[:200_000])
+            f.write(text[:1_000_000])
         os.chmod(name, 0o600)
         return Path(name)
 

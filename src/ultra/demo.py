@@ -651,6 +651,71 @@ class DemoLedger:
             )
         return out
 
+    def full_context(self, addr: str, name: str = "", fresh: bool = False) -> dict[str, Any]:
+        p = self.resolve(addr, name)
+        if not p:
+            return {"unresolved": True, "addr": addr}
+        long_log = (
+            "Ben asked for the ada-lab handover plan. Agreed: turn on the APIs first, then "
+            "add Ada as owner, then move billing. Ben will confirm the budget alert covers "
+            "the new account before Friday. Storage quota for the lab share stays at 10 TB "
+            "until the review in November."
+        )
+        ix = [
+            {"id": "i1", "date": "2026-09-28", "summary": long_log, "linked": True},
+            {
+                "id": "i2",
+                "date": "2026-09-14",
+                "summary": "Kickoff for the Lovelace Lab cloud project; Ben is the admin contact.",
+                "linked": True,
+            },
+        ]
+        return {
+            "id": p["id"],
+            "netid": p["netid"],
+            "name": p["name"],
+            "title": p["title"],
+            "dept": "Research Computing",
+            "email": addr,
+            "labs": [{"id": DEMO_IDS["lab"], "name": "Lovelace Lab", "entity_type": "Lab"}],
+            "projects": [],
+            "grants": [],
+            "gcp_projects": [
+                {"id": DEMO_IDS["project"], "name": "ada-lab", "entity_type": "GCPProject"}
+            ],
+            "assets": [{"id": "a1", "name": "lab-share (10 TB)", "entity_type": "Asset"}],
+            "connections": [],
+            "tasks": [
+                {
+                    "id": DEMO_TASKS[0]["id"],
+                    "summary": DEMO_TASKS[0]["summary"],
+                    "status": "TODO",
+                    "priority": "CRITICAL",
+                    "why": "linked",
+                }
+            ],
+            "interactions": ix if addr == "ben@example.org" else [],
+            "mentions": [
+                {
+                    "id": "m1",
+                    "date": "",
+                    "summary": "Weekly sync notes: Ben to review the storage plan.",
+                    "linked": False,
+                    "reason": "Name/Summary Match",
+                }
+            ]
+            if addr == "ben@example.org"
+            else [],
+            "cloud": [{"project": "ada-lab", "scanned": "2026-09-20"}],
+            "counts": {
+                "linked": 2 if addr == "ben@example.org" else 0,
+                "mentions": 1 if addr == "ben@example.org" else 0,
+                "tasks": 1,
+            },
+            "matched_by": "address",
+            "age": 0,
+        }
+
     def interaction(self, iid: str) -> dict[str, Any] | None:
         return self.records.get(iid)
 

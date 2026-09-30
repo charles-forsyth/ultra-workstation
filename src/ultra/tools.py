@@ -165,7 +165,7 @@ class Tools:
     def _audio_text(self, b: dict[str, Any]) -> tuple[str, str]:
         """Text to voice: explicit text, a thread, or a research report."""
         if b.get("text"):
-            return str(b["text"])[:200_000], str(b.get("title", "Selection"))[:200]
+            return str(b["text"])[:400_000], str(b.get("title", "Selection"))[:200]
         if b.get("thread"):
             key = str(b["thread"])
             if not re.fullmatch(r"(g|k|s)-[A-Za-z0-9_-]{1,80}", key):

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.15 of the spec; app at v0.7.0 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
+Status: v0.16 of the spec; app at v0.7.1 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-09-29
@@ -1142,7 +1142,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | Q3 | Reuse existing Google tokens or mint app-specific ones | Config supports both; app-specific is cleaner for a public tool. |
 | S-1 | Slack send has a model in the path | Mitigated by exact-text prompt, send-only tool list and verification read. A user-token Web API backend would remove it. |
 | S-2 | Slack read cadence and cost | Each refresh is a `claude -p` run; 15 min while open is the proposal. |
-| L-1 | Ledger reads are slow (6-10 s per call) | Caching and prefetch in v0.2. A batch/`--json` context command in the ledger CLI (one call returning person + tree + open tasks) would help; that is a ledger-side change. |
+| L-1 | Ledger reads are slow (6-10 s per call) | RESOLVED without ledger changes (v0.7.1): the Full context tab combines `dossier --json`, `search --json` and `tasks list --json` in parallel. Remaining ledger-side gaps, optional: dossier omits tasks linked to the person (it fetches them but only emits them under connections when present), and `search` has no type filter. |
 | L-2 | No due-date flag on `tasks add` | Follow-up date goes in text + calendar block until the ledger CLI gains one. |
 | L-3 | Task id not printed reliably by `tasks add` | Recovered by prefix match on `tasks list --json`; a `--json` output on `tasks add` would remove the guesswork. |
 | T-1 | Ticket watermark format | Confirm which part of the notice the ticket system needs in a reply (subject number, watermark line, or both) with a test ticket. |
@@ -1155,6 +1155,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.16 | App v0.7.1 (operator report: audio summary and full read cut off). Causes found and fixed: (1) thinking models spent 1,965 of the 2,048 output tokens on hidden reasoning, so spoken summaries stopped after one sentence; every AI call now gets a capped thinking allowance on top of its answer budget, and summaries/drafts/audio scripts refuse a MAX_TOKENS answer instead of using it; (2) text for speech and for the AI was tail-cut (audio 60,000 chars, summary 30,000, explain 20,000, web context 8,000); now the whole thread goes (runaway guard 400,000, marked if ever applied); (3) link cleanup left stray brackets and "Reply to Sender :" footers. Spoken summaries scale 250/450/700 words with thread length and cover every message; full reads announce each message ("Message 2 of 5, from ..."). Full context tab (L-1 resolved without ledger changes): `dossier --json` (labs, lab assets, grants, projects, GCP projects, every linked interaction in full, cloud audit) + `search --json` (logs that mention them but are not linked) + `tasks list --json` (open tasks linked, related by search, or naming them: full name, "First ... Last", "Last Lab", netid), run in parallel (~10 s), cached 15 min; Copy all, Use for AI draft, Add to bucket. `dossier` added to the read allow-list. |
 | 2026-09-30 | 0.15 | App v0.7.0: Slack replies (delivery table row v0.5). Real test: one message to the operator's own DM posted in 19 s including verification; the connector appends "*Sent using* <@...|Claude>" to every post, which the verifier now strips as a final line only. Numbering note: the Slack step shipped as app 0.7.0 because 0.6.x was used by the calendar. |
 | 2026-09-30 | 0.14 | App v0.6.1: fix "Missing or wrong token" in tabs left open across a server restart (each start issues a new CSRF token). The page now fetches the current token and retries the write once on a token refusal. The check itself is unchanged. |
 | 2026-09-30 | 0.13 | App v0.6.0: Today view (see the delivery table). Calendar writes carry the private extended property `ultra=1` and move/delete refuse anything without it or not organised by the operator (409); blocks never have attendees. Positions use CSSOM because the CSP forbids inline styles. |

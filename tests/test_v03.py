@@ -387,7 +387,9 @@ def test_ai_prompts_mark_mail_as_data(monkeypatch):
     seen: dict[str, str] = {}
 
     class FakeAI(ai_mod.AI):
-        def _gen(self, prompt: str, system: str, max_tokens: int = 4096) -> ai_mod.Result:
+        def _gen(
+            self, prompt: str, system: str, max_tokens: int = 4096, **kw: Any
+        ) -> ai_mod.Result:
             seen["prompt"], seen["system"] = prompt, system
             return ai_mod.Result("ok", "fake", 1, 0.0)
 

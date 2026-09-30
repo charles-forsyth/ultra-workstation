@@ -76,6 +76,7 @@ class Desk:
     def register(self, api: Api) -> None:
         api.add("GET", r"/api/people/((?:g|k|s)-[A-Za-z0-9_-]+)", self.r_people)
         api.add("GET", r"/api/person", self.r_person)
+        api.add("GET", r"/api/person/full", self.r_person_full)
         api.add("GET", r"/api/ledger/search", self.r_search)
         api.add("GET", r"/api/bucket", self.r_bucket)
         api.add("POST", r"/api/bucket", self.r_bucket_add)
@@ -152,6 +153,22 @@ class Desk:
             return {"unavailable": True, "reason": "ledger CLI not found"}
         try:
             return self.ledger.context(addr, name)
+        except Exception as e:  # noqa: BLE001
+            return {"unavailable": True, "reason": str(e)[:200]}
+
+    def r_person_full(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Full context for one person: dossier + mentions + related open tasks."""
+        addr = (q.get("addr") or [""])[0].strip().lower()
+        name = (q.get("name") or [""])[0]
+        fresh = (q.get("fresh") or ["0"])[0] == "1"
+        if "@" not in addr:
+            raise _bad("addr required")
+        if self.rules.is_me(addr):
+            return {"self": True}
+        if not self.ledger.enabled:
+            return {"unavailable": True, "reason": "ledger CLI not found"}
+        try:
+            return self.ledger.full_context(addr, name, fresh=fresh)
         except Exception as e:  # noqa: BLE001
             return {"unavailable": True, "reason": str(e)[:200]}
 

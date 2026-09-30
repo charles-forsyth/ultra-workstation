@@ -98,12 +98,13 @@ async function openPerson(p, jump = true) {
   el.innerHTML = `<div class="cname">${esc(c.name)}${showId ? ` <span class="dim mono">${esc(c.netid)}</span>` : ""}</div>
     <div class="dim">${esc([c.title, c.dept].filter(Boolean).join(" - "))}</div>
     ${c.matched_by === "name" ? `<div class="warnline">Matched by name, not address: check it's the right person.</div>` : ""}
-    <div class="pacts"><button class="btn tiny" data-pa="bucket">Add to bucket</button><button class="btn tiny ghost" data-pa="copy">Copy id</button></div>
+    <div class="pacts"><button class="btn tiny primary" data-pa="full" title="Everything the ledger has on them: all logs, mentions, tasks, labs, projects, assets">Full context</button><button class="btn tiny" data-pa="bucket">Add to bucket</button><button class="btn tiny ghost" data-pa="copy">Copy id</button></div>
     <div class="sect"><span class="label">Labs</span>${list(c.lab_refs || [], (x) => ent(x, "Lab"))}</div>
     <div class="sect"><span class="label">Projects</span>${list(c.project_refs || [], (x) => ent(x, "Project"))}</div>
     <div class="sect"><span class="label">Open tasks ${tasks.length}</span>${list(tasks, (x) => `<li class="task" data-id="${esc(x.id)}"><span class="pri ${esc((x.priority || "").toLowerCase())}">${esc((x.priority || "").slice(0, 1))}</span> ${esc(x.summary)} <button class="btn tiny ghost" data-done="${esc(x.id)}" title="Mark done in the ledger">Done</button></li>`)}</div>
     <div class="sect"><span class="label">Recent logs ${esc(c.interaction_count ?? "")}</span>${list(c.interactions || [], (x) => ent(x, "Interaction"))}</div>`;
   $('[data-pa="bucket"]', el).onclick = () => addEntity({ id: c.id, name: c.name, type: "Researcher" });
+  $('[data-pa="full"]', el).onclick = () => openFull({ addr: p.addr, name: p.name || c.name });
   $('[data-pa="copy"]', el).onclick = () => copyText(c.id || c.netid);
   el.ondragstart = (e) => { const li = e.target.closest("[data-ent]"); if (li) e.dataTransfer.setData("application/x-ultra-entity", li.dataset.ent); };
   el.onclick = (e) => {
@@ -116,6 +117,74 @@ async function openPerson(p, jump = true) {
       else toast(`The ledger did not confirm: ${r.output_tail || "unknown"}`, "err");
     });
   };
+}
+
+// ---------------------------------------------------------------- full context tab
+let FULL = null;
+export async function openFull(p, fresh = false) {
+  const el = $("#rt-full");
+  showTab("full");
+  el.innerHTML = `<div class="dim">Gathering everything on ${esc(p.name || p.addr)}: their dossier, every linked log, logs that mention them, and related tasks... (about 10 seconds; then cached for 15 minutes)</div>`;
+  let c;
+  try { c = await api(`/api/person/full?addr=${encodeURIComponent(p.addr)}&name=${encodeURIComponent(p.name || "")}${fresh ? "&fresh=1" : ""}`); }
+  catch (e) { el.innerHTML = `<div class="dim">${esc(e.message)}</div>`; return; }
+  if (c.unavailable) { el.innerHTML = `<div class="dim">Ledger unavailable: ${esc(c.reason || "")}</div>`; return; }
+  if (c.unresolved) { el.innerHTML = `<div class="dim">${esc(p.addr)} is not in the ledger.</div>`; return; }
+  FULL = { ...c, addr: p.addr };
+  renderFull();
+}
+
+function renderFull() {
+  const c = FULL, el = $("#rt-full");
+  const ent = (x, type) => `<li class="ent" draggable="true" data-ent='${esc(JSON.stringify({ id: x.id, name: x.name, type: x.entity_type || type }))}' title="Drag into the bucket to link">${esc(x.name)}${x.role ? ` <span class="dim small-t">${esc(x.role)}</span>` : ""}</li>`;
+  const sect = (label, xs, f, open = true) => xs?.length ? `<details class="fsect" ${open ? "open" : ""}><summary class="label">${label} ${xs.length}</summary><ul class="clist">${xs.map(f).join("")}</ul></details>` : "";
+  const ix = (i) => `<li class="ix${i.linked ? "" : " unlinked"}" data-ix="${esc(i.id)}">${i.date ? `<span class="mono dim small-t">${esc(i.date)}</span> ` : ""}<span class="ix-t">${esc(i.summary)}</span>${i.linked ? "" : ` <span class="badge dim" title="${esc(i.reason || "found by search")}">mentions</span>`}</li>`;
+  el.innerHTML = `
+    <div class="cname">${esc(c.name)} <span class="dim mono">${esc(c.netid)}</span></div>
+    <div class="dim">${esc([c.title, c.dept].filter(Boolean).join(" - "))}</div>
+    ${c.matched_by === "name" ? `<div class="warnline">Matched by name, not address: check it's the right person.</div>` : ""}
+    <div class="dim small-t">${c.counts.linked} logs linked, ${c.counts.mentions} more mention them, ${c.counts.tasks} open tasks${c.age ? ` &middot; from ${Math.round(c.age / 60)} min ago` : ""}</div>
+    <div class="pacts">
+      <button class="btn tiny" data-fa="copy" title="Copy all of it as text">Copy all</button>
+      <button class="btn tiny ai" data-fa="compose" title="Give all of this to the AI when drafting">Use for AI draft</button>
+      <button class="btn tiny" data-fa="bucket">Add to bucket</button>
+      <button class="btn tiny ghost" data-fa="fresh" title="Re-read from the ledger now">&#8635;</button>
+    </div>
+    ${sect("Open tasks", c.tasks, (t) => `<li class="task" data-id="${esc(t.id)}"><span class="pri ${esc((t.priority || "").toLowerCase())}">${esc((t.priority || "").slice(0, 1))}</span> ${esc(t.summary)} <span class="badge dim">${esc(t.why === "linked" ? "linked" : t.why === "search" ? "related" : "mentions")}</span></li>`)}
+    ${sect("Labs", c.labs, (x) => ent(x, "Lab"))}
+    ${sect("Projects", c.projects, (x) => ent(x, "ResearchProject"))}
+    ${sect("GCP projects", c.gcp_projects, (x) => ent(x, "GCPProject"))}
+    ${c.cloud?.length ? `<div class="dim small-t">Cloud audit: ${c.cloud.map((x) => `${esc(x.project)} (scanned ${esc(x.scanned)})`).join(", ")}</div>` : ""}
+    ${sect("Grants", c.grants, (x) => ent(x, "Grant"))}
+    ${sect("Assets", c.assets, (x) => ent(x, "Asset"), false)}
+    ${sect("People and labs connected", c.connections, (x) => ent(x, x.entity_type), false)}
+    ${sect("All logged interactions, newest first", c.interactions, ix)}
+    ${sect("Other logs that mention them (not linked)", c.mentions, ix)}
+    ${!c.tasks.length && !c.interactions.length && !c.mentions.length ? `<div class="dim">Nothing logged yet.</div>` : ""}`;
+  el.ondragstart = (e) => { const li = e.target.closest("[data-ent]"); if (li) e.dataTransfer.setData("application/x-ultra-entity", li.dataset.ent); };
+  el.onclick = (e) => {
+    const li = e.target.closest("li.ix"); if (li && !e.target.closest("button")) { li.classList.toggle("open"); return; }
+    const b = e.target.closest("[data-fa]"); if (!b) return;
+    const a = b.dataset.fa;
+    if (a === "copy") copyText(fullText(c));
+    else if (a === "bucket") addEntity({ id: c.id, name: c.name, type: "Researcher" });
+    else if (a === "fresh") openFull({ addr: c.addr, name: c.name }, true);
+    else if (a === "compose") { setComposerContext(fullText(c)); toast("The AI will use all of it for drafts on this conversation (tick 'ledger context').", "ok"); }
+  };
+}
+
+function fullText(c) {
+  const L = [`${c.name} (${c.netid})${c.title ? ", " + c.title : ""}${c.dept ? ", " + c.dept : ""}`];
+  const names = (xs) => (xs || []).map((x) => x.name).join("; ");
+  if (c.labs?.length) L.push(`Labs: ${names(c.labs)}`);
+  if (c.projects?.length) L.push(`Projects: ${names(c.projects)}`);
+  if (c.gcp_projects?.length) L.push(`GCP projects: ${names(c.gcp_projects)}`);
+  if (c.grants?.length) L.push(`Grants: ${names(c.grants)}`);
+  if (c.assets?.length) L.push(`Assets: ${names(c.assets)}`);
+  if (c.tasks?.length) { L.push("Open tasks:"); c.tasks.forEach((t) => L.push(`- [${t.priority}/${t.status}] ${t.summary}`)); }
+  if (c.interactions?.length) { L.push("Logged interactions (newest first):"); c.interactions.forEach((i) => L.push(`- ${i.date}: ${i.summary}`)); }
+  if (c.mentions?.length) { L.push("Other logs that mention them:"); c.mentions.forEach((i) => L.push(`- ${i.summary}`)); }
+  return L.join("\n");
 }
 
 // ---------------------------------------------------------------- search tab

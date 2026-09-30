@@ -78,14 +78,23 @@ class ComposeError(Exception):
 
 
 def content_hash(draft: dict[str, Any], version: dict[str, Any]) -> str:
-    canon = {k: (version.get(k) or "").strip() for k in FIELDS}
+    canon: dict[str, Any] = {k: (version.get(k) or "").strip() for k in FIELDS}
     canon["thread_id"] = draft.get("thread_id") or ""
     canon["in_reply_to"] = draft.get("in_reply_to") or ""
+    # Files are part of what is approved (name, size, sha256). Left out when there are
+    # none, so hashes of drafts without attachments are unchanged.
+    if draft.get("attachments"):
+        canon["attachments"] = [
+            [a["name"], int(a["size"]), a["sha256"]] for a in draft["attachments"]
+        ]
     return hashlib.sha256(json.dumps(canon, sort_keys=True).encode()).hexdigest()
 
 
-def build_mime(draft: dict[str, Any], v: dict[str, Any]) -> EmailMessage:
-    """Plain-text message. Threading headers keep replies in the same thread."""
+def build_mime(
+    draft: dict[str, Any], v: dict[str, Any], files: list[tuple[str, str, bytes]] | None = None
+) -> EmailMessage:
+    """Plain-text message (plus attachments). Threading headers keep replies in the
+    same thread."""
     m = EmailMessage()
     m["From"] = v.get("from_addr") or "me"
     m["To"] = v.get("to_addrs") or ""
@@ -99,6 +108,9 @@ def build_mime(draft: dict[str, Any], v: dict[str, Any]) -> EmailMessage:
         m["References"] = ((draft.get("refs") or "") + " " + draft["in_reply_to"]).strip()
     m["Date"] = email.utils.formatdate(localtime=True)
     m.set_content(v.get("body") or "")
+    for name, mime, data in files or []:
+        main, _, sub = (mime or "application/octet-stream").partition("/")
+        m.add_attachment(data, maintype=main, subtype=sub or "octet-stream", filename=name)
     return m
 
 
@@ -121,8 +133,14 @@ class Composer:
         store: Store,
         me: set[str],
         is_ticket: Any = None,
+        files: Any = None,
+        send_as: Any = None,
     ):
-        """is_ticket(address) -> True when the address is the ticket system's sender."""
+        """is_ticket(address) -> True when the address is the ticket system's sender.
+        files: a mailx.DraftFiles (attachments, part of the approval hash).
+        send_as: () -> list of allowed From addresses (verified Gmail aliases)."""
+        self.files = files
+        self.send_as = send_as
         self.cfg = cfg
         self.store = store
         self.me = me
@@ -156,6 +174,7 @@ class Composer:
         for v in d["versions"]:
             v["lint"] = json.loads(v["lint"] or "[]")
         d["current"] = d["versions"][-1] if d["versions"] else None
+        d["attachments"] = self.files.list(did) if self.files is not None else []
         d["ticket_ref"] = self.ref_for(did)
         if d["current"]:
             d["current"]["check"] = self.get_check(did, d["current"]["version"])
@@ -349,7 +368,20 @@ class Composer:
             me=self.me,
             org_domain=self.org,
             kind=d["kind"],
+            attachments=len(d.get("attachments") or []),
         )
+        frm = (v.get("from_addr") or "").strip().lower()
+        if self.send_as is not None and d["kind"] != "slack" and frm not in ("", "me"):
+            try:
+                allowed = {a.lower() for a in self.send_as()}
+            except Exception:  # noqa: BLE001 - checked again at send
+                allowed = set()
+            if allowed and frm not in allowed:
+                issues.append(
+                    Issue(
+                        "error", "from_not_allowed", f"{frm} is not one of your send-as addresses."
+                    )
+                )
         ref = self.ref_for(did)
         if ref and d["kind"] in ("reply", "reply_all"):
             body = v.get("body") or ""
@@ -430,6 +462,47 @@ class Composer:
                 "UPDATE approvals SET used_at=? WHERE draft_id=? AND used_at IS NULL",
                 (time.time(), did),
             )
+        return self.get(did)
+
+    def attach(self, did: int, name: str, data: bytes, mime: str = "") -> dict[str, Any]:
+        """Add a file. Voids approval (the files are part of the approved hash)."""
+        return self._files_change(did, lambda: self.files.add(did, name, data, mime))
+
+    def detach(self, did: int, att_id: int) -> dict[str, Any]:
+        return self._files_change(did, lambda: self.files.remove(did, att_id))
+
+    def _files_change(self, did: int, fn: Any) -> dict[str, Any]:
+        if self.files is None:
+            raise ComposeError(400, "Attachments are not available")
+        d = self.get(did)
+        if d["kind"] == "slack":
+            raise ComposeError(400, "Slack replies can't carry files")
+        if d["state"] in ("QUEUED", "SENT", "DISCARDED"):
+            raise ComposeError(409, f"Draft is {d['state']}; it can't be edited")
+        try:
+            fn()
+        except Exception as e:
+            status = getattr(e, "status", 400)
+            raise ComposeError(status, str(e)) from e
+        with self._db() as c:
+            c.execute(
+                "UPDATE drafts SET state='DRAFT', approved_version=NULL, approved_hash=NULL, "
+                "updated_at=? WHERE id=?",
+                (time.time(), did),
+            )
+            c.execute(
+                "UPDATE approvals SET used_at=? WHERE draft_id=? AND used_at IS NULL",
+                (time.time(), did),
+            )
+        # re-lint the current version (attachment mentions) without a new text version
+        d = self.get(did)
+        if d["current"]:
+            issues = self._lint(did, d, d["current"])
+            with self._db() as c:
+                c.execute(
+                    "UPDATE draft_versions SET lint=? WHERE draft_id=? AND version=?",
+                    (json.dumps([i.to_dict() for i in issues]), did, d["current"]["version"]),
+                )
         return self.get(did)
 
     def restore(self, did: int, version: int) -> dict[str, Any]:
@@ -520,6 +593,7 @@ class Composer:
             "ticket_ref": d.get("ticket_ref", ""),
             "check": self.get_check(did, v["version"]),
             "last_ai": self._last_ai_compare(d, v),
+            "attachments": d.get("attachments") or [],
         }
         if d["kind"] == "slack":
             out["slack"] = {
@@ -642,7 +716,8 @@ class Composer:
         if not v or d["state"] in ("SENT", "DISCARDED") or d["kind"] == "slack":
             return None
         g = google_auth.service(self.cfg, "gmail", "v1", "modify")
-        body: dict[str, Any] = {"message": {"raw": raw(build_mime(d, v))}}
+        blobs = self.files.files(did) if self.files is not None and d.get("attachments") else []
+        body: dict[str, Any] = {"message": {"raw": raw(build_mime(d, v, blobs))}}
         if d["thread_id"]:
             body["message"]["threadId"] = d["thread_id"]
         if d["gmail_draft_id"]:
@@ -663,12 +738,23 @@ class Composer:
             pass
 
 
-def gmail_send(cfg: Config):
-    """send_fn for Composer.confirm: sends and re-reads to verify it landed."""
+def gmail_send(cfg: Config, files: Any = None, send_as: Any = None):
+    """send_fn for Composer.confirm: sends and re-reads to verify it landed.
+
+    Before sending: the From must be a verified send-as address, and every attached
+    file must still hash to what was approved (DraftFiles.files re-hashes from disk)."""
 
     def send(d: dict[str, Any], v: dict[str, Any]) -> dict[str, Any]:
+        frm = (v.get("from_addr") or "").strip().lower()
+        if send_as is not None and frm not in ("", "me"):
+            if frm not in {a.lower() for a in send_as()}:
+                raise RuntimeError(f"{frm} is not one of your send-as addresses; not sent")
+        blobs = files.files(d["id"]) if files is not None and d.get("attachments") else []
+        approved = [[a["name"], int(a["size"]), a["sha256"]] for a in d.get("attachments") or []]
+        if len(blobs) != len(approved):
+            raise RuntimeError("Attachments changed after approval; not sent")
         g = google_auth.service(cfg, "gmail", "v1", "send")
-        body: dict[str, Any] = {"raw": raw(build_mime(d, v))}
+        body: dict[str, Any] = {"raw": raw(build_mime(d, v, blobs))}
         if d.get("thread_id"):
             body["threadId"] = d["thread_id"]
         r = g.users().messages().send(userId="me", body=body).execute()

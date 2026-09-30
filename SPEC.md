@@ -484,6 +484,14 @@ Selection bar (appears when text is selected in a thread, draft or ledger view):
   and appear in Markdown exports as `==text==` or bold, and in Print as yellow.
 - Note: attach a short private note to the highlight. Notes are local only and are
   never sent or logged unless the operator adds them to the bucket.
+- *As built (v0.11).* Selection bar: Highlight (amber); More: Highlight with note, cyan,
+  magenta, green. Stored in `annotations` (thread key, message id, quote, 40 chars
+  before it, colour, note); re-applied when the thread opens by finding the quote in
+  that message. A "Highlights and notes" box above the messages lists them; clicking a
+  highlight or Edit changes colour or note or removes it. Highlights stay within one
+  paragraph. Thread Export menu: Markdown (highlights as `==text==` with
+  `[note: ...]`), plain text, JSON (messages, attachment names, highlights), Copy as
+  Markdown, Print / PDF (print stylesheet: no chrome, highlights light yellow).
 - Search Nexus: runs `nexus search "<selection>" --json` and shows results in a popover
   (type, name, score). Click a result to open it in the context rail, add it to the
   bucket as a link chip, or copy its id. Selections over 200 characters are refused
@@ -629,6 +637,35 @@ Writes (each needs its own scope; section 12.2)
   approval.
 - Send a saved draft: any Gmail draft can be sent from Ultra after it passes the two
   approvals in section 9.
+- *As built (v0.11).*
+  - Search: a box above the stream (`/` focuses it), Gmail syntax, scope Inbox (default)
+    or All mail; results replace the stream until Esc or "Back to the stream"; rows
+    from outside the inbox carry an ARCHIVED badge. Saved searches (name + query) are
+    local. `GET /api/mail/search?q=&scope=` (read token, cached 2 min).
+  - Labels: a Labels button on email threads opens a checklist of user labels (tick to
+    add, untick to remove, type to filter or create). System labels (INBOX, SPAM,
+    TRASH, SENT, DRAFT, UNREAD, STARRED, IMPORTANT, CHAT, CATEGORY_*) are never offered
+    and the server refuses them, so labels can't archive, delete, mark read or file as
+    spam. Unknown ids and add+remove of the same label are refused. The change is read
+    back from one thread, journaled (`labels_changed`), and the toast offers Undo (the
+    reverse change). Create checks the name (letters, digits, space, `. _ / & ( ) + -`)
+    and refuses a case-insensitive duplicate.
+  - Attachments: each chip has Preview (text, CSV, PNG/JPEG/GIF, PDF only, in a
+    sandboxed frame served with `sandbox` CSP and nosniff), Download (always
+    `application/octet-stream`), Save (to the private `attachments/saved` folder, mode
+    700/600, a safe unique name) and Attach to draft. The page addresses an attachment
+    by message id + MIME partId, because Gmail issues a new attachmentId on every read;
+    the server finds the part in a fresh read and fetches it with that read's id. The
+    name and type always come from the message, never the request. 25 MB cap.
+  - Composer files: Attach file (picker or drop on the composer), up to 10 files,
+    25 MB each and in total, stored per draft in the private folder. Name, size and
+    SHA-256 of each file are part of the approval hash (left out when there are no
+    files, so older approvals are unaffected); adding or removing a file voids
+    approval. At send the files are re-read and re-hashed; a changed file or list
+    stops the send. The review screen lists the files. Slack replies can't carry files.
+  - From: a picker with the verified Gmail "Send mail as" addresses (cached 1 day). A
+    From outside that list is a lint error (blocks approval) and is refused again at
+    send.
 - No automatic CC. (astropost always CCs the operator's own address; Ultra doesn't,
   because Sent already holds the copy. Config option `mail.self_cc` if wanted.)
 
@@ -1372,7 +1409,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | v0.8 Day (shipped 0.9.0) | Day view (`d` key, top-bar Day): check-in plan (meetings minus declined, free windows in work hours from now, your-move items READY/VIP first, waiting 3+ days, overdue / due today / high-priority tasks, suggested focus blocks fitted into free windows that open the normal block card), AI read of the day (draft only); end-of-day report from the journal (sent, Slack posted, archived with subjects, logged, task changes, calendar block writes, research, audio; repeats collapsed; still open), editable, Copy / Listen / Save to ledger via a staged log card; exports agenda .ics (no attendee emails) and journal .csv. AI brief builder and Board export move with the Board |
 | v0.9.5 Draft Studio (shipped 0.9.5) | Section 9.6: gather on open (thread, 120-day history per participant, Full context, 2-3 precedents from Sent, work notes, policy pages), private policy sources with 24 h cache (site sitemaps, fixed pages, public ServiceNow KB via the portal page API), house facts, brief with asks / constraints / audience / known / unknown / risks, question cards before drafting, draft with claim map, claim check (cut by default) plus rule checks, source-side review, send-then-log with follow-up task, suggestions from edits |
 | v0.10 Calendar (shipped 0.10.0) | Week view with "Needs your answer"; RSVP with one confirm and a bound single-use token; meetings with guests through two approvals (hash-locked invite, review with busy/unknown/external guests, 10-minute single-use token, read-back); meeting prep from item context (`c-` item keys: People, Full, cited briefing); log a meeting through the staged card; weekly repeating Ultra blocks (RRULE with UNTIL, 26-week cap) and Delete series; sent meetings are never movable |
-| v0.11 Email, rest | ServiceNow replies (Ref:MSG line kept, To the ticket desk, requester in Cc; send blocked if the line is missing), version diff, Tidy, mail search, all-drafts list, labels, attachments (view/save/attach), send-as, highlights and notes with export |
+| v0.11 Email, rest (shipped 0.11.0) | Mail search with saved searches, labels (user labels only, read-back, Undo), attachments (preview/download/save/attach by partId), composer files in the approval hash with re-hash at send, send-as picker checked at lint and send, highlights and notes, thread export (Markdown/text/JSON/Print). The all-drafts list was dropped by the operator. ServiceNow replies, version diff and Tidy shipped earlier (0.9.8, 0.9.9) |
 | v0.12 Ledger tab | Full dashboard for the ledger tool: home (counts, activity, tasks, overdue, going-cold people), browse/search every entity type, entity pages with links/history/tasks/cited briefing, task board, interactions (edit via `interactions edit`, link/unlink), org tree, GCP audit and cost reports, graph health (`doctor`); writes only through allow-listed commands with review cards, read-back, double confirmation for destructive or bulk changes; ledger additions each on their own reviewed PR |
 | v1.0 | Polish, keyboard help, docs, public release |
 | v1.x | Graph view, palette Ask, Slack Web API backend (S-1) |
@@ -1399,6 +1436,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.28 | App v0.11.0 (sections 7.8, 8.1): mail search, labels, attachments, composer files in the approval hash, send-as, highlights and notes, thread export. Attachments are addressed by MIME partId because Gmail's attachmentId changes on every read (found by the live check). |
 | 2026-09-30 | 0.27a | App v0.10.1: Google API clients are cached per thread. The shared client's HTTP transport (httplib2) is not thread-safe; concurrent requests (for example People and Full for one item) could fail with TLS "record layer" or "NoneType has no attribute close" errors. Found by the live check of meeting prep. |
 | 2026-09-30 | 0.27 | App v0.10.0 (section 7.4): week view, RSVP, meetings with guests through two approvals, meeting prep from item context, meeting log card, weekly repeating blocks. Built before the remaining email items (mail search, labels, attachments, send-as, highlights), which follow as v0.11; the delivery table is renumbered. Ultra-sent meetings are excluded from block moves and deletes. |
 | 2026-09-30 | 0.26 | App v0.9.9 (sections 9.7, 9.8): composer AI through Draft Studio with a check on every AI version, check stored per version and shown in composer and review, before/after comparison, deterministic Tidy, learning from edits into style rules; Python 3.13 address-parsing fix for reply-all. |

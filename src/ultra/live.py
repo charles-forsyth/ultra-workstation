@@ -7,6 +7,7 @@ the background; the page re-asks when /api/status says the job finished.
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -19,7 +20,7 @@ from ultra.ai import AI, AIError
 from ultra.audio import Audio
 from ultra.calendar import Calendar
 from ultra.compose import ComposeError, Composer, gmail_send
-from ultra.config import Config, expand
+from ultra.config import Config, data_dir, expand, private_dir
 from ultra.day import Day
 from ultra.desk import Desk
 from ultra.drafttools import compare, cut_sentences, tidy
@@ -30,6 +31,15 @@ from ultra.ledger import Ledger, LedgerError
 from ultra.ledger_write import LedgerWriter
 from ultra.lint import ascii_fix, load_style
 from ultra.mail import Mail
+from ultra.mailx import (
+    PREVIEW_TYPES,
+    Annotations,
+    DraftFiles,
+    MailXError,
+    SavedSearches,
+    decode_upload,
+    safe_name,
+)
 from ultra.research import Research
 from ultra.rules import Rules
 from ultra.slack import Slack, SlackError, SlackSender, slack_reply_target
@@ -84,10 +94,18 @@ class Live:
         self.ledger = Ledger(cfg, self.store)
         self.slack = Slack(cfg, self.store)
         self.ai = AI(cfg)
+        self.draft_files = DraftFiles(self.store, private_dir(data_dir()) / "attachments")
         self.compose = Composer(
-            cfg, self.store, cfg.my_addresses, is_ticket=self.rules.is_ticket_sender
+            cfg,
+            self.store,
+            cfg.my_addresses,
+            is_ticket=self.rules.is_ticket_sender,
+            files=self.draft_files,
+            send_as=self._send_as_addrs,
         )
-        self.send_fn = gmail_send(cfg)
+        self.send_fn = gmail_send(cfg, self.draft_files, self._send_as_addrs)
+        self.annotations = Annotations(self.store)
+        self.saved = SavedSearches(self.store)
         self.slack_sender = SlackSender(self.slack) if self.slack.enabled else None
         self.operator = str(cfg.get("operator", "name", ""))
         addrs = list(cfg.get("operator", "addresses", []) or [])
@@ -249,6 +267,24 @@ class Live:
         api.add("POST", r"/api/slack/draft", self.r_slack_draft)
         api.add("GET", r"/api/slack/draft/(s-[A-Za-z0-9_-]+)", self.r_slack_draft_find)
         api.add("POST", r"/api/send/(\d+)/cancel", self.r_send_cancel)
+        # v0.11 mail extras
+        api.add("GET", r"/api/mail/search", self.r_mail_search)
+        api.add("GET", r"/api/mail/searches", self.r_searches)
+        api.add("POST", r"/api/mail/searches", self.r_search_save)
+        api.add("POST", r"/api/mail/searches/(\d+)/delete", self.r_search_del)
+        api.add("GET", r"/api/mail/labels", self.r_labels)
+        api.add("POST", r"/api/mail/labels", self.r_label_create)
+        api.add("POST", r"/api/mail/labels/apply", self.r_labels_apply)
+        api.add("GET", r"/api/mail/sendas", self.r_sendas)
+        api.add("GET", r"/api/mail/attachment/([A-Za-z0-9]+)/([0-9.]+)", self.r_att)
+        api.add("POST", r"/api/mail/attachment/([A-Za-z0-9]+)/([0-9.]+)/save", self.r_att_save)
+        api.add("POST", r"/api/drafts/(\d+)/attach", self.r_draft_attach)
+        api.add("POST", r"/api/drafts/(\d+)/attach-from", self.r_draft_attach_from)
+        api.add("POST", r"/api/drafts/(\d+)/detach", self.r_draft_detach)
+        api.add("GET", r"/api/notes/((?:g|k|s)-[A-Za-z0-9_.:-]{1,80})", self.r_notes)
+        api.add("POST", r"/api/notes", self.r_note_add)
+        api.add("POST", r"/api/notes/(\d+)", self.r_note_update)
+        api.add("POST", r"/api/notes/(\d+)/delete", self.r_note_del)
 
     # ---------------------------------------------------------------- Draft Studio glue
     def _studio_ledger(self, key: str, msgs: list[dict[str, Any]]) -> str:
@@ -1086,6 +1122,108 @@ class Live:
         res = self._wrap(self.compose.confirm, did, token, ver, self._send_and_refresh)
         self.store.journal("send_queued", str(did), True, {"version": ver})
         return res
+
+    # ---------------------------------------------------------------- v0.11 mail extras
+    def _mx(self, fn: Any, *a: Any) -> Any:
+        try:
+            return fn(*a)
+        except MailXError as e:
+            raise _bad(str(e), e.status) from e
+        except google_auth.AuthNeeded as e:
+            raise _bad(f"{e} (run: ultra auth google --capability {e.capability})", 401) from e
+
+    def _send_as_addrs(self) -> list[str]:
+        try:
+            got = [a["email"] for a in self.mail.send_as()]
+        except Exception:  # noqa: BLE001 - fall back to configured addresses
+            got = []
+        return got or [a.lower() for a in self.cfg.get("operator", "addresses", []) or []]
+
+    def r_mail_search(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        query = (q.get("q") or [""])[0]
+        scope = (q.get("scope") or ["inbox"])[0]
+        return self._mx(self.mail.search_threads, query, scope)
+
+    def r_searches(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return {"searches": self.saved.list()}
+
+    def r_search_save(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        b = body or {}
+        return self._mx(self.saved.add, str(b.get("name", "")), str(b.get("query", "")))
+
+    def r_search_del(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self.saved.delete(int(m.group(1)))
+
+    def r_labels(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        fresh = (q.get("fresh") or ["0"])[0] == "1"
+        return {"labels": self._mx(self.mail.labels, fresh)}
+
+    def r_label_create(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._mx(self.mail.create_label, str((body or {}).get("name", "")))
+
+    def r_labels_apply(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        b = body or {}
+        tids = [str(x).removeprefix("g-") for x in b.get("threads") or []]
+        add = [str(x) for x in b.get("add") or []][:10]
+        remove = [str(x) for x in b.get("remove") or []][:10]
+        return self._mx(self.mail.apply_labels, tids, add, remove)
+
+    def r_sendas(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        try:
+            return {"addresses": self.mail.send_as(), "default": self.from_default}
+        except Exception as e:  # noqa: BLE001
+            return {"addresses": [], "default": self.from_default, "error": str(e)[:200]}
+
+    def r_att(self, q: dict, body: Any, m: re.Match[str]) -> Any:
+        from ultra.server import BytesFile
+
+        name, mime, data = self._mx(self.mail.attachment, m.group(1), m.group(2))
+        inline = (q.get("inline") or ["0"])[0] == "1" and mime in PREVIEW_TYPES
+        return BytesFile(data, mime if inline else "application/octet-stream", name, inline)
+
+    def r_att_save(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        name, _mime, data = self._mx(self.mail.attachment, m.group(1), m.group(2))
+        folder = private_dir(data_dir() / "attachments" / "saved")
+        path = folder / safe_name(name)
+        n = 1
+        while path.exists():
+            path = folder / f"{path.stem.split(' (')[0]} ({n}){path.suffix}"
+            n += 1
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        self.store.journal("attachment_saved", m.group(1), True, {"name": path.name})
+        return {"ok": True, "path": str(path), "size": len(data)}
+
+    def r_draft_attach(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        b = body or {}
+        data = self._mx(decode_upload, str(b.get("data", "")))
+        return self._wrap(
+            self.compose.attach, self._did(m), str(b.get("name", "")), data, str(b.get("mime", ""))
+        )
+
+    def r_draft_attach_from(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Attach a file from a message in Gmail (e.g. forward with its attachment)."""
+        b = body or {}
+        name, mime, data = self._mx(
+            self.mail.attachment, str(b.get("message", "")), str(b.get("attachment", ""))
+        )
+        return self._wrap(self.compose.attach, self._did(m), name, data, mime)
+
+    def r_draft_detach(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._wrap(self.compose.detach, self._did(m), int((body or {}).get("id", 0)))
+
+    def r_notes(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return {"notes": self.annotations.list(m.group(1))}
+
+    def r_note_add(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._mx(self.annotations.add, body or {})
+
+    def r_note_update(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._mx(self.annotations.update, int(m.group(1)), body or {})
+
+    def r_note_del(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        return self._mx(self.annotations.delete, int(m.group(1)))
 
     def _send_and_refresh(self, d: dict[str, Any], v: dict[str, Any]) -> dict[str, Any]:
         if d["kind"] == "slack":

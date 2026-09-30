@@ -90,7 +90,10 @@ def extract_body(payload: dict[str, Any]) -> tuple[str, bool, list[dict[str, Any
                     "name": p["filename"],
                     "mime": mime,
                     "size": body.get("size", 0),
-                    "id": body.get("attachmentId", ""),
+                    # Gmail issues a NEW attachmentId on every read, so the page refers
+                    # to the part by its partId (stable: the MIME position, e.g. "1.2").
+                    "id": str(p.get("partId", "")) if body.get("attachmentId") else "",
+                    "_att": body.get("attachmentId", ""),
                 }
             )
             return
@@ -402,7 +405,9 @@ class Mail:
                     "body": new,
                     "quoted": quoted,
                     "from_html": from_html,
-                    "attachments": atts,
+                    "attachments": [
+                        {k: v for k, v in a.items() if not k.startswith("_")} for a in atts
+                    ],
                     "labels": m.get("labelIds") or [],
                     "message_id": h.get("message-id", ""),
                     "references": h.get("references", ""),
@@ -463,6 +468,195 @@ class Mail:
                 }
             )
         self.store.cache_put(ck, out)
+        return out
+
+    # ---------------------------------------------------------------- search (stream)
+    def search_threads(self, q: str, scope: str = "inbox", limit: int = 50) -> dict[str, Any]:
+        """Threads matching a Gmail query, as stream rows. Read-only. Default scope is
+        the inbox (the operator works from the inbox); scope 'all' searches all mail
+        (never spam or trash). Cached 2 minutes per query."""
+        from ultra.mailx import check_query
+
+        q = check_query(q)
+        scope = "all" if scope == "all" else "inbox"
+        full = f"in:inbox {q}" if scope == "inbox" else q
+        limit = max(1, min(int(limit), 100))
+        ck = f"mail:search:{scope}:{limit}:{q}"
+        hit = self.store.cache_get(ck, 120)
+        if hit:
+            return {**hit[0], "cached": True}
+        with self.lock:
+            ids = self._list_ids(full, limit)
+            got = self._fetch_meta([t for t, _ in ids]) if ids else {}
+        rows = []
+        for tid, _h in ids:
+            t = got.get(tid)
+            if not t:
+                continue
+            s = self._summarize(t)
+            msgs = s["messages"]
+            if not msgs:
+                continue
+            last = msgs[-1]
+            other = next((m for m in reversed(msgs) if not self.rules.is_me(m["from_addr"])), None)
+            if other is None:
+                name, addr = _first_recipient(self.rules, msgs)
+                other = {"from_name": name or addr or "(no recipient)", "from_addr": addr}
+            in_inbox = "INBOX" in s["labels"]
+            rows.append(
+                {
+                    "key": f"g-{tid}",
+                    "source": "email",
+                    "from": other["from_name"],
+                    "addr": other["from_addr"],
+                    "subject": next((m["subject"] for m in msgs if m["subject"]), "(no subject)"),
+                    "snippet": last["text"][:200],
+                    "ts": _iso(last["ts_ms"]),
+                    "ts_ms": last["ts_ms"],
+                    "count": len(msgs),
+                    "court": "SEARCH",
+                    "reason": "search result",
+                    "badges": [] if in_inbox else ["ARCHIVED"],
+                    "waiting_days": 0,
+                    "unread": "UNREAD" in last["labels"],
+                    "labels": [x for x in s["labels"] if not x.startswith("CATEGORY_")],
+                }
+            )
+        out = {"query": q, "scope": scope, "items": rows, "count": len(rows)}
+        self.store.cache_put(ck, out)
+        return out
+
+    # ---------------------------------------------------------------- labels
+    def labels(self, fresh: bool = False) -> list[dict[str, Any]]:
+        from ultra.mailx import label_view
+
+        if not fresh:
+            hit = self.store.cache_get("mail:labels", 600)
+            if hit:
+                return list(hit[0])
+        g = self._svc()
+        raw = g.users().labels().list(userId="me").execute().get("labels", [])
+        out = label_view(raw)
+        self.store.cache_put("mail:labels", out)
+        return out
+
+    def create_label(self, name: str) -> dict[str, Any]:
+        from ultra.mailx import LABEL_NAME_RE, MailXError
+
+        name = " ".join(str(name or "").split())
+        if not LABEL_NAME_RE.match(name):
+            raise MailXError(400, "Label names: letters, numbers, spaces and . _ / & ( ) + -")
+        have = {x["name"].lower(): x for x in self.labels(fresh=True)}
+        if name.lower() in have:
+            raise MailXError(409, f"A label named {have[name.lower()]['name']} already exists.")
+        with self.lock:
+            r = (
+                self._modify_svc()
+                .users()
+                .labels()
+                .create(
+                    userId="me",
+                    body={
+                        "name": name,
+                        "labelListVisibility": "labelShow",
+                        "messageListVisibility": "show",
+                    },
+                )
+                .execute()
+            )
+        self.store.cache_del_prefix("mail:labels")
+        self.store.journal("label_created", r.get("id", ""), True, {"name": name})
+        return {"id": r.get("id"), "name": r.get("name", name)}
+
+    def apply_labels(self, tids: list[str], add: list[str], remove: list[str]) -> dict[str, Any]:
+        """Add / remove user labels on threads. System labels are refused (archive has its
+        own path; Ultra never deletes, marks read, stars or files as spam)."""
+        from ultra.mailx import MailXError, is_system_label
+
+        tids = [t for t in tids if re.fullmatch(r"[A-Za-z0-9]{6,40}", str(t))][:50]
+        if not tids:
+            raise MailXError(400, "no threads")
+        known = {x["id"]: x for x in self.labels()}
+        for lid in [*add, *remove]:
+            if is_system_label(lid) or (known.get(lid) or {}).get("protected"):
+                raise MailXError(403, f"{lid} is a system label; Ultra does not change it.")
+            if lid not in known:
+                raise MailXError(400, f"Unknown label {lid}")
+        if set(add) & set(remove) or not (add or remove):
+            raise MailXError(400, "Choose labels to add or remove (not both).")
+        done = []
+        with self.lock:
+            g = self._modify_svc()
+            for tid in tids:
+                g.users().threads().modify(
+                    userId="me", id=tid, body={"addLabelIds": add, "removeLabelIds": remove}
+                ).execute()
+                done.append(tid)
+        # read back one thread to confirm
+        chk = self._svc().users().threads().get(userId="me", id=done[0], format="minimal").execute()
+        have = set().union(*[set(m.get("labelIds") or []) for m in chk.get("messages", [])])
+        ok = set(add) <= have and not (set(remove) & have)
+        self.store.cache_del_prefix("mail:search:")
+        self.store.journal(
+            "labels_changed",
+            ",".join(done)[:200],
+            ok,
+            {"add": add, "remove": remove, "names": [known[x]["name"] for x in add + remove]},
+        )
+        return {"ok": ok, "threads": done, "add": add, "remove": remove}
+
+    # ---------------------------------------------------------------- attachments
+    def attachment(self, mid: str, part_id: str) -> tuple[str, str, bytes]:
+        """(name, mime, bytes) for one attachment, addressed by message id + MIME partId.
+
+        Gmail's attachmentId changes on every read, so it can't be what the page sends.
+        The part is found in a fresh read of the message and fetched with the
+        attachmentId from that same read. The name and type come from the message
+        itself, never from the request."""
+        from ultra.mailx import MAX_ATT, MSG_ID_RE, PART_ID_RE, MailXError, safe_name
+
+        if not MSG_ID_RE.match(mid) or not PART_ID_RE.match(part_id):
+            raise MailXError(400, "bad attachment id")
+        g = self._svc()
+        with self.lock:
+            m = g.users().messages().get(userId="me", id=mid, format="full").execute()
+        _t, _h, atts = extract_body(m.get("payload") or {})
+        meta = next((a for a in atts if a["id"] == part_id), None)
+        if meta is None or not meta.get("_att"):
+            raise MailXError(404, "Attachment not found in that message.")
+        if int(meta.get("size") or 0) > MAX_ATT:
+            raise MailXError(413, "Larger than 25 MB; open it in Gmail.")
+        with self.lock:
+            r = (
+                g.users()
+                .messages()
+                .attachments()
+                .get(userId="me", messageId=mid, id=meta["_att"])
+                .execute()
+            )
+        data = base64.urlsafe_b64decode(r.get("data", "") + "==")
+        return safe_name(meta["name"]), meta.get("mime") or "application/octet-stream", data
+
+    # ---------------------------------------------------------------- send-as
+    def send_as(self) -> list[dict[str, Any]]:
+        """Verified 'Send mail as' addresses from Gmail (cached 1 day)."""
+        hit = self.store.cache_get("mail:sendas", 86400)
+        if hit:
+            return list(hit[0])
+        r = self._svc().users().settings().sendAs().list(userId="me").execute()
+        out = [
+            {
+                "email": str(a.get("sendAsEmail", "")).lower(),
+                "name": a.get("displayName", ""),
+                "default": bool(a.get("isDefault")),
+                "primary": bool(a.get("isPrimary")),
+            }
+            for a in r.get("sendAs", [])
+            if a.get("sendAsEmail")
+            and (a.get("verificationStatus") in (None, "accepted") or a.get("isPrimary"))
+        ]
+        out.sort(key=lambda x: (not x["default"], x["email"]))
+        self.store.cache_put("mail:sendas", out)
         return out
 
     # ---------------------------------------------------------------- triage (modify)

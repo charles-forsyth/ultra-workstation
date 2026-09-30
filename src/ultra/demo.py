@@ -63,7 +63,7 @@ STREAM: list[dict[str, Any]] = [
     },
 ]
 
-THREADS: dict[str, list[dict[str, str]]] = {
+THREADS: dict[str, list[dict[str, Any]]] = {
     "g-100": [
         {
             "from": "Ben Carter <ben@example.org>",
@@ -72,6 +72,15 @@ THREADS: dict[str, list[dict[str, str]]] = {
             "Dee Evans signed off on the budget, and Eli Fox will move the "
             "lab-share data once the ada-lab APIs are on. Grant NSF-2400001 covers "
             "the storage. Also looping in Grace for the Hopper Lab side.",
+            "id": "demomsg0001",
+            "attachments": [
+                {
+                    "name": "handover-plan.txt",
+                    "mime": "text/plain",
+                    "size": 164,
+                    "id": "2",
+                }
+            ],
         },
         {
             "from": "Ada Lovelace <ada@example.org>",
@@ -1626,7 +1635,8 @@ class DemoOutbox:
             {
                 "draft": d["id"],
                 "kind": d["kind"],
-                **{k: v[k] for k in ("to_addrs", "subject", "body")},
+                **{k: v[k] for k in ("from_addr", "to_addrs", "subject", "body")},
+                "attachments": [a["name"] for a in d.get("attachments") or []],
             }
         )
         if d["kind"] == "slack":  # the demo "posts" and verifies trivially
@@ -1650,7 +1660,174 @@ def _register_composer(api: Api) -> None:
     store = Store(tmp / "demo.db")
     cfg = Config({"mail": {"send_delay_seconds": 3}})
     me = {"ada@example.org"}
-    comp = Composer(cfg, store, me)
+    from ultra.mailx import (
+        PREVIEW_TYPES,
+        Annotations,
+        DraftFiles,
+        MailXError,
+        SavedSearches,
+        decode_upload,
+        label_view,
+    )
+    from ultra.server import BytesFile
+
+    demo_sendas = ["ada@example.org", "help@example.org"]
+    files = DraftFiles(store, tmp / "attachments")
+    comp = Composer(cfg, store, me, files=files, send_as=lambda: demo_sendas)
+    notes = Annotations(store)
+    saved = SavedSearches(store)
+    labels: list[dict[str, Any]] = [
+        {"id": "INBOX", "name": "INBOX", "type": "system"},
+        {"id": "Label_1", "name": "Projects/ada-lab", "type": "user"},
+        {"id": "Label_2", "name": "Follow up", "type": "user"},
+    ]
+    applied: dict[str, set[str]] = {}
+    api.demo_files = files  # type: ignore[attr-defined]
+    api.demo_applied = applied  # type: ignore[attr-defined]
+
+    def mx(fn: Any, *a: Any) -> Any:
+        try:
+            return fn(*a)
+        except MailXError as e:
+            raise ApiError(e.status, str(e)) from e
+
+    def search(q: dict, b: Any, m: re.Match[str]) -> dict:
+        from ultra.mailx import check_query
+
+        query = mx(check_query, (q.get("q") or [""])[0]).lower()
+        words = query.split()
+        rows = []
+        for srow in STREAM:
+            if srow["source"] != "email":
+                continue
+            text = " ".join(
+                [srow["subject"], srow["from"], srow.get("snippet", "")]
+                + [x.get("body", "") for x in THREADS.get(srow["key"], [])]
+            ).lower()
+            if all(w.split(":")[-1] in text for w in words):
+                rows.append({**srow, "court": "SEARCH", "reason": "search result"})
+        return {
+            "query": query,
+            "scope": (q.get("scope") or ["inbox"])[0],
+            "items": rows,
+            "count": len(rows),
+            "demo": True,
+        }
+
+    def apply_labels(q: dict, b: Any, m: re.Match[str]) -> dict:
+        from ultra.mailx import is_system_label
+
+        b = b or {}
+        add = [str(x) for x in b.get("add") or []]
+        remove = [str(x) for x in b.get("remove") or []]
+        known = {x["id"] for x in labels}
+        for lid in add + remove:
+            if is_system_label(lid):
+                raise ApiError(403, f"{lid} is a system label; Ultra does not change it.")
+            if lid not in known:
+                raise ApiError(400, f"Unknown label {lid}")
+        if set(add) & set(remove) or not (add or remove):
+            raise ApiError(400, "Choose labels to add or remove (not both).")
+        tids = [str(x).removeprefix("g-") for x in b.get("threads") or []]
+        for tid in tids:
+            cur = applied.setdefault(tid, set())
+            cur |= set(add)
+            cur -= set(remove)
+        return {"ok": True, "threads": tids, "add": add, "remove": remove}
+
+    def create_label(q: dict, b: Any, m: re.Match[str]) -> dict:
+        from ultra.mailx import LABEL_NAME_RE
+
+        name = " ".join(str((b or {}).get("name", "")).split())
+        if not LABEL_NAME_RE.match(name):
+            raise ApiError(400, "Label names: letters, numbers, spaces and . _ / & ( ) + -")
+        if name.lower() in {x["name"].lower() for x in labels}:
+            raise ApiError(409, "A label with that name already exists.")
+        lab = {"id": f"Label_{len(labels) + 1}", "name": name, "type": "user"}
+        labels.append(lab)
+        return {"id": lab["id"], "name": name}
+
+    demo_file = (
+        b"Handover plan (demo)\n1. Turn on the ada-lab APIs.\n2. Add Ada as owner.\n"
+        b"3. Eli moves the lab-share data.\n4. Confirm the budget alert.\n"
+    )
+
+    def att(q: dict, b: Any, m: re.Match[str]) -> Any:
+        if (m.group(1), m.group(2)) != ("demomsg0001", "2"):
+            raise ApiError(404, "Attachment not found")
+        inline = (q.get("inline") or ["0"])[0] == "1" and "text/plain" in PREVIEW_TYPES
+        return BytesFile(
+            demo_file,
+            "text/plain" if inline else "application/octet-stream",
+            "handover-plan.txt",
+            inline,
+        )
+
+    def attach(q: dict, b: Any, m: re.Match[str]) -> dict:
+        b = b or {}
+        data = mx(decode_upload, str(b.get("data", "")))
+        return wrap(
+            comp.attach, int(m.group(1)), str(b.get("name", "")), data, str(b.get("mime", ""))
+        )
+
+    def attach_from(q: dict, b: Any, m: re.Match[str]) -> dict:
+        b = b or {}
+        if (str(b.get("message")), str(b.get("attachment"))) != ("demomsg0001", "2"):
+            raise ApiError(404, "Attachment not found")
+        return wrap(comp.attach, int(m.group(1)), "handover-plan.txt", demo_file, "text/plain")
+
+    api.add("GET", r"/api/mail/search", search)
+    api.add("GET", r"/api/mail/searches", lambda q, b, m: {"searches": saved.list()})
+    api.add(
+        "POST",
+        r"/api/mail/searches",
+        lambda q, b, m: mx(
+            saved.add, str((b or {}).get("name", "")), str((b or {}).get("query", ""))
+        ),
+    )
+    api.add(
+        "POST", r"/api/mail/searches/(\d+)/delete", lambda q, b, m: saved.delete(int(m.group(1)))
+    )
+    api.add("GET", r"/api/mail/labels", lambda q, b, m: {"labels": label_view(labels)})
+    api.add("POST", r"/api/mail/labels", create_label)
+    api.add("POST", r"/api/mail/labels/apply", apply_labels)
+    api.add(
+        "GET",
+        r"/api/mail/sendas",
+        lambda q, b, m: {
+            "addresses": [
+                {
+                    "email": a,
+                    "name": "Ada Lovelace",
+                    "default": a == demo_sendas[0],
+                    "primary": a == demo_sendas[0],
+                }
+                for a in demo_sendas
+            ],
+            "default": demo_sendas[0],
+        },
+    )
+    api.add("GET", r"/api/mail/attachment/([A-Za-z0-9]+)/([0-9.]+)", att)
+    api.add(
+        "POST",
+        r"/api/mail/attachment/([A-Za-z0-9]+)/([0-9.]+)/save",
+        lambda q, b, m: {"ok": True, "path": "(demo: nothing saved)", "size": len(demo_file)},
+    )
+    api.add("POST", r"/api/drafts/(\d+)/attach", attach)
+    api.add("POST", r"/api/drafts/(\d+)/attach-from", attach_from)
+    api.add(
+        "POST",
+        r"/api/drafts/(\d+)/detach",
+        lambda q, b, m: wrap(comp.detach, int(m.group(1)), int((b or {}).get("id", 0))),
+    )
+    api.add(
+        "GET",
+        r"/api/notes/((?:g|k|s)-[A-Za-z0-9_.:-]{1,80})",
+        lambda q, b, m: {"notes": notes.list(m.group(1))},
+    )
+    api.add("POST", r"/api/notes", lambda q, b, m: mx(notes.add, b or {}))
+    api.add("POST", r"/api/notes/(\d+)", lambda q, b, m: mx(notes.update, int(m.group(1)), b or {}))
+    api.add("POST", r"/api/notes/(\d+)/delete", lambda q, b, m: mx(notes.delete, int(m.group(1))))
     outbox = DemoOutbox()
     api.demo_outbox = outbox  # type: ignore[attr-defined]
     task_drafts: dict[str, list[int]] = {}
@@ -1668,7 +1845,7 @@ def _register_composer(api: Api) -> None:
             "messages": [
                 {
                     **m,
-                    "id": f"{key}-{i}",
+                    "id": m.get("id") or f"{key}-{i}",
                     "message_id": f"<{key}-{i}@example.org>",
                     "references": "",
                     "subject": next((s["subject"] for s in STREAM if s["key"] == key), ""),

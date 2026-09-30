@@ -93,6 +93,7 @@ export async function resumeForThread(threadKey) {
 function fields() {
   if (D?.kind === "slack") return { body: $("#cx-body").value };
   return {
+    from_addr: $("#cx-from")?.value || D.current?.from_addr || "",
     to_addrs: $("#cx-to").value, cc: $("#cx-cc").value, bcc: $("#cx-bcc").value,
     subject: $("#cx-subj").value, body: $("#cx-body").value,
   };
@@ -177,6 +178,7 @@ function checkHtml() {
 
 function render() {
   const el = box(); el.hidden = false;
+  el.dataset.did = D?.kind === "slack" ? "" : String(D?.id || "");
   const v = D.current || {};
   const locked = D.state === "QUEUED" || D.state === "SENT" || D.state === "DISCARDED";
   const kindLabel = { reply: "Reply", reply_all: "Reply all", forward: "Forward", new: "New message", slack: "Slack reply" }[D.kind];
@@ -185,7 +187,7 @@ function render() {
     ? `<div class="cx-grid"><label>To</label><div class="strong">${esc(v.to_addrs || "Slack")}</div></div>
        <div class="dim small-t cx-slack-note">Posted as you by Claude through the Slack connector, after both approvals. Slack formatting: *bold*, _italic_, \`code\`.</div>`
     : `<div class="cx-grid">
-      <label>From</label><div class="mono dim">${esc(v.from_addr || "")}</div>
+      <label for="cx-from">From</label><select id="cx-from" ${locked ? "disabled" : ""} title="Only your verified Gmail send-as addresses"><option value="${esc(v.from_addr || "")}" selected>${esc(v.from_addr || "")}</option></select>
       <label for="cx-to">To</label><input id="cx-to" value="${esc(v.to_addrs || "")}" ${locked ? "disabled" : ""}>
       <label for="cx-cc">Cc</label><input id="cx-cc" value="${esc(v.cc || "")}" ${locked ? "disabled" : ""}>
       <label for="cx-bcc">Bcc</label><input id="cx-bcc" value="${esc(v.bcc || "")}" ${locked ? "disabled" : ""}>
@@ -200,6 +202,7 @@ function render() {
       <button class="btn tiny ghost" id="cx-close" title="Hide (the draft is kept)">Hide</button>
     </div>
     ${head}
+    ${slack ? "" : `<div class="cx-files" id="cx-files"></div>`}
     <textarea id="cx-body" rows="${slack ? 5 : 12}" spellcheck="true" ${locked ? "disabled" : ""} placeholder="Write, or use Draft with AI below.">${esc(v.body || "")}</textarea>
     <div class="cx-ai" ${locked ? "hidden" : ""}>
       <input id="cx-instr" placeholder="${v.body ? "What to change (e.g. shorter, warmer)" : "What to say (optional)"}" title="${v.body ? "Tell AI what to change: shorter, warmer, add the Friday date..." : "Tell AI what the reply should say. Leave empty for a sensible reply."}">
@@ -214,8 +217,66 @@ function render() {
     <div class="cx-acts" id="cx-acts"></div>`;
   wire();
   renderMeta();
+  if (!slack) { renderFiles(); fillFrom(v.from_addr || "", locked); }
   if (D.state === "DRAFT") renderLearn();
 }
+
+// ---------------------------------------------------------------- From (send-as) and files
+let sendAs = null;
+async function fillFrom(cur, locked) {
+  const sel = $("#cx-from"); if (!sel) return;
+  try { sendAs = sendAs || (await api("/api/mail/sendas")).addresses; } catch { sendAs = []; }
+  if (!sendAs.length || $("#cx-from") !== sel) return;
+  const list = sendAs.map((a) => a.email);
+  if (cur && !list.includes(cur.toLowerCase())) list.unshift(cur);
+  sel.innerHTML = list.map((e) => `<option value="${esc(e)}" ${e.toLowerCase() === cur.toLowerCase() ? "selected" : ""}>${esc(e)}</option>`).join("");
+  sel.disabled = locked || list.length < 2;
+  sel.onchange = () => { scheduleSave(); };
+}
+
+function filesHtml() {
+  const fs = D.attachments || [];
+  const locked = D.state !== "DRAFT" && D.state !== "APPROVED";
+  return `${fs.map((f) => `<span class="att"><span class="att-n">${esc(f.name)}</span> <span class="dim">${Math.max(1, Math.round(f.size / 1024))} KB</span>${locked ? "" : ` <button class="btn tiny ghost" data-detach="${f.id}" title="Remove">x</button>`}</span>`).join("")}
+    ${locked ? "" : `<label class="btn tiny ghost cx-attach" title="Attach a file (25 MB max). Changing files resets approval.">Attach file<input type="file" id="cx-file" multiple hidden></label>`}`;
+}
+
+function renderFiles() {
+  const el = $("#cx-files"); if (!el) return;
+  el.innerHTML = filesHtml();
+  el.onclick = (e) => {
+    const b = e.target.closest("[data-detach]"); if (!b) return;
+    busy(b, async () => { D = await api(`/api/drafts/${D.id}/detach`, { method: "POST", body: { id: Number(b.dataset.detach) } }); renderFiles(); renderMeta(); });
+  };
+  const inp = $("#cx-file");
+  if (inp) inp.onchange = () => uploadFiles([...inp.files]);
+  const bx = box();
+  bx.ondragover = (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); bx.classList.add("drop"); } };
+  bx.ondragleave = () => bx.classList.remove("drop");
+  bx.ondrop = (e) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault(); bx.classList.remove("drop");
+    uploadFiles([...e.dataTransfer.files]);
+  };
+}
+
+async function uploadFiles(list) {
+  for (const f of list) {
+    if (f.size > 25 * 1024 * 1024) { toast(`${f.name} is over 25 MB.`, "err"); continue; }
+    const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = rej; r.readAsDataURL(f); });
+    try {
+      await saveNow();
+      D = await api(`/api/drafts/${D.id}/attach`, { method: "POST", body: { name: f.name, mime: f.type, data } });
+      toast(`Attached ${f.name}.`, "ok");
+    } catch (e) { toast(e.message, "err"); }
+  }
+  renderFiles(); renderMeta();
+}
+
+window.addEventListener("ultra:draft-files", async () => {
+  if (!D) return;
+  D = await api(`/api/drafts/${D.id}`); renderFiles(); renderMeta();
+});
 
 function renderMeta() {
   if (!D) return;
@@ -372,6 +433,7 @@ function showReview(r) {
         ${m.cc ? `<span class="k">Cc</span><span>${esc(m.cc)}</span>` : ""}
         ${m.bcc ? `<span class="k">Bcc</span><span>${esc(m.bcc)}</span>` : ""}
         <span class="k">Subject</span><span>${esc(m.subject)}</span>
+        ${(r.attachments || []).length ? `<span class="k">Files</span><span>${r.attachments.map((a) => `${esc(a.name)} <span class="dim">(${Math.max(1, Math.round(a.size / 1024))} KB)</span>`).join(", ")}</span>` : ""}
       </div>
       ${r.dropped?.length ? `<div class="lint warning">Not included from the thread: ${esc(r.dropped.join(", "))}</div>` : ""}
       ${r.ticket_ref ? `<div class="dim small-t">Ticket reference ${esc(r.ticket_ref)} is the last line.</div>` : ""}

@@ -7,6 +7,7 @@ import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
 import { initToday, openToday, closeToday, todayOpen } from "./today.js";
 import { studioStart } from "./studio.js";
+import { initSearch, labelMenu, attHtml, wireAttachments, loadNotes, addHighlight, wireHighlightClicks, exportMenu } from "./mailx.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -118,7 +119,7 @@ function dayName(iso) {
   return new Date(y, mo - 1, da).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
 
-const BADGE = { VIP: "vip", READY: "ready", OVERDUE: "ready", SLOW: "wait", ASSIGNED: "vip", CRITICAL: "ready", HIGH: "wait", BLOCKED: "ready", STARTED: "vip", "DUE TODAY": "wait", "DUE SOON": "" };
+const BADGE = { ARCHIVED: "", VIP: "vip", READY: "ready", OVERDUE: "ready", SLOW: "wait", ASSIGNED: "vip", CRITICAL: "ready", HIGH: "wait", BLOCKED: "ready", STARTED: "vip", "DUE TODAY": "wait", "DUE SOON": "" };
 
 function renderStream() {
   const el = $("#stream");
@@ -174,6 +175,7 @@ async function rowAction(a, it) {
 }
 
 async function loadStream(keepSel = false) {
+  if (S.search) return;  // a search is showing; Esc or clearing the box returns to the stream
   try {
     const r = await api(`/api/stream?filter=${encodeURIComponent(S.filter)}`);
     const prevKey = S.items[S.sel]?.key;
@@ -223,7 +225,9 @@ async function openItem(i) {
         <button class="btn small" data-a="forward" ${mailOnly} title="Forward (f)">Forward</button>
         <button class="btn small ai" data-a="summary" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="AI summary (s)">Summarize</button>
         <button class="btn small" data-a="archive" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="Archive (e). Never deletes.">Archive</button>
+        <button class="btn small" data-a="labels" ${isMail ? "" : mailOnly} title="Add or remove Gmail labels">Labels</button>
         <button class="btn small" data-a="copy">Copy</button>
+        <button class="btn small" data-a="export" title="Export: Markdown, text, JSON, Print/PDF (highlights included)">Export</button>
         <button class="btn small" data-a="listen" title="Read aloud with the browser voice (free)">Read aloud</button>
         <button class="btn small ai" data-a="aiaudio" title="AI voice: spoken summary or full read">AI audio</button>
         <button class="btn small" data-a="bucket" title="Add to bucket (b)">+ Bucket</button>
@@ -235,12 +239,13 @@ async function openItem(i) {
       <div class="aisum" id="aisum" hidden></div>
       <section class="studio" id="studio" hidden></section>
       <section class="composer" id="composer" hidden></section>
-      ${(t.messages || []).map((m) => `<div class="msg ${m.mine ? "mine" : ""}">
+      <div class="notes-list" id="notes-list"></div>
+      ${(t.messages || []).map((m) => `<div class="msg ${m.mine ? "mine" : ""}" data-mid="${esc(m.id || "")}">
         <div class="hdr"><b>${esc(m.from)}</b><span class="mono">${esc(fmtTime(m.ts))}</span></div>
         ${m.to ? `<div class="to dim">to ${esc(m.to)}${m.cc ? ` &middot; cc ${esc(m.cc)}` : ""}</div>` : ""}
         <div class="body">${esc(m.body) || `<span class="dim">(no text)</span>`}</div>
         ${m.quoted ? `<details class="quoted"><summary>quoted text</summary><div class="body">${esc(m.quoted)}</div></details>` : ""}
-        ${(m.attachments || []).length ? `<div class="atts">${m.attachments.map((a) => `<span class="att" title="${esc(a.mime)}">${esc(a.name)} <span class="dim">${esc(Math.round((a.size || 0) / 1024))} KB</span></span>`).join("")}</div>` : ""}
+        ${isMail ? attHtml(m) : ((m.attachments || []).length ? `<div class="atts">${m.attachments.map((a) => `<span class="att" title="${esc(a.mime)}">${esc(a.name)} <span class="dim">${esc(Math.round((a.size || 0) / 1024))} KB</span></span>`).join("")}</div>` : "")}
       </div>`).join("") || `<div class="dim">No messages.</div>`}`;
     $('[data-a="copy"]', th).onclick = () => copyText((t.messages || []).map((m) => `${m.from} (${fmtTime(m.ts)})\n${m.body}`).join("\n\n"));
     for (const k of ["reply", "reply_all", "forward"]) {
@@ -256,6 +261,11 @@ async function openItem(i) {
       ra.hidden = true; fw.hidden = true;
     }
     const sb = $('[data-a="summary"]', th); sb.onclick = () => busy(sb, () => summarize(it));
+    const lb = $('[data-a="labels"]', th); lb.onclick = () => busy(lb, () => labelMenu(lb, it));
+    const xb = $('[data-a="export"]', th); xb.onclick = () => exportMenu(xb, it.subject || "", t.messages || []);
+    if (isMail) wireAttachments(th, () => Number($("#composer")?.dataset.did || 0));
+    wireHighlightClicks(th);
+    loadNotes(th, it.key, t.messages || []);
     $('[data-a="bucket"]', th).onclick = () => addConversation(it.key);
     $('[data-a="listen"]', th).onclick = () => readAloud(th);
     $('[data-a="aiaudio"]', th).onclick = () => audioDialog({ thread: it.key }, it.subject || "Conversation");
@@ -283,7 +293,9 @@ function wireSelection(th, it) {
     if (!text || !th.contains(sel.anchorNode)) { hide(); return; }
     const r = sel.getRangeAt(0).getBoundingClientRect();
     const short = text.length <= 200;
+    const canHl = /^(g|k|s)-/.test(it.key);
     bar.innerHTML = `<button class="btn tiny" data-s="copy">Copy</button>
+      ${canHl ? `<button class="btn tiny hl-btn" data-s="hl" title="Highlight (local only)">Highlight</button>` : ""}
       <button class="btn tiny" data-s="quote">Quote in reply</button>
       <button class="btn tiny" data-s="search" ${short ? "" : "disabled title=\"Select 200 characters or fewer\""}>Search ledger</button>
       <button class="btn tiny" data-s="web">Web search</button>
@@ -294,6 +306,7 @@ function wireSelection(th, it) {
           <button class="btn tiny" data-s="rsearch">Search research</button>
           <button class="btn tiny" data-s="research">Research this...</button>
           <button class="btn tiny" data-s="read">Read aloud</button>
+          ${canHl ? `<button class="btn tiny" data-s="hlnote">Highlight with note</button><button class="btn tiny" data-s="hlcyan">Highlight cyan</button><button class="btn tiny" data-s="hlmag">Highlight magenta</button><button class="btn tiny" data-s="hlgreen">Highlight green</button>` : ""}
         </span></span>`;
     bar.style.left = `${Math.max(8, Math.min(window.innerWidth - 300, r.left))}px`;
     bar.style.top = `${Math.max(50, r.top - 38)}px`;
@@ -311,6 +324,11 @@ function wireSelection(th, it) {
       else if (a === "research") launcher(text.slice(0, 2000));
       else if (a === "read") readAloud(null, text);
       else if (a === "quote") quoteIntoReply(text);
+      else if (a === "hl") addHighlight(th, text, "amber");
+      else if (a === "hlnote") addHighlight(th, text, "amber", true);
+      else if (a === "hlcyan") addHighlight(th, text, "cyan");
+      else if (a === "hlmag") addHighlight(th, text, "magenta");
+      else if (a === "hlgreen") addHighlight(th, text, "green");
       else copyText(text);
       hide(); sel.removeAllRanges();
     };
@@ -626,6 +644,7 @@ function commands() {
     { t: "Search past research...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tr-q")?.focus(); } },
     { t: "New deep research...", run: () => launcher("") },
     { t: "Today (calendar)", run: () => openToday() },
+    { t: "Search mail...", k: "/", run: () => $("#ms-q")?.focus() },
     ...["mine", "waiting", "all", "tasks", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
   if (it && S.key === it.key) {
@@ -686,6 +705,18 @@ async function boot() {
     else if (d?.thread_id) stageAfterSend("g-" + d.thread_id);
   });
   initRail(); wireSearch(); initTools();
+  initSearch({
+    onResults: (r) => {
+      S.search = r; S.items = r.items || []; S.sel = S.items.length ? 0 : -1;
+      renderStream();
+      const head = document.createElement("div");
+      head.className = "ms-head dim small-t";
+      head.innerHTML = `${r.count} result${r.count === 1 ? "" : "s"} for <b>${esc(r.query)}</b> in ${r.scope === "all" ? "all mail" : "the inbox"}${r.cached ? " (cached)" : ""} <button class="btn tiny ghost" id="ms-clear">Back to the stream</button>`;
+      $("#stream").prepend(head);
+      $("#ms-clear").onclick = () => { $("#ms-q").value = ""; S.search = null; loadStream(); };
+    },
+    onClear: () => { if (S.search) { S.search = null; loadStream(); } },
+  });
   initToday(S.tz, {
     onOpen: () => { if (dayOpen()) closeDay(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },

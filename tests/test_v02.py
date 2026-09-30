@@ -140,6 +140,7 @@ def test_extract_body_prefers_plain_and_lists_attachments():
                 ],
             },
             {
+                "partId": "1",
                 "mimeType": "application/pdf",
                 "filename": "plan.pdf",
                 "body": {"attachmentId": "A1", "size": 2048},
@@ -148,7 +149,11 @@ def test_extract_body_prefers_plain_and_lists_attachments():
     }
     text, from_html, atts = extract_body(payload)
     assert text == "Plain body" and not from_html
-    assert atts == [{"name": "plan.pdf", "mime": "application/pdf", "size": 2048, "id": "A1"}]
+    # v0.11: the page-facing id is the MIME partId (Gmail's attachmentId changes on
+    # every read); the Gmail id rides along privately for the fetch.
+    assert atts == [
+        {"name": "plan.pdf", "mime": "application/pdf", "size": 2048, "id": "1", "_att": "A1"}
+    ]
 
 
 def test_html_only_body_is_converted_and_scripts_dropped():

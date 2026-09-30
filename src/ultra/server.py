@@ -24,6 +24,18 @@ MAX_BODY = 25 * 1024 * 1024  # attachments ride in JSON as base64 later
 Handler = Callable[[dict[str, list[str]], Any, re.Match[str]], Any]
 
 
+class BytesFile:
+    """In-memory file (a mail attachment). Served as a download unless ``inline`` is set
+    AND the type is one the page may preview; always with nosniff and the strict CSP,
+    plus a sandbox for inline documents."""
+
+    def __init__(self, data: bytes, ctype: str, name: str, inline: bool = False):
+        self.data = data
+        self.ctype = ctype
+        self.name = name
+        self.inline = inline
+
+
 class FileResponse:
     """Returned by a route to stream a local file (audio) with HTTP Range support."""
 
@@ -182,9 +194,30 @@ def make_handler(
                 return self._json(500, {"error": f"{type(e).__name__}: {e}"})
             if isinstance(obj, FileResponse):
                 return self._file(obj)
+            if isinstance(obj, BytesFile):
+                return self._bytes(obj)
             if hasattr(obj, "text") and hasattr(obj, "ctype") and hasattr(obj, "name"):
                 return self._text_file(obj)
             return self._json(status, obj)
+
+        def _bytes(self, f: BytesFile) -> None:
+            name = re.sub(r"[^A-Za-z0-9._ ()+-]", "_", f.name)[:120] or "attachment"
+            self.send_response(200)
+            self.send_header("Content-Type", f.ctype)
+            self.send_header("Content-Length", str(len(f.data)))
+            disp = "inline" if f.inline else "attachment"
+            self.send_header("Content-Disposition", f'{disp}; filename="{name}"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            # inline previews: no scripts, no forms, no navigation, nothing
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+                if f.inline
+                else guard.CSP,
+            )
+            self.end_headers()
+            self.wfile.write(f.data)
 
         def _text_file(self, f: Any) -> None:
             data = f.text.encode("utf-8")

@@ -76,6 +76,11 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("purge", help="Delete local copies (audio files, research uploads)")
     pg.add_argument("--audio", action="store_true", help="Delete generated audio files")
     pg.add_argument("--uploads", action="store_true", help="Delete research thread uploads")
+    pg.add_argument(
+        "--attachments",
+        action="store_true",
+        help="Delete saved mail attachments (drafts' attached files are kept)",
+    )
 
     c = sub.add_parser("config", help="Configuration files")
     csub = c.add_subparsers(dest="config_cmd")
@@ -182,8 +187,8 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  http://{a}:{p}/")
         return
     if cmd == "purge":
-        if not (args.audio or args.uploads):
-            print("usage: ultra purge [--audio] [--uploads]")
+        if not (args.audio or args.uploads or args.attachments):
+            print("usage: ultra purge [--audio] [--uploads] [--attachments]")
             sys.exit(2)
         from ultra.store import Store
 
@@ -200,6 +205,14 @@ def main(argv: list[str] | None = None) -> None:
                 p.unlink(missing_ok=True)
                 n += 1
             print(f"[INFO] Deleted {n} research upload(s).")
+        if args.attachments:
+            folder = config.data_dir() / "attachments" / "saved"
+            n = 0
+            for p in folder.iterdir() if folder.exists() else []:
+                if p.is_file():
+                    p.unlink(missing_ok=True)
+                    n += 1
+            print(f"[INFO] Deleted {n} saved attachment(s).")
         return
     if cmd == "auth":
         if args.auth_cmd != "google":

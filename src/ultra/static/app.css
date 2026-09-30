@@ -389,3 +389,10 @@ li.ix.flash { background: var(--cyan-d); transition: background .3s; }
 .facts-dlg .fact { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; padding: 6px 0; border-bottom: 1px solid var(--line, #2a3340); }
 .facts-dlg .fact textarea, .facts-dlg .fact input { grid-column: 2; width: 100%; }
 .facts-dlg .fact button { grid-column: 2; justify-self: start; }
+
+/* Draft Studio task mode: envelope (thread / To / Cc / Subject) */
+.st-env { display: grid; grid-template-columns: max-content 1fr; gap: 4px 8px; align-items: center; }
+.st-env label { color: var(--dim, #8a93a6); font-size: 12px; }
+.st-env input, .st-env select, .st-wide { width: 100%; box-sizing: border-box; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; color: var(--text); padding: 5px 8px; font: inherit; }
+.st-env input:focus, .st-env select:focus, .st-wide:focus { outline: none; border-color: var(--cyan); }
+.st-row .st-wide { margin-top: 2px; }

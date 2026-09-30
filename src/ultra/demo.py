@@ -1123,6 +1123,31 @@ class DemoStudioAI:
 
         if '"picks"' in system:
             out: dict[str, Any] = {"picks": [{"n": 1, "why": "same kind of handover question"}]}
+        elif '"status"' in system and "work task" in system:
+            out = {
+                "status": "Ben said on the handover thread that the project is ready; the "
+                "plan still has to go to him.",
+                "purpose": "Send Ben the handover plan and ask him to confirm the order.",
+                "asks": ["Share the handover plan", "Ask Ben to confirm the order of steps"],
+                "to": ["ben@example.org"],
+                "cc": [],
+                "thread": "",
+                "subject": "ada-lab handover plan",
+                "audience": "staff",
+                "audience_note": "Short, practical, as in your past emails to Ben.",
+                "known": [{"fact": "The project is ready.", "source": "H1"}],
+                "unknown": [
+                    {
+                        "question": "Is the data move this week or next?",
+                        "why": "The plan needs a week.",
+                        "options": ["This week", "Next week"],
+                    }
+                ],
+                "need_from_sender": ["Confirmation of the order of steps."],
+                "risks": [],
+                "plan": ["Say the plan in three steps, then ask for a yes."],
+                "precedent_shape": "Short answer first, then what I need from you.",
+            }
         elif '"asks"' in system:
             out = {
                 "asks": ["When will the account be ready for my students?"],
@@ -1161,6 +1186,13 @@ class DemoStudioAI:
                         "note": "Only in a past reply; may be stale.",
                     },
                 ]
+            }
+        elif "work task [T]" in system:
+            out = {
+                "body": "Hi Ben,\n\nHere is the handover plan for ada-lab: turn on the APIs, "
+                "move the lab-share data, then add the students.\n\nCould you confirm that "
+                "order works on your side?\n\nAda",
+                "claims": [{"text": "turn on the APIs", "sources": ["H1"]}],
             }
         else:
             out = {
@@ -1214,11 +1246,46 @@ def _register_studio(api: Api, store: Any) -> None:
             "account students netid access",
             "demo",
         )
+
+    def task_fn(tid: str) -> dict[str, Any]:
+        t = next((x for x in DEMO_TASKS if x["id"] == tid), None)
+        if not t:
+            return {"task": None, "error": "not found"}
+        return {
+            "task": {**t, "details": {}},
+            "links": [
+                {
+                    "id": "x",
+                    "name": "Ben Carter (bcarter)",
+                    "type": "Researcher",
+                    "edge": "REFERENCED_IN",
+                }
+            ],
+        }
+
+    def search_all(q: str, limit: int) -> list[dict[str, Any]]:
+        if "in:sent" in q:
+            return search_fn(q, limit)
+        return [
+            {
+                "id": f"h{i}",
+                "thread_id": "100",
+                "from": m.get("from", ""),
+                "to": "Ada Lovelace <ada@example.org>",
+                "cc": "",
+                "subject": "Lab project handover",
+                "date": "2026-09-2" + str(i),
+                "body": m.get("body", "") + " handover plan project",
+                "mine": False,
+            }
+            for i, m in enumerate(THREADS.get("g-100", []), 1)
+        ]
+
     Studio(
         store,
         DemoStudioAI(),
         thread_fn,
-        search_fn,
+        search_all,
         lambda key, msgs: (
             "Ben Carter (bcarter): admin contact for ada-lab. Open task: hand over ada-lab to Ada."
         ),
@@ -1227,6 +1294,7 @@ def _register_studio(api: Api, store: Any) -> None:
         {"ada@example.org"},
         "Ada",
         signature=lambda: "Ada",
+        task_fn=task_fn,
     ).register(api)
 
 
@@ -1271,6 +1339,7 @@ def _register_composer(api: Api) -> None:
     comp = Composer(cfg, store, me)
     outbox = DemoOutbox()
     api.demo_outbox = outbox  # type: ignore[attr-defined]
+    task_drafts: dict[str, list[int]] = {}
 
     def wrap(fn: Any, *a: Any) -> Any:
         try:
@@ -1306,7 +1375,13 @@ def _register_composer(api: Api) -> None:
     did = lambda m: int(m.group(1))  # noqa: E731
     api.add("POST", r"/api/drafts", new)
     api.add(
-        "GET", r"/api/drafts/(\d+)", lambda q, b, m: {**wrap(comp.get, did(m)), "send_error": ""}
+        "GET",
+        r"/api/drafts/(\d+)",
+        lambda q, b, m: {
+            **wrap(comp.get, did(m)),
+            "send_error": "",
+            "task_id": next((t for t, ids in task_drafts.items() if did(m) in ids), ""),
+        },
     )
     api.add(
         "GET",
@@ -1348,6 +1423,42 @@ def _register_composer(api: Api) -> None:
             str((b or {}).get("label", "Draft Studio"))[:200],
         ),
     )
+
+    def from_task(q: dict, b: Any, m: re.Match[str]) -> dict:
+        b = b or {}
+        tid = str(b.get("task", ""))
+        env = b.get("envelope") or {}
+        text = ascii_fix(str(b.get("body", ""))).strip()
+        if not text:
+            raise ApiError(400, "empty draft")
+        thread = str(env.get("thread", "") or "")
+        to = ", ".join(str(x) for x in env.get("to") or [])
+        subject = str(env.get("subject", "")).strip()
+        if thread:
+            d = wrap(comp.create, "reply_all", demo_thread("g-" + thread), "ada@example.org")
+        else:
+            if not to or not subject:
+                raise ApiError(400, "a new email needs a To address and a subject")
+            d = wrap(comp.create, "new", None, "ada@example.org")
+        task_drafts.setdefault(tid, []).append(d["id"])
+        fields: dict[str, Any] = {"body": text}
+        if not thread:
+            fields.update(
+                {"to_addrs": to, "cc": ", ".join(env.get("cc") or []), "subject": subject}
+            )
+        d = wrap(comp.save, d["id"], fields, "ai", str(b.get("label", "Draft Studio (task)")))
+        return {**d, "task_id": tid}
+
+    def for_task(q: dict, b: Any, m: re.Match[str]) -> dict:
+        ds = [comp.get(i) for i in task_drafts.get(m.group(1), [])]
+        return {
+            "drafts": [
+                {**d, "task_id": m.group(1)} for d in ds if d["state"] not in ("SENT", "DISCARDED")
+            ][::-1]
+        }
+
+    api.add("POST", r"/api/drafts/from-task", from_task)
+    api.add("GET", r"/api/drafts/task/([0-9a-f-]{36})", for_task)
     api.add("POST", r"/api/drafts/(\d+)/approve", lambda q, b, m: wrap(comp.approve, did(m)))
     api.add("POST", r"/api/drafts/(\d+)/unapprove", lambda q, b, m: wrap(comp.unapprove, did(m)))
     api.add("POST", r"/api/drafts/(\d+)/review", lambda q, b, m: wrap(comp.review, did(m)))

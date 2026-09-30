@@ -26,6 +26,20 @@ export async function applyStudioDraft(threadKey, body, label) {
   render();
   box().scrollIntoView({ block: "nearest" });
 }
+// Draft Studio task mode: the server makes (or reuses) the draft for the task and
+// saves the text as an AI version. New email or reply-all on the chosen thread.
+export async function applyTaskDraft(taskId, body, envelope, label) {
+  if (D && D.state !== "SENT" && D.state !== "DISCARDED") await saveNow();
+  D = await api("/api/drafts/from-task", { method: "POST", body: { task: taskId, body, envelope, label } });
+  render();
+  box().scrollIntoView({ block: "nearest" });
+}
+export async function resumeForTask(taskId) {
+  const el = box(); if (!el) return;
+  try { const r = await api(`/api/drafts/task/${encodeURIComponent(taskId)}`); D = (r.drafts || [])[0] || null; }
+  catch { D = null; }
+  if (D) render(); else el.hidden = true;
+}
 export function onSent(fn) { onDone = fn; }
 
 const STATE_LABEL = {

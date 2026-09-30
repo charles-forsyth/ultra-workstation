@@ -933,6 +933,38 @@ Operator rules (examples of what the private file holds; no real content here):
 
 ## 11. Rules engine (deterministic)
 
+
+**Task mode (v0.9.7).** The task view has a Draft email button that runs the same pipeline
+for an email that moves a ledger task forward (key `t-<uuid>`):
+
+- *Gather.* The "thread" is the task: summary, status, priority, due date, details and
+  links, with internal ticket keys (private `[ai] hide_ticket_prefix`) removed before any
+  model sees them. Related mail comes from Gmail queries on ticket numbers named in the
+  task (strongest), all of its top key words, any of them, and linked people's names;
+  task-verb filler ("follow up", "confirm", "note") never drives the search. Newsletters
+  and notification senders are dropped, and a thread found only by the any-word query
+  needs three shared key words. The people on the best related threads become the
+  participants for precedents and notes; notes also match on three shared task words.
+- *Recipients.* An allow-list of every address seen in the related mail or the ledger
+  context (never the operator, never bulk senders). The brief's To/Cc must come from it;
+  anything else the model returns is dropped. The operator may type another address in
+  the envelope; it is shown as "typed by you, not seen in the material".
+- *Brief.* Adds where the task stands, the email's purpose, To, Cc, subject, and whether
+  to reply-all on a related thread (must be one of the gathered threads) or start a new
+  email.
+- *Draft and check.* The writer is told it moves task [T] forward, whether it continues a
+  thread or starts one, and never to mention the task list, the ledger or internal keys;
+  the body is scrubbed of them again. The subject is never the raw task text: a reply
+  uses the thread's subject, a new email uses the brief's or is left for the operator.
+- *Standing rules* (both modes): sentences offering calls or meetings nobody asked for,
+  and apologetic openers, are flagged "unsupported" and cut by default whatever the
+  checker thought.
+- *Hand-off.* `POST /api/drafts/from-task` makes (or reuses) the composer draft for the
+  task: reply-all on the chosen thread (recipients and subject from the thread) or a new
+  email (To required, every address validated, subject required). The body is saved as an
+  AI version and still needs both approvals. `GET /api/drafts/task/<uuid>` resumes it
+  when the task is reopened; after the send the task's progress-log card opens.
+
 ### 11.1 Person resolution
 
 In order, stopping at the first confident hit:
@@ -1271,6 +1303,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.24 | App v0.9.7: Draft Studio task mode (section 9.6): Draft email from a task, related-mail gather, recipient allow-list, thread-or-new choice, internal keys scrubbed, standing-rule flags (no unasked meeting offers, no apologies) in both modes; hand-off to the composer as an AI version with both approvals; task log card after the send. |
 | 2026-09-30 | 0.23 | App v0.9.6: house facts are never stored in the gather cache; they are looked up fresh on every gather, so a fact the operator turns off or deletes drops out of the next brief at once. |
 | 2026-09-30 | 0.22 | App v0.9.5: Draft Studio (section 9.6) shipped. Opening a mail thread starts the gather in the background (thread; each participant's other threads over 120 days; precedents from Sent: two key-word queries plus the operator's own topic words, rarity-weighted and length-normalized, mass mail counted once, then one short model call picks the 2-3 that answer the same kind of request; dated work notes naming a participant; policy passages from the private source list via sitemap ranking; relevant house facts; the item's ledger context), then the brief (asks, constraints, audience, known with validated source tags, unknown for the operator, need_from_sender, at most two risks, plan, precedent shape). Question cards with option buttons and 'save as house fact'; draft with a claim map (only sentences present in the body, only real tags); check marks each factual sentence supported / unsupported / unclear with unverified defaulting to Cut (paraphrased verdicts dropped); the chosen text lands in the composer as an AI version (new `POST /api/drafts/<id>/studio`) and still needs both approvals. House facts: local table, operator-only CRUD dialog, blank topics = always applies. Private config `[draft] sources / notes_dir / generic_words`. Real run on a live thread with the operator's reply hidden: gather + brief 7 s, draft 4 s, check 4 s; it reached the operator's own structure and facts, flagged three process claims found only in past replies as unclear. |
 | 2026-09-30 | 0.21 | Draft Studio designed (section 9.6, v0.9.5, next) from the operator's gold-standard reply and one-line rule. Policy source kinds site / page / servicenow_kb; public ServiceNow KB articles are readable without login through the portal page API (guest search returns nothing). The real source list and host notes are private (`local/draft_sources.md`). Operator decisions: house facts yes; all generation on gemini-3.8-flash; gather and brief start when an email is opened. |

@@ -1,7 +1,7 @@
 // Ultra client shell. Vanilla JS modules, no build step, no inline code (CSP).
 // Helpers adapted from the deep-research dashboard (MIT, same author).
 
-import { openDraft, openSlackDraft, resumeForThread, onSent } from "./compose.js";
+import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent } from "./compose.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, openPersonByAddr } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
@@ -391,10 +391,15 @@ async function openTask(i) {
       <button class="btn small" data-t="bucket" title="Add to bucket (b)">+ Bucket</button>
       <button class="btn small" data-t="block" title="Block time for this task on your calendar">Block time</button>
       <button class="btn small" data-t="copy">Copy</button>
+      <button class="btn small ai" data-t="email" title="Draft an email that moves this task forward: Draft Studio reads the task, related mail, your past emails, policy pages and the ledger" ${S.aiOn ? "" : "disabled"}>Draft email</button>
     </div>
+    <section class="studio" id="studio" hidden></section>
+    <section class="composer" id="composer" hidden></section>
     <div class="sect"><span class="label">Linked in the ledger (${d.links.length})</span>
       ${d.links.length ? `<ul class="clist">${d.links.map((x) => `<li class="ent" draggable="true" data-ent='${esc(JSON.stringify({ id: x.id, name: x.name, type: x.type }))}'><span class="badge">${esc(x.type)}</span> ${esc(x.name)} <span class="dim small-t">${esc(x.edge)}</span></li>`).join("")}</ul>` : `<div class="dim small-t">No links. Drag people or projects onto it via the bucket.</div>`}</div>
     <div class="dim small-t mono">${esc(t.id)}</div>`;
+  studioStart(null);
+  resumeForTask(t.id);
   const act = async (body, label) => {
     const r = await api("/api/task/action", { method: "POST", body: { id: t.id, ...body } });
     if (r.ok === false) { toast(`The ledger did not confirm: ${r.output_tail || "unknown"}`, "err"); return false; }
@@ -407,6 +412,7 @@ async function openTask(i) {
     if (a === "bucket") { addEntityToBucket({ id: t.id, name: t.summary, type: "Task" }); return; }
     if (a === "log") { stageTaskLog(t, d.links); return; }
     if (a === "block") { window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: `t-${t.id}`, subject: t.summary } })); return; }
+    if (a === "email") { studioStart(`t-${t.id}`); $("#studio")?.scrollIntoView({ block: "nearest" }); return; }
     busy(b, async () => {
       if (a === "complete") {
         if (!confirm(`Mark this task DONE in the ledger?\n\n${t.summary}`)) return;
@@ -673,6 +679,10 @@ async function boot() {
     setTimeout(() => loadStream(true), 3000);
     // send-then-log: the log card is for the conversation that was answered
     if (d?.kind === "slack") { const k = d.stream_key || S.key; if (k?.startsWith("s-")) stageAfterSend(k); }
+    else if (d?.task_id) {
+      // an email from a task: offer a progress log on the task (same review card)
+      api(`/api/thread/${encodeURIComponent(`t-${d.task_id}`)}`).then((r) => { if (r.task) stageTaskLog(r.task, r.links || []); }).catch(() => {});
+    }
     else if (d?.thread_id) stageAfterSend("g-" + d.thread_id);
   });
   initRail(); wireSearch(); initTools();

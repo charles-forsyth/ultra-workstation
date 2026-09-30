@@ -143,6 +143,7 @@ class Live:
             str(cfg.get("draft", "notes_dir", "") or ""),
             self._style_notes,
             lambda: str((load_style().get("signature") or {}).get("text", "")),
+            task_fn=self._studio_task,
         )
         self.show_tasks = bool(cfg.get("ledger", "tasks_in_stream", True))
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
@@ -214,6 +215,8 @@ class Live:
         api.add("POST", r"/api/drafts/(\d+)/ai", self.r_draft_ai)
         api.add("POST", r"/api/drafts/(\d+)/fix-ascii", self.r_draft_ascii)
         api.add("POST", r"/api/drafts/(\d+)/studio", self.r_draft_studio)
+        api.add("POST", r"/api/drafts/from-task", self.r_draft_from_task)
+        api.add("GET", r"/api/drafts/task/([0-9a-f-]{36})", self.r_drafts_for_task)
         api.add("POST", r"/api/drafts/(\d+)/restore", self.r_draft_restore)
         api.add("POST", r"/api/drafts/(\d+)/approve", self.r_draft_approve)
         api.add("POST", r"/api/drafts/(\d+)/unapprove", self.r_draft_unapprove)
@@ -234,6 +237,13 @@ class Live:
         if not self.ledger.enabled:
             return ""
         return context_text(self.ictx.full(key, msgs, None))
+
+    def _studio_task(self, tid: str) -> dict[str, Any]:
+        """Task + links for Draft Studio task mode (a fresh ledger read)."""
+        r = self.r_task_thread({}, None, re.match(r"(.+)", tid))  # type: ignore[arg-type]
+        if not r.get("task"):
+            raise LedgerError(str(r.get("error") or "task not found"))
+        return r
 
     @staticmethod
     def _style_notes() -> str:
@@ -652,6 +662,8 @@ class Live:
         d = self._wrap(self.compose.get, self._did(m))
         err = self.store.cache_get(f"draft:{d['id']}:send_error")
         d["send_error"] = err[0] if err and d["state"] == "APPROVED" else ""
+        t = self.store.cache_get(f"draft:{d['id']}:task")
+        d["task_id"] = t[0] if t else ""
         return d
 
     def r_draft_for_thread(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -673,6 +685,96 @@ class Live:
         if d["kind"] == "forward" and (d["current"] or {}).get("body"):
             text = text + "\n" + d["current"]["body"]
         return self._wrap(self.compose.save, d["id"], {"body": text}, "ai", label)
+
+    def r_draft_from_task(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Draft Studio task mode: make (or reuse) a composer draft for a task email.
+
+        With ``thread`` it continues that Gmail thread as reply-all (recipients and
+        subject come from the thread, like any reply). Without it, a new email with the
+        To, Cc and subject from the brief. The body becomes an AI version; it still needs
+        both approvals. The draft remembers its task so the page can offer a task log
+        after the send.
+        """
+        from ultra.studio import EMAIL_RE
+
+        b = body or {}
+        tid = str(b.get("task", ""))
+        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", tid):
+            raise _bad("task id required")
+        text = ascii_fix(str(b.get("body", "")))[:50_000].strip()
+        if not text:
+            raise _bad("empty draft")
+        env = b.get("envelope") or {}
+        thread = str(env.get("thread", "") or "")
+        if thread and not re.fullmatch(r"[A-Za-z0-9]{6,40}", thread):
+            raise _bad("bad thread id")
+
+        def addr_list(v: Any) -> str:
+            vals = v if isinstance(v, list) else str(v or "").split(",")
+            out: list[str] = []
+            for raw in vals:
+                x = str(raw).strip()
+                if not x:
+                    continue
+                if not EMAIL_RE.fullmatch(x):
+                    raise _bad(f"not an email address: {x[:80]}")
+                if x.lower() not in out:
+                    out.append(x.lower())
+            return ", ".join(out[:20])
+
+        to, cc = addr_list(env.get("to")), addr_list(env.get("cc"))
+        subject = ascii_fix(" ".join(str(env.get("subject", "")).split()))[:200]
+        label = str(b.get("label", "Draft Studio (task)"))[:200]
+        existing = [d for d in self._task_drafts(tid) if d["state"] in ("DRAFT", "APPROVED")]
+        want_kind = "reply_all" if thread else "new"
+        d = next(
+            (
+                x
+                for x in existing
+                if x["kind"] == want_kind and (x.get("thread_id") or "") == (thread or "")
+            ),
+            None,
+        )
+        if not d:
+            if thread:
+                d = self._wrap(
+                    self.compose.create, "reply_all", self.mail.thread(thread), self.from_default
+                )
+            else:
+                if not to:
+                    raise _bad("a new email needs at least one To address")
+                if not subject:
+                    raise _bad("a new email needs a subject")
+                d = self._wrap(self.compose.create, "new", None, self.from_default)
+            ids = self.store.cache_get(f"draft:task:{tid}")
+            self.store.cache_put(
+                f"draft:task:{tid}", sorted(set((ids[0] if ids else []) + [d["id"]]))
+            )
+            self.store.cache_put(f"draft:{d['id']}:task", tid)
+        fields: dict[str, Any] = {"body": text}
+        if not thread:
+            fields.update({"to_addrs": to, "cc": cc, "subject": subject})
+        d = self._wrap(self.compose.save, d["id"], fields, "ai", label)
+        d["task_id"] = tid
+        return d
+
+    def _task_drafts(self, tid: str) -> list[dict[str, Any]]:
+        ids = self.store.cache_get(f"draft:task:{tid}")
+        out = []
+        for did in ids[0] if ids else []:
+            try:
+                out.append(self.compose.get(int(did)))
+            except ComposeError:
+                continue
+        return out
+
+    def r_drafts_for_task(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        drafts = [
+            {**d, "task_id": m.group(1)}
+            for d in self._task_drafts(m.group(1))
+            if d["state"] not in ("SENT", "DISCARDED")
+        ]
+        return {"drafts": sorted(drafts, key=lambda d: -d["id"])}
 
     def r_draft_ascii(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         d = self._wrap(self.compose.get, self._did(m))

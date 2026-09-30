@@ -3,18 +3,20 @@
 // to the composer as a new AI version (it still needs both approvals).
 
 import { api, esc, toast, busy } from "./app.js";
-import { applyStudioDraft } from "./compose.js";
+import { applyStudioDraft, applyTaskDraft } from "./compose.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const ST = { key: null, poll: null, data: null, answers: {}, draft: null, check: null, open: false };
 const STAGE_LABEL = { thread: "Thread", history: "History", precedents: "Your past replies", notes: "Notes", sources: "Policy pages", ledger: "Ledger", brief: "Brief" };
+const TASK_LABEL = { ...STAGE_LABEL, thread: "Task", history: "Related mail", precedents: "Your past emails" };
+const isTask = () => (ST.key || "").startsWith("t-");
 
 export function studioStart(key) {
   stopPoll();
   ST.key = key; ST.data = null; ST.answers = {}; ST.draft = null; ST.check = null;
   const host = $("#studio");
   if (!host) return;
-  if (!key || !key.startsWith("g-")) { host.hidden = true; return; }
+  if (!key || !(key.startsWith("g-") || key.startsWith("t-"))) { host.hidden = true; return; }
   host.hidden = false;
   host.innerHTML = `<div class="st-strip dim small-t">Draft Studio: starting...</div>`;
   api("/api/studio/start", { method: "POST", body: { key } })
@@ -37,10 +39,12 @@ function schedule() {
 function strip(d) {
   const chips = Object.entries(d.stages || {}).map(([s, st]) => {
     const cls = st === "done" ? "ok" : st === "running" ? "run" : st === "failed" ? "bad" : st === "off" ? "dim" : "wait";
-    return `<span class="st-chip ${cls}" title="${esc(st)}">${esc(STAGE_LABEL[s] || s)}</span>`;
+    return `<span class="st-chip ${cls}" title="${esc(st)}">${esc((isTask() ? TASK_LABEL : STAGE_LABEL)[s] || s)}</span>`;
   }).join("");
   const sm = d.summary;
-  const facts = sm ? `${sm.messages} msgs &middot; ${sm.history.length} other threads &middot; ${sm.precedents.length} past replies &middot; ${sm.policy.length} policy pages &middot; ${sm.facts.length} house facts` : "";
+  const facts = !sm ? "" : isTask()
+    ? `${sm.history.length} related threads &middot; ${sm.precedents.length} past emails &middot; ${sm.policy.length} policy pages &middot; ${sm.facts.length} house facts`
+    : `${sm.messages} msgs &middot; ${sm.history.length} other threads &middot; ${sm.precedents.length} past replies &middot; ${sm.policy.length} policy pages &middot; ${sm.facts.length} house facts`;
   return `<div class="st-strip"><b>Draft Studio</b> ${chips}<span class="grow"></span><span class="dim small-t">${facts}${d.state === "running" ? ` &middot; ${d.seconds}s` : ""}</span>
     <button class="btn tiny ghost" id="st-toggle">${ST.open ? "Hide" : "Open"}</button></div>`;
 }
@@ -69,7 +73,7 @@ function sourcesHtml(sm) {
   return `<details class="st-src"><summary>What was read${sm.cached ? " (cached)" : ""}</summary>
     <div class="st-grid">
       <div><div class="label">Your past replies (voice and shape)</div>${li(sm.precedents, (p) => `<li><b>${esc(p.subject)}</b> <span class="dim small-t">to ${esc(p.to)} &middot; ${esc(p.date.slice(0, 10))}</span></li>`)}</div>
-      <div><div class="label">Other threads with these people</div>${li(sm.history.slice(0, 8), (h) => `<li>${esc(h.subject || "(no subject)")} <span class="dim small-t">${esc(h.last.slice(0, 10))} &middot; ${h.n} msgs</span></li>`)}</div>
+      <div><div class="label">${isTask() ? "Mail about this task" : "Other threads with these people"}</div>${li(sm.history.slice(0, 8), (h) => `<li>${esc(h.subject || "(no subject)")} <span class="dim small-t">${esc(h.last.slice(0, 10))} &middot; ${h.n} msgs</span></li>`)}</div>
       <div><div class="label">Policy pages</div>${li(sm.policy, (p) => `<li><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.title || p.url)}</a></li>`)}</div>
       <div><div class="label">House facts</div>${li(sm.facts, (f) => `<li>${esc(f.text)}</li>`)}
         <button class="btn tiny ghost" id="st-facts">Manage house facts</button></div>
@@ -91,7 +95,8 @@ function briefHtml(br) {
     </div>`;
   }).join("");
   return `<div class="st-brief">
-    <div class="st-row"><span class="label">Asks</span><ol>${(br.asks || []).map((a) => `<li>${esc(a)}</li>`).join("")}</ol></div>
+    ${br.mode === "task" ? envelopeHtml(br) : ""}
+    <div class="st-row"><span class="label">${br.mode === "task" ? "The email should" : "Asks"}</span><ol>${(br.asks || []).map((a) => `<li>${esc(a)}</li>`).join("")}</ol></div>
     ${br.constraints?.length ? `<div class="st-row"><span class="label">Constraints</span><ul>${br.constraints.map((c) => `<li>${esc(c)}</li>`).join("")}</ul></div>` : ""}
     <div class="st-row"><span class="label">Audience</span> <b>${esc(br.audience)}</b> <span class="dim small-t">${esc(br.audience_note || "")}</span></div>
     ${br.precedent_shape ? `<div class="st-row"><span class="label">Shape</span> ${esc(br.precedent_shape)}</div>` : ""}
@@ -101,11 +106,34 @@ function briefHtml(br) {
     ${qs ? `<div class="st-row"><span class="label">Questions before drafting</span><div class="dim small-t">Anything you leave blank is written as "I'll confirm and follow up", never guessed.</div>${qs}</div>` : `<div class="st-row dim small-t">No open questions: every fact the reply needs has a source.</div>`}
     <div class="st-acts">
       <input id="st-extra" placeholder="Anything else the reply should do (optional)">
-      <button class="btn small ai" id="st-draft">Draft the reply</button>
+      <button class="btn small ai" id="st-draft">${br.mode === "task" ? "Draft the email" : "Draft the reply"}</button>
       <button class="btn small ghost" id="st-fresh" title="Re-read everything">Rebuild</button>
       <span class="dim small-t">${esc(br.model || "")} ${br.cached ? "&middot; cached" : ""}</span>
     </div>
   </div>`;
+}
+
+function envelopeHtml(br) {
+  const sm = ST.data?.summary || {};
+  const threads = sm.history || [];
+  const known = new Set((sm.recipients || []).map((r) => r.addr));
+  const opts = (sm.recipients || []).map((r) => `<option value="${esc(r.addr)}">${esc(r.name ? `${r.name} <${r.addr}>` : r.addr)}</option>`).join("");
+  const typed = [...(br.to || []), ...(br.cc || [])].filter((a) => !known.has(a));
+  return `<div class="st-row"><span class="label">Where it stands</span> ${esc(br.status || "")}</div>
+    <div class="st-row"><span class="label">Purpose</span> <input id="st-purpose" class="st-wide" value="${esc(br.purpose || "")}"></div>
+    <div class="st-row st-env">
+      <label>Send as</label><select id="st-thread"><option value="">New email</option>${threads.map((h) => `<option value="${esc(h.thread_id)}" ${h.thread_id === br.thread ? "selected" : ""}>Reply all: ${esc((h.subject || "(no subject)").slice(0, 70))} (${esc(h.last.slice(0, 10))})</option>`).join("")}</select>
+      <label for="st-to">To</label><input id="st-to" list="st-addrs" value="${esc((br.to || []).join(", "))}" placeholder="From the related mail or the ledger">
+      <label for="st-cc">Cc</label><input id="st-cc" list="st-addrs" value="${esc((br.cc || []).join(", "))}">
+      <label for="st-subj">Subject</label><input id="st-subj" value="${esc(br.subject || "")}">
+      <datalist id="st-addrs">${opts}</datalist>
+    </div>
+    <div class="dim small-t">${br.thread ? "Reply all keeps the thread's own recipients and subject; To/Cc/Subject here apply to a new email." : "Addresses come only from the related mail and the ledger."}${typed.length ? ` <span class="bad-t">Typed by you, not seen in the material: ${typed.map(esc).join(", ")}</span>` : ""}</div>`;
+}
+
+function envelope() {
+  const split = (v) => (v || "").split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+  return { thread: $("#st-thread")?.value || "", to: split($("#st-to")?.value), cc: split($("#st-cc")?.value), subject: $("#st-subj")?.value || "" };
 }
 
 function draftHtml() {
@@ -122,8 +150,15 @@ function draftHtml() {
         <span class="st-opts"><button class="btn tiny ${c.action === "cut" ? "on" : ""}" data-act="cut">Cut</button><button class="btn tiny ${c.action === "keep" ? "on" : ""}" data-act="keep">Keep</button></span>
       </div>`).join("")}</div>` : ck ? `<div class="ok-t small-t">Every factual sentence has a source.</div>` : ""}
     <div class="st-acts"><button class="btn small primary" id="st-use">Put in the composer${rows.some((c) => c.action === "cut") ? " (with cuts)" : ""}</button>
+      ${isTask() ? `<span class="small-t">${esc(envLabel())}</span>` : ""}
       <span class="dim small-t">It becomes a new AI version; you still approve twice.</span></div>
   </div>`;
+}
+
+function envLabel() {
+  const e = envelope();
+  if (e.thread) { const h = (ST.data?.summary?.history || []).find((x) => x.thread_id === e.thread); return `Reply all on "${(h?.subject || "").slice(0, 60)}"`; }
+  return e.to.length ? `New email to ${e.to.join(", ")}` : "New email: add a To address first";
 }
 
 function wire() {
@@ -140,6 +175,7 @@ function wire() {
     const inp = $(".st-ans", q); inp.addEventListener("input", () => { ST.answers[i] = inp.value; });
     const sv = $(".st-save", q); sv.addEventListener("change", () => { ST.saveFact = { ...(ST.saveFact || {}), [i]: sv.checked }; });
   });
+  ["#st-thread", "#st-to", "#st-cc", "#st-subj"].forEach((s) => $(s, host)?.addEventListener("change", () => { const l = host.querySelector(".st-draft .small-t:not(.dim)"); if (l) l.textContent = envLabel(); }));
   const db = $("#st-draft", host);
   if (db) db.onclick = () => busy(db, draftNow);
   host.querySelectorAll(".st-claim").forEach((row) => {
@@ -151,8 +187,16 @@ function wire() {
   if (ub) ub.onclick = () => busy(ub, useDraft);
 }
 
+async function saveEnvelope() {
+  if (!isTask() || !ST.data?.brief) return;
+  const e = envelope();
+  const r = await api("/api/studio/brief", { method: "POST", body: { key: ST.key, ...e, purpose: $("#st-purpose")?.value || "" } });
+  ST.data.brief = r.brief;
+}
+
 async function draftNow() {
   const br = ST.data?.brief; if (!br) return;
+  await saveEnvelope();
   const answers = (br.unknown || []).map((u, i) => ({ question: u.question, answer: (ST.answers[i] || "").trim() })).filter((a) => a.answer);
   // save answers the operator ticked as house facts (their words, their choice)
   for (const [i, on] of Object.entries(ST.saveFact || {})) {
@@ -165,7 +209,9 @@ async function draftNow() {
   }
   ST.draft = null; ST.check = null;
   const r = await api("/api/studio/draft", { method: "POST", body: { key: ST.key, answers, instruction: $("#st-extra")?.value || "" } });
-  ST.draft = r; render();
+  ST.draft = r;
+  if (r.envelope && ST.data?.brief && !ST.data.brief.subject && r.envelope.subject) ST.data.brief.subject = r.envelope.subject;
+  render();
   try {
     ST.check = await api("/api/studio/check", { method: "POST", body: { key: ST.key, body: r.body, claims: r.claims, answers } });
   } catch (e) { ST.check = { claims: [], counts: { supported: 0, unsupported: 0, unclear: 0 }, error: e.message }; toast(`Check failed: ${e.message}`, "err"); }
@@ -190,7 +236,16 @@ function applyCuts(body, claims) {
 async function useDraft() {
   const body = applyCuts(ST.draft.body, ST.check?.claims || []);
   const cuts = (ST.check?.claims || []).filter((c) => c.verdict !== "supported" && c.action === "cut").length;
-  await applyStudioDraft(ST.key, body, `Draft Studio${cuts ? ` (${cuts} unverified cut)` : ""}`);
+  const label = `Draft Studio${isTask() ? " (task)" : ""}${cuts ? ` (${cuts} unverified cut)` : ""}`;
+  if (isTask()) {
+    const e = envelope();
+    if (!e.thread && !e.to.length) { toast("Add a To address, or pick a thread to reply to.", "err"); return; }
+    if (!e.thread && !e.subject.trim()) { toast("Add a subject for the new email.", "err"); $("#st-subj")?.focus(); return; }
+    await applyTaskDraft(ST.key.slice(2), body, e, label);
+    toast(e.thread ? "In the composer as a reply-all on that thread. Read it, then approve twice." : "In the composer as a new email. Read it, then approve twice.", "ok");
+    return;
+  }
+  await applyStudioDraft(ST.key, body, label);
   toast("Draft Studio text is in the composer as a new AI version. Read it, then approve twice.", "ok");
 }
 

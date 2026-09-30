@@ -307,14 +307,15 @@ def test_people_tab_merges_two_addresses_of_one_person(tmp_path):
     led.resolve = lambda addr, name="": orig(  # type: ignore[method-assign]
         "ben@example.org" if addr in ("ben@example.org", "b.carter@example.org") else addr, name
     )
-    msgs = _msgs() + [
+    msgs = [
+        *_msgs(),
         {
             "from": "Ben Carter <b.carter@example.org>",
             "to": ME,
             "subject": "x",
             "ts": "2026-09-29T15:00:00+00:00",
             "body": "y",
-        }
+        },
     ]
     desk = Desk(
         Store(tmp_path / "d.db"),

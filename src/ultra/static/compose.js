@@ -12,6 +12,20 @@ let onDone = () => {};  // called after a send lands, with (draft)
 let saveTimer = null;
 
 export function setComposerContext(text) { ctxText = text || ""; }
+
+// Draft Studio hands over finished text: open (or resume) the reply draft for the
+// thread and save the text as a new AI version. It still needs both approvals.
+export async function applyStudioDraft(threadKey, body, label) {
+  if (!D || D.thread_id !== threadKey.slice(2) || !["reply", "reply_all"].includes(D.kind)) {
+    await openDraft("reply_all", threadKey);
+  }
+  if (!D) return;
+  if (D.state !== "DRAFT" && D.state !== "APPROVED") { toast(`The draft is ${D.state.toLowerCase()}; start a new one.`, "err"); return; }
+  await saveNow();
+  D = await api(`/api/drafts/${D.id}/studio`, { method: "POST", body: { body, label } });
+  render();
+  box().scrollIntoView({ block: "nearest" });
+}
 export function onSent(fn) { onDone = fn; }
 
 const STATE_LABEL = {

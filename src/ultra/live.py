@@ -31,7 +31,9 @@ from ultra.mail import Mail
 from ultra.research import Research
 from ultra.rules import Rules
 from ultra.slack import Slack, SlackError, SlackSender, slack_reply_target
+from ultra.sources import HouseFacts, Sources, set_extra_generic
 from ultra.store import Store
+from ultra.studio import Studio
 from ultra.tasks import (
     slack_done,
     slack_undone,
@@ -126,6 +128,22 @@ class Live:
             self.operator,
             (int(wh[0]), int(wh[1])),
         )
+        set_extra_generic(list(cfg.get("draft", "generic_words", []) or []))
+        self.facts = HouseFacts(self.store)
+        self.studio = Studio(
+            self.store,
+            self.ai,
+            self.thread_any,
+            self.mail.search_messages,
+            self._studio_ledger,
+            Sources(list(cfg.get("draft", "sources", []) or []), self.store),
+            self.facts,
+            cfg.my_addresses,
+            self.operator,
+            str(cfg.get("draft", "notes_dir", "") or ""),
+            self._style_notes,
+            lambda: str((load_style().get("signature") or {}).get("text", "")),
+        )
         self.show_tasks = bool(cfg.get("ledger", "tasks_in_stream", True))
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -182,6 +200,7 @@ class Live:
         self.tools.register(api)
         self.today.register(api)
         self.day.register(api)
+        self.studio.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -194,6 +213,7 @@ class Live:
         api.add("POST", r"/api/drafts/(\d+)/versions", self.r_draft_save)
         api.add("POST", r"/api/drafts/(\d+)/ai", self.r_draft_ai)
         api.add("POST", r"/api/drafts/(\d+)/fix-ascii", self.r_draft_ascii)
+        api.add("POST", r"/api/drafts/(\d+)/studio", self.r_draft_studio)
         api.add("POST", r"/api/drafts/(\d+)/restore", self.r_draft_restore)
         api.add("POST", r"/api/drafts/(\d+)/approve", self.r_draft_approve)
         api.add("POST", r"/api/drafts/(\d+)/unapprove", self.r_draft_unapprove)
@@ -204,6 +224,23 @@ class Live:
         api.add("POST", r"/api/slack/draft", self.r_slack_draft)
         api.add("GET", r"/api/slack/draft/(s-[A-Za-z0-9_-]+)", self.r_slack_draft_find)
         api.add("POST", r"/api/send/(\d+)/cancel", self.r_send_cancel)
+
+    # ---------------------------------------------------------------- Draft Studio glue
+    def _studio_ledger(self, key: str, msgs: list[dict[str, Any]]) -> str:
+        """The item's Full context as text (cached by the Full tab), or "" if the
+        ledger is unavailable. Draft Studio runs without it rather than failing."""
+        from ultra.itemctx import context_text
+
+        if not self.ledger.enabled:
+            return ""
+        return context_text(self.ictx.full(key, msgs, None))
+
+    @staticmethod
+    def _style_notes() -> str:
+        style = load_style()
+        return "; ".join(
+            str(r.get("message")) for r in style.get("forbid") or [] if r.get("message")
+        )
 
     def _merged(self) -> tuple[list[dict[str, Any]], float | None]:
         mail, age = self.mail.stream(self.poll_mail)
@@ -622,6 +659,20 @@ class Live:
 
     def r_draft_save(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         return self._wrap(self.compose.save, self._did(m), body or {}, "me", "edit")
+
+    def r_draft_studio(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """Save Draft Studio text as a new AI version (author=ai). The body comes from
+        the studio panel after the operator chose what to cut; it is ASCII-fixed and
+        linted like any version and still needs both approvals."""
+        b = body or {}
+        text = ascii_fix(str(b.get("body", "")))[:50_000].strip()
+        if not text:
+            raise _bad("empty draft")
+        label = str(b.get("label", "Draft Studio"))[:200]
+        d = self._wrap(self.compose.get, self._did(m))
+        if d["kind"] == "forward" and (d["current"] or {}).get("body"):
+            text = text + "\n" + d["current"]["body"]
+        return self._wrap(self.compose.save, d["id"], {"body": text}, "ai", label)
 
     def r_draft_ascii(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         d = self._wrap(self.compose.get, self._did(m))

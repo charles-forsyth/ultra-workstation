@@ -65,6 +65,17 @@ model = ""
 fallback_model = ""
 hide_ticket_prefix = ""                 # e.g. "INT-": the briefing never repeats these keys
 
+[draft]
+# Draft Studio (SPEC 9.6). Policy pages the drafts may cite; the real list is private.
+# kinds: "site" (pages found through its sitemap.xml), "page" (one URL),
+#        "servicenow_kb" (public articles through the portal page API)
+sources = [
+  # { kind = "site", url = "https://it.example.edu" },
+  # { kind = "page", url = "https://it.example.edu/ai" },
+]
+notes_dir = ""                          # dated work notes (YYYY-MM-DD_*.md) to search by name
+generic_words = []                      # workplace filler to ignore when matching topics
+
 [audio]
 tts_model = ""
 voices = ["Charon", "Kore", "Puck", "Aoede", "Fenrir", "Leda", "Orus", "Zephyr"]

@@ -1107,6 +1107,127 @@ def _register_desk(api: Api) -> None:
     ictx = ItemContext(ledger, store, rules, {"adal"})
     api.demo_ictx = ictx  # type: ignore[attr-defined]
     ItemDesk(ictx, thread_fn, task_fn, writer, DemoAI(), store, "Ada").register(api)
+    _register_studio(api, store)
+
+
+class DemoStudioAI:
+    """Draft Studio in demo mode: canned brief / draft / check JSON, invented people."""
+
+    enabled = True
+    model = "demo"
+
+    def _gen(self, prompt: str, system: str, max_tokens: int = 0, **kw: Any) -> Any:
+        import json
+
+        from ultra.ai import Result
+
+        if '"picks"' in system:
+            out: dict[str, Any] = {"picks": [{"n": 1, "why": "same kind of handover question"}]}
+        elif '"asks"' in system:
+            out = {
+                "asks": ["When will the account be ready for my students?"],
+                "constraints": ["The ada-lab APIs must be on before the data move."],
+                "audience": "faculty",
+                "audience_note": "Short and direct, as in your past replies to Ada.",
+                "known": [
+                    {"fact": "Ben says the project is ready.", "source": "M1"},
+                    {"fact": "Eli moves the lab-share data once the APIs are on.", "source": "M1"},
+                ],
+                "unknown": [
+                    {
+                        "question": "Are the ada-lab APIs turned on yet?",
+                        "why": "The account date depends on it.",
+                        "options": ["Yes, on", "Not yet", "Today"],
+                    }
+                ],
+                "need_from_sender": ["NetIDs for the students who need access."],
+                "risks": ["Dee's budget sign-off covers storage only."],
+                "plan": ["Say what happens first (APIs, then the move) and ask for NetIDs."],
+                "precedent_shape": "Short answer first, then what I need from you.",
+            }
+        elif '"claims"' in system and "verdict" in system:
+            out = {
+                "claims": [
+                    {
+                        "text": "Ben has the project ready on his side.",
+                        "verdict": "supported",
+                        "sources": ["M1"],
+                        "note": "Ben says so in message 1.",
+                    },
+                    {
+                        "text": "It usually takes about a day.",
+                        "verdict": "unclear",
+                        "sources": ["P1"],
+                        "note": "Only in a past reply; may be stale.",
+                    },
+                ]
+            }
+        else:
+            out = {
+                "body": "Hi Ada,\n\nBen has the project ready on his side. Once the ada-lab "
+                "APIs are on, Eli will move the lab-share data, and then your students can "
+                "log in. It usually takes about a day.\n\nCould you send me the NetIDs for "
+                "the students who need access?\n\nAda",
+                "claims": [
+                    {"text": "Ben has the project ready on his side.", "sources": ["M1"]},
+                    {"text": "It usually takes about a day.", "sources": ["P1"]},
+                ],
+            }
+        return Result(json.dumps(out), "demo", 0, 0.0)
+
+
+def _register_studio(api: Api, store: Any) -> None:
+    from ultra.sources import HouseFacts, Sources
+    from ultra.studio import Studio
+
+    def thread_fn(key: str) -> dict[str, Any]:
+        msgs = [
+            {"id": f"m{i}", "to": "Ada Lovelace <ada@example.org>", "cc": "", "mine": False, **m}
+            for i, m in enumerate(THREADS.get(key, []), 1)
+        ]
+        return {"messages": msgs}
+
+    def search_fn(q: str, limit: int) -> list[dict[str, Any]]:
+        if "in:sent" not in q:
+            return []
+        return [
+            {
+                "id": "p1",
+                "thread_id": "old1",
+                "from": "Ada Lovelace <ada@example.org>",
+                "mine": True,
+                "to": "Cy Dunn <cy@example.org>",
+                "cc": "",
+                "subject": "Re: account for the Dunn lab students",
+                "date": "2026-09-10T15:00:00+00:00",
+                "body": "Hi Cy,\n\nShort answer: the lab project is ready and the students "
+                "can log in once the APIs are on. It usually takes about a day after that. "
+                "Could you send me their NetIDs, and I will add them to the project and the "
+                "storage share? The budget alerts go to you and to me.\n\nAda",
+            }
+        ]
+
+    facts = HouseFacts(store)
+    if not facts.all():
+        facts.add(
+            "Student accounts are added to the PI's lab project, not made separately.",
+            "account students netid access",
+            "demo",
+        )
+    Studio(
+        store,
+        DemoStudioAI(),
+        thread_fn,
+        search_fn,
+        lambda key, msgs: (
+            "Ben Carter (bcarter): admin contact for ada-lab. Open task: hand over ada-lab to Ada."
+        ),
+        Sources([], store),
+        facts,
+        {"ada@example.org"},
+        "Ada",
+        signature=lambda: "Ada",
+    ).register(api)
 
 
 DEMO_SLACK_CH = "C0DEMO0001"
@@ -1215,6 +1336,17 @@ def _register_composer(api: Api) -> None:
         "POST",
         r"/api/drafts/(\d+)/restore",
         lambda q, b, m: wrap(comp.restore, did(m), int((b or {})["version"])),
+    )
+    api.add(
+        "POST",
+        r"/api/drafts/(\d+)/studio",
+        lambda q, b, m: wrap(
+            comp.save,
+            did(m),
+            {"body": ascii_fix(str((b or {}).get("body", "")))},
+            "ai",
+            str((b or {}).get("label", "Draft Studio"))[:200],
+        ),
     )
     api.add("POST", r"/api/drafts/(\d+)/approve", lambda q, b, m: wrap(comp.approve, did(m)))
     api.add("POST", r"/api/drafts/(\d+)/unapprove", lambda q, b, m: wrap(comp.unapprove, did(m)))

@@ -6,6 +6,7 @@ import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntit
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
 import { initToday, openToday, closeToday, todayOpen } from "./today.js";
+import { studioStart } from "./studio.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -232,6 +233,7 @@ async function openItem(i) {
         ${t.permalink ? `<a class="btn small" href="${esc(t.permalink)}" target="_blank" rel="noopener noreferrer">Open in Slack</a>` : ""}
       </div>
       <div class="aisum" id="aisum" hidden></div>
+      <section class="studio" id="studio" hidden></section>
       <section class="composer" id="composer" hidden></section>
       ${(t.messages || []).map((m) => `<div class="msg ${m.mine ? "mine" : ""}">
         <div class="hdr"><b>${esc(m.from)}</b><span class="mono">${esc(fmtTime(m.ts))}</span></div>
@@ -258,6 +260,7 @@ async function openItem(i) {
     $('[data-a="listen"]', th).onclick = () => readAloud(th);
     $('[data-a="aiaudio"]', th).onclick = () => audioDialog({ thread: it.key }, it.subject || "Conversation");
     setToolsThread(it.key, it.subject);
+    if (S.aiOn && isMail) studioStart(it.key); else studioStart(null);  // gather + brief start on open
     $('[data-a="log"]', th).onclick = () => stage("log", it.key);
     $('[data-a="task"]', th).onclick = () => stage("task", it.key);
     $('[data-a="block"]', th).onclick = () => window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));

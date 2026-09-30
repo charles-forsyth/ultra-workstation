@@ -411,6 +411,60 @@ class Mail:
         in_inbox = any("INBOX" in (m.get("labelIds") or []) for m in t.get("messages", []))
         return {"key": f"g-{tid}", "messages": out, "in_inbox": in_inbox}
 
+    # ---------------------------------------------------------------- search (Draft Studio)
+    def search_messages(self, q: str, limit: int = 40) -> list[dict[str, Any]]:
+        """Messages matching a Gmail query, newest first, with their new text only.
+
+        Read-only (the read token). Used by Draft Studio for history and precedents.
+        Cached 30 min per query so reopening a thread is instant.
+        """
+        limit = max(1, min(int(limit), 100))
+        ck = "mailsearch:" + q + f":{limit}"
+        hit = self.store.cache_get(ck, 1800)
+        if hit:
+            return list(hit[0])
+        with self.lock:
+            g = self._svc()
+            r = g.users().messages().list(userId="me", q=q, maxResults=limit).execute()
+            ids = [m["id"] for m in r.get("messages", [])][:limit]
+            got: dict[str, Any] = {}
+
+            def cb(req_id: str, resp: Any, exc: Exception | None) -> None:
+                if exc is None:
+                    got[req_id] = resp
+
+            for i in range(0, len(ids), BATCH):
+                batch = g.new_batch_http_request(callback=cb)
+                for mid in ids[i : i + BATCH]:
+                    batch.add(
+                        g.users().messages().get(userId="me", id=mid, format="full"), request_id=mid
+                    )
+                batch.execute()
+        out = []
+        for mid in ids:
+            m = got.get(mid)
+            if not m:
+                continue
+            h = _headers(m)
+            name, addr = parse_addr(h.get("from", ""))
+            text, _html, _atts = extract_body(m.get("payload") or {})
+            new, _quoted = split_quoted(text)
+            out.append(
+                {
+                    "id": mid,
+                    "thread_id": m.get("threadId", ""),
+                    "from": f"{name} <{addr}>" if name else addr,
+                    "mine": self.rules.is_me(addr),
+                    "to": h.get("to", ""),
+                    "cc": h.get("cc", ""),
+                    "subject": h.get("subject", ""),
+                    "date": _iso(int(m.get("internalDate", 0))),
+                    "body": new[:20000],
+                }
+            )
+        self.store.cache_put(ck, out)
+        return out
+
     # ---------------------------------------------------------------- triage (modify)
     def _modify_svc(self) -> Any:
         return google_auth.service(self.cfg, "gmail", "v1", "modify")

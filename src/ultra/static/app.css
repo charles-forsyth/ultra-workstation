@@ -360,3 +360,32 @@ li.ix.flash { background: var(--cyan-d); transition: background .3s; }
 .due-edit { display: inline-flex; align-items: center; gap: 4px; }
 .due-edit input[type="date"], .lc-due input[type="date"] { font: inherit; padding: 2px 4px; }
 .lc-due { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+
+/* v0.9.5 Draft Studio */
+.studio { border: 1px solid var(--line, #2a3340); border-radius: 8px; margin: 8px 0; padding: 6px 10px; background: rgba(120, 90, 200, 0.05); }
+.st-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.st-chip { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line, #2a3340); }
+.st-chip.ok { border-color: var(--green, #34d399); color: var(--green, #34d399); }
+.st-chip.run { border-color: var(--amber, #fbbf24); color: var(--amber, #fbbf24); }
+.st-chip.bad { border-color: var(--red, #f87171); color: var(--red, #f87171); }
+.st-chip.wait, .st-chip.dim { opacity: 0.55; }
+.st-panel { margin-top: 8px; display: grid; gap: 10px; }
+.st-src summary { cursor: pointer; }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 6px; }
+.st-list { margin: 4px 0 0 16px; padding: 0; font-size: 13px; }
+.st-row { margin: 6px 0; }
+.st-row ol, .st-row ul { margin: 4px 0 0 18px; padding: 0; }
+.st-q { border-left: 3px solid var(--amber, #fbbf24); padding: 4px 8px; margin: 6px 0; }
+.st-opts { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+.st-opts .btn.on { outline: 2px solid var(--accent, #7c9cff); }
+.st-ans { min-width: 220px; flex: 1; }
+.st-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.st-acts #st-extra { flex: 1; min-width: 200px; }
+.st-claim { padding: 4px 6px; margin: 4px 0; border-radius: 6px; }
+.st-claim.unsupported { background: rgba(248, 113, 113, 0.08); }
+.st-claim.unclear { background: rgba(251, 191, 36, 0.08); }
+.bad-t { color: var(--red, #f87171); }
+.facts-dlg { max-width: 760px; width: 92vw; }
+.facts-dlg .fact { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; padding: 6px 0; border-bottom: 1px solid var(--line, #2a3340); }
+.facts-dlg .fact textarea, .facts-dlg .fact input { grid-column: 2; width: 100%; }
+.facts-dlg .fact button { grid-column: 2; justify-self: start; }

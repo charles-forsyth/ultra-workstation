@@ -40,7 +40,18 @@ def task_rows(tasks: list[dict[str, Any]], store: Store, now: float | None = Non
             badges.append("BLOCKED")
         if status == "IN_PROGRESS":
             badges.append("STARTED")
-        rank = PRIORITY_RANK.get(pri, 2)
+        rank: float = PRIORITY_RANK.get(pri, 2)
+        due = fmt_due(t.get("due_date"))
+        today = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
+        soon = datetime.fromtimestamp(now + 2 * DAY).strftime("%Y-%m-%d")
+        if due and due < today:
+            badges.insert(0, "OVERDUE")
+            rank -= 0.5  # overdue sorts above its priority band
+        elif due == today:
+            badges.insert(0, "DUE TODAY")
+            rank -= 0.25
+        elif due and due <= soon:
+            badges.append("DUE SOON")
         rows.append(
             {
                 "key": f"t-{tid}",
@@ -48,7 +59,8 @@ def task_rows(tasks: list[dict[str, Any]], store: Store, now: float | None = Non
                 "from": "Task",
                 "addr": "",
                 "subject": t.get("summary", ""),
-                "snippet": f"{status.replace('_', ' ').lower()} - {pri.lower()} priority",
+                "snippet": f"{status.replace('_', ' ').lower()} - {pri.lower()} priority"
+                + (f" - due {due}" if due else ""),
                 # a stable order: priority first, then the ledger's own order
                 "ts": "",
                 "ts_ms": int((now - rank * DAY) * 1000) - len(rows),
@@ -58,6 +70,7 @@ def task_rows(tasks: list[dict[str, Any]], store: Store, now: float | None = Non
                 "badges": badges,
                 "priority": pri,
                 "status": status,
+                "due_date": due,
                 "waiting_days": 0,
                 "unread": False,
             }

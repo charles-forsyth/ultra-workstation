@@ -94,7 +94,21 @@ function fmtTime(ts) {
   return d.toLocaleString([], { timeZone: S.tz, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-const BADGE = { VIP: "vip", READY: "ready", OVERDUE: "ready", SLOW: "wait", ASSIGNED: "vip", CRITICAL: "ready", HIGH: "wait", BLOCKED: "ready", STARTED: "vip" };
+// Local calendar dates (not UTC: toISOString() rolls over at 8pm Eastern).
+function localDay(n) {
+  const d = new Date(); d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function nextFriday() {
+  const d = new Date(); const k = (5 - d.getDay() + 7) % 7 || 7;
+  return localDay(k);
+}
+function dayName(iso) {
+  const [y, mo, da] = iso.split("-").map(Number);
+  return new Date(y, mo - 1, da).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+}
+
+const BADGE = { VIP: "vip", READY: "ready", OVERDUE: "ready", SLOW: "wait", ASSIGNED: "vip", CRITICAL: "ready", HIGH: "wait", BLOCKED: "ready", STARTED: "vip", "DUE TODAY": "wait", "DUE SOON": "" };
 
 function renderStream() {
   const el = $("#stream");
@@ -345,7 +359,7 @@ async function openTask(i) {
   if (!d.task) { th.innerHTML = `<h2>${esc(it.subject)}</h2><div class="alert">${esc(d.error || "Task not found")}</div>`; return; }
   const t = d.task;
   const due = t.due_date ? String(t.due_date).slice(0, 10) : "";
-  const overdue = due && due < new Date().toISOString().slice(0, 10);
+  const overdue = due && t.status !== "DONE" && due < localDay(0);
   th.innerHTML = `<div class="task-head pri-${esc(t.priority.toLowerCase())}"><h2>${esc(t.summary)}</h2>
       <div class="badges"><span class="badge pri ${esc(t.priority.toLowerCase())}">${esc(t.priority)}</span><span class="badge">${esc(t.status.replace("_", " "))}</span>
       ${due ? `<span class="badge ${overdue ? "ready" : ""}">due ${esc(due)}${overdue ? " (overdue)" : ""}</span>` : ""}
@@ -357,6 +371,9 @@ async function openTask(i) {
       ${t.status !== "BLOCKED" && t.status !== "DONE" ? `<button class="btn small" data-t="block">Blocked</button>` : ""}
       ${t.status === "BLOCKED" || t.status === "IN_PROGRESS" ? `<button class="btn small" data-t="reopen">Back to to-do</button>` : ""}
       <select id="t-pri" title="Priority">${PRI.map((p) => `<option ${p === t.priority ? "selected" : ""}>${p}</option>`).join("")}</select>
+      <span class="due-edit" title="Due date in the ledger"><label for="t-due" class="dim small-t">Due</label>
+        <input type="date" id="t-due" value="${esc(due)}">
+        <select id="t-due-q" title="Quick due date"><option value="">Quick...</option><option value="0">Today</option><option value="1">Tomorrow</option><option value="fri">This Friday</option><option value="7">In a week</option><option value="14">In 2 weeks</option>${due ? `<option value="clear">Clear due date</option>` : ""}</select></span>
       <select id="t-snooze" title="Hide from the stream for a while (local only)"><option value="">Snooze...</option><option value="1">1 day</option><option value="3">3 days</option><option value="7">1 week</option>${t.snoozed_until ? `<option value="0">Unsnooze</option>` : ""}</select>
       <button class="btn small" data-t="log" title="Log progress on this task (l)">Log update</button>
       <button class="btn small" data-t="bucket" title="Add to bucket (b)">+ Bucket</button>
@@ -391,6 +408,25 @@ async function openTask(i) {
     });
   };
   $("#t-pri").onchange = async (e) => { if (await act({ action: "priority", priority: e.target.value }, `Priority set to ${e.target.value}.`)) setTimeout(() => loadStream(true), 2500); };
+  const setDue = async (want) => {
+    const cur = due || "";
+    if (want === cur) return;
+    const msg = want ? `Set the due date in the ledger?\n\n${t.summary}\n\n${cur || "(none)"} -> ${want} (${dayName(want)})`
+      : `Clear the due date in the ledger?\n\n${t.summary}\n\nWas ${cur}`;
+    if (!confirm(msg)) { $("#t-due").value = cur; $("#t-due-q").value = ""; return; }
+    $("#t-due").disabled = true; $("#t-due-q").disabled = true;
+    let r;
+    try { r = await api("/api/task/action", { method: "POST", body: { id: t.id, action: "due", due: want } }); }
+    catch (err) { toast(err.message, "err"); openTask(S.items.indexOf(it)); return; }
+    if (r.ok === false) { toast(`The ledger did not confirm: ${r.output_tail || "unknown"}`, "err"); openTask(S.items.indexOf(it)); return; }
+    toast(want ? `Due ${want} (read back from the ledger).` : "Due date cleared.", "ok");
+    it.due_date = want; openTask(S.items.indexOf(it)); setTimeout(() => loadStream(true), 2500);
+  };
+  $("#t-due").onchange = (e) => { const v = e.target.value; if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return; setDue(v); };
+  $("#t-due-q").onchange = (e) => {
+    const v = e.target.value; if (!v) return;
+    setDue(v === "clear" ? "" : v === "fri" ? nextFriday() : localDay(Number(v)));
+  };
   $("#t-snooze").onchange = async (e) => {
     const v = e.target.value; if (v === "") return;
     if (v === "0") { await act({ action: "unsnooze" }, "Unsnoozed."); loadStream(true); return; }

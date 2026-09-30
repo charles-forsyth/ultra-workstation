@@ -355,3 +355,8 @@ li.ix.flash { background: var(--cyan-d); transition: background .3s; }
 .day-item:hover { background: var(--panel); }
 .rep-text { width: 100%; font: 13px/1.5 var(--mono); background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 4px; padding: 8px; margin-top: 6px; }
 #day-seg { margin-left: 10px; }
+
+/* v0.9.1 task due dates */
+.due-edit { display: inline-flex; align-items: center; gap: 4px; }
+.due-edit input[type="date"], .lc-due input[type="date"] { font: inherit; padding: 2px 4px; }
+.lc-due { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }

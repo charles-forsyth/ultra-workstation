@@ -337,7 +337,7 @@ class Live:
         }
 
     def r_task_action(self, q: dict, body: Any, m: re.Match[str]) -> dict:
-        """complete / start / block / reopen / priority / snooze / unsnooze."""
+        """complete / start / block / reopen / priority / due / snooze / unsnooze."""
         from ultra.ledger_write import UUID, WriteError
 
         b = body or {}
@@ -356,6 +356,18 @@ class Live:
                 r = self.writer.task_status(tid, status)
             elif action == "priority":
                 r = self.writer.task_priority(tid, str(b.get("priority", "")))
+            elif action == "due":
+                want = str(b.get("due") or "").strip()
+                r = self.writer.task_due(tid, want)
+                if r.get("ok"):
+                    # read it back from the ledger before reporting success
+                    got = str((self.ledger.task(tid) or {}).get("due_date") or "")[:10]
+                    r["due_date"] = got
+                    if got != want:
+                        r["ok"] = False
+                        r["output_tail"] = (
+                            f"read back {got or 'no due date'}, expected {want or 'none'}"
+                        )
             elif action == "snooze":
                 return {"ok": True, "until": snooze_task(self.store, tid, int(b.get("days", 1)))}
             elif action == "unsnooze":

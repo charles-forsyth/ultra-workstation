@@ -105,6 +105,13 @@ CONTEXT = {
 }
 
 
+def _rel_day(n: int) -> str:
+    """A date n days from today, so the demo always shows overdue / today badges."""
+    import datetime as _dt
+
+    return (_dt.date.today() + _dt.timedelta(days=n)).isoformat() + " 00:00:00"
+
+
 DEMO_TASKS: list[dict[str, Any]] = [
     {
         "id": "55555555-5555-4555-8555-555555555551",
@@ -112,6 +119,7 @@ DEMO_TASKS: list[dict[str, Any]] = [
         "status": "TODO",
         "priority": "CRITICAL",
         "assigned_to": "adal",
+        "due_date": _rel_day(-1),
     },
     {
         "id": "55555555-5555-4555-8555-555555555552",
@@ -119,6 +127,7 @@ DEMO_TASKS: list[dict[str, Any]] = [
         "status": "IN_PROGRESS",
         "priority": "HIGH",
         "assigned_to": "adal",
+        "due_date": _rel_day(0),
     },
     {
         "id": "55555555-5555-4555-8555-555555555553",
@@ -133,6 +142,7 @@ DEMO_TASKS: list[dict[str, Any]] = [
         "status": "TODO",
         "priority": "LOW",
         "assigned_to": "adal",
+        "due_date": _rel_day(9),
     },
 ]
 
@@ -169,7 +179,7 @@ def register(api: Api) -> None:
             return {
                 "key": key,
                 "messages": [],
-                "task": {**t, "due_date": "", "details": {}, "snoozed_until": None},
+                "task": {"due_date": "", **t, "details": {}, "snoozed_until": None},
                 "links": [
                     {
                         "id": DEMO_IDS["ben@example.org"],
@@ -204,6 +214,16 @@ def register(api: Api) -> None:
             t["status"] = st
         elif a == "priority":
             t["priority"] = str(b.get("priority"))
+        elif a == "due":
+            from ultra.ledger_write import WriteError, check_due
+            from ultra.server import ApiError
+
+            want = str(b.get("due") or "").strip()
+            try:
+                t["due_date"] = (check_due(want) + " 00:00:00") if want else ""
+            except WriteError as e:
+                raise ApiError(400, str(e)) from e
+            return {"ok": True, "due_date": want}
         elif a == "snooze":
             return {"ok": True, "until": snooze_task(tstore, t["id"], int(b.get("days", 1)))}
         return {"ok": True}
@@ -979,11 +999,22 @@ class DemoWriter:
         }
         return {"id": iid, "explicit": links, "unresolved": [], "ai_error": False, "rc": 0}
 
-    def task_add(self, summary: str, priority: str) -> dict[str, Any]:
-        self.calls.append(("task_add", {"summary": summary, "priority": priority}))
+    def task_add(self, summary: str, priority: str, due: str = "") -> dict[str, Any]:
+        from ultra.ledger_write import check_due
+
+        due = check_due(due) if due else ""
+        self.calls.append(("task_add", {"summary": summary, "priority": priority, "due": due}))
         tid = self._id()
         self.ledger.records[tid] = {"id": tid, "summary": summary, "links": []}
-        return {"id": tid, "rc": 0, "summary": summary}
+        return {"id": tid, "rc": 0, "summary": summary, "due_date": due or None}
+
+    def task_due(self, task_id: str, due: str) -> dict[str, Any]:
+        from ultra.ledger_write import check_due, check_uuid
+
+        tid = check_uuid(task_id, "task")
+        due = check_due(due) if due else ""
+        self.calls.append(("task_due", {"id": tid, "due": due}))
+        return {"ok": True, "rc": 0}
 
     def link(self, source: str, target: str, kind: str) -> dict[str, Any]:
         self.calls.append(("link", {"source": source, "target": target, "type": kind}))

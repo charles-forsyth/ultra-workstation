@@ -319,9 +319,16 @@ them into one ledger write.
 
 - Text, priority (LOW/MEDIUM/HIGH/CRITICAL), link chips (default: people and projects
   from the bucket plus "assigned to me"), optional follow-up date.
-- The ledger CLI has no due-date flag today, so a follow-up date is written into the
-  task text and offered as a calendar block on that day (see open item L-2).
-- Commit: `tasks add`, recover the task id, create the links, read back.
+- Due date (ledger 0.1.206+): the task card has a Due field (date picker plus Today /
+  Tomorrow / +1 week / None). Only an absolute `YYYY-MM-DD` reaches the ledger
+  (`tasks add --due`); the review confirm shows it and the commit steps confirm it.
+- Commit: `tasks add --json` (id from JSON, prose fallback for older ledgers), create
+  the links, read back.
+- Open tasks can change their due date in the task view (date input or Quick: today,
+  tomorrow, this Friday, a week, two weeks, clear). Each change is confirmed
+  (old -> new), written by exact UUID (`tasks update <uuid> --due D | --clear-due`),
+  and read back from the ledger before success is shown. Stream rows carry
+  OVERDUE / DUE TODAY / DUE SOON badges and overdue sorts above its priority band.
 
 ### 7.3 Board (court view)
 
@@ -1146,8 +1153,8 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | S-1 | Slack send has a model in the path | Mitigated by exact-text prompt, send-only tool list and verification read. A user-token Web API backend would remove it. |
 | S-2 | Slack read cadence and cost | Each refresh is a `claude -p` run; 15 min while open is the proposal. |
 | L-1 | Ledger reads are slow (6-10 s per call) | RESOLVED without ledger changes (v0.7.1): the Full context tab combines `dossier --json`, `search --json` and `tasks list --json` in parallel. Remaining ledger-side gaps, optional: dossier omits tasks linked to the person (it fetches them but only emits them under connections when present), and `search` has no type filter. |
-| L-2 | No due-date flag on `tasks add` | Follow-up date goes in text + calendar block until the ledger CLI gains one. |
-| L-3 | Task id not printed reliably by `tasks add` | Recovered by prefix match on `tasks list --json`; a `--json` output on `tasks add` would remove the guesswork. |
+| L-2 | ~~No due-date flag on `tasks add`~~ Done: ledger 0.1.206 (`tasks add --due`, `tasks update --due/--clear-due`, `tasks list --overdue/--due-before`); Ultra 0.9.1 uses them. | - |
+| L-3 | ~~Task id not printed reliably by `tasks add`~~ Done: `tasks add --json` (ledger 0.1.206). Also 0.1.207: `tasks update/delete` by UUID never fuzzy-match another task and exit 1 when nothing matches; `people add` refuses NetIDs starting with '-'. | - |
 | T-1 | Ticket watermark format | DECIDED from the operator's sent mail: reply-all to the "comments added" notice, To the ticket desk, requester in Cc, subject kept (Re:), and the notice's `Ref:MSG########` line kept unquoted at the end of the body. Built in v0.10. |
 | A-1 | AI model choice | Config value; default set at build time. |
 | U-1 | Hermes / agent hand-off from the palette | Later; would pass a prompt to an external agent command and show its output as staged cards. Not designed yet. |
@@ -1158,6 +1165,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.19 | App v0.9.1 (operator ask): task due dates. Ledger 0.1.206 added `tasks add --due/--json`, `tasks update --due/--clear-due`, `tasks list --overdue/--due-before` (the column already existed; no schema change); 0.1.207 made task writes by UUID exact (no fuzzy fallback). Ultra: Due field on the task card, due editor in the task view (confirm, exact UUID, read-back), OVERDUE / DUE TODAY / DUE SOON badges and sort, Day plan's overdue / due-today lists now fill from real dates. Verified end to end against the ledger test DB (5433). |
 | 2026-09-30 | 0.18 | App v0.9.0: Day (see the delivery table). Journal now also records Slack posts (`slack_sent`), Ultra calendar block create/move/delete, and archive subjects, so the report is complete. Report text and AI note never include the configured internal ticket prefix (`[ai] hide_ticket_prefix`, private config). Plan: operator reprioritised: Day, Email, Calendar, Ledger tab; Board later. |
 | 2026-09-30 | 0.17 | App v0.8.0: item context. People tab = everyone in the item: header addresses plus people named anywhere in the bodies or task text, matched exactly against the whole ledger (catalog of people/labs/GCP/projects/grants/assets, cached 6 h; needs ledger v0.1.205 `--all`). Nicknames, shared names and surname-only mentions are "possible" matches confirmed by click; org units and the operator are never matched. AI possible matches pick only from ledger search results. Full tab = the item's group: dossiers for the first 10 people (senders, named, To, Cc; the operator's recipients rank as senders), trees for named labs/GCP/projects/grants (platforms with >40 links listed but not merged), topic search, one de-duplicated history with the item's own messages, open tasks; runs by itself, cached 15 min per item version. AI briefing (What / History / Issues / Current state / Next steps) cites [L:id] [T:id] [Mn], editable, listen, save-to-ledger via a staged log card. Add to ledger: the only `people add` path; strict ASCII netid/name/title/dept checks in browser and server, duplicate netid refused, same-name warning, two confirmations with single-use 5-minute tokens bound to a hash of the fields, final button disabled 2 s with "Not yet" focused, read-back. The general write path refuses `people add`. |
 | 2026-09-30 | 0.16a | App v0.7.2: bucket actions on every stream row (email, Slack, ticket, task): + Bucket, Log, Task (not on tasks), Block. Shown on hover/selection on desktop, always on touch screens; clicking one does not open the item. Dragging to the bucket and onto the Today timeline still works (real mouse drag verified). |

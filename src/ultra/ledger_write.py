@@ -13,11 +13,13 @@ Rules this module enforces:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import subprocess
 import threading
+from datetime import date
 from typing import Any
 
 from ultra.config import Config
@@ -69,6 +71,27 @@ def check_person(netid: str, name: str, title: str = "", dept: str = "") -> dict
 
 class WriteError(Exception):
     pass
+
+
+DUE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def check_due(v: str) -> str:
+    """A task due date for the ledger: strictly YYYY-MM-DD, a real date, 2000-2100.
+
+    Relative forms ("+3d") are resolved in the browser, so the ledger only ever sees
+    an absolute date and a review card shows exactly what will be written.
+    """
+    v = (v or "").strip()
+    if not DUE_RE.match(v):
+        raise WriteError("due date must be YYYY-MM-DD")
+    try:
+        d = date.fromisoformat(v)
+    except ValueError as e:
+        raise WriteError(f"{v} is not a real date") from e
+    if not 2000 <= d.year <= 2100:
+        raise WriteError("due date must be between 2000 and 2100")
+    return v
 
 
 def check_uuid(v: str, what: str = "id") -> str:
@@ -168,7 +191,7 @@ class LedgerWriter:
         return res
 
     # ---------------------------------------------------------------- tasks
-    def task_add(self, summary: str, priority: str) -> dict[str, Any]:
+    def task_add(self, summary: str, priority: str, due: str = "") -> dict[str, Any]:
         # The ledger prints the summary through Rich markup; a "[/x]" sequence makes
         # that print raise and the whole add rolls back. Square brackets become
         # parentheses so a task can never fail that way.
@@ -180,18 +203,39 @@ class LedgerWriter:
             raise WriteError("task text is over 1000 characters")
         if priority not in PRIORITIES:
             raise WriteError("priority must be LOW, MEDIUM, HIGH or CRITICAL")
+        due = check_due(due) if due else ""
         # "--" ends option parsing, so text that starts with "-" stays text.
-        rc, out = self._run(["tasks", "add", "--priority", priority, "--", summary], timeout=180)
-        m = re.search(r"\(ID: ([0-9a-f-]{36})\)", out)
-        tid = m.group(1) if m else None
+        # --json (ledger 0.1.206+) prints the new record as one line of JSON.
+        args = ["tasks", "add", "--priority", priority, "--json"]
+        if due:
+            args += ["--due", due]
+        rc, out = self._run([*args, "--", summary], timeout=180)
+        tid, got_due = None, None
+        for raw in reversed(out.splitlines()):
+            line = raw.strip()
+            if line.startswith("{") and '"id"' in line:
+                try:
+                    j = json.loads(line)
+                except ValueError:
+                    continue
+                if UUID.match(str(j.get("id", ""))):
+                    tid, got_due = j["id"], j.get("due_date")
+                    break
+        if tid is None:  # an older ledger without --json
+            m = re.search(r"\(ID: ([0-9a-f-]{36})\)", out)
+            tid = m.group(1) if m else None
         res = {
             "id": tid,
             "rc": rc,
             "summary": summary,
+            "due_date": got_due if tid else None,
             "output_tail": _tail(out),
         }
         self.store.journal(
-            "ledger_task_add", tid or "-", bool(tid), {"priority": priority, "rc": rc}
+            "ledger_task_add",
+            tid or "-",
+            bool(tid),
+            {"priority": priority, "rc": rc, "due": due or None},
         )
         self._invalidate()
         return res
@@ -213,6 +257,22 @@ class LedgerWriter:
         rc, out = self._run(["tasks", "update", tid, "--priority", priority], timeout=180)
         ok = rc == 0 and "not found" not in out.lower()
         self.store.journal("ledger_task_priority", tid, ok, {"priority": priority, "rc": rc})
+        self._invalidate()
+        return {"ok": ok, "rc": rc, "output_tail": _tail(out)}
+
+    def task_due(self, task_id: str, due: str) -> dict[str, Any]:
+        """Set (YYYY-MM-DD) or clear ("") a task's due date, by exact UUID only.
+
+        The ledger refuses an unknown UUID with exit 1 (0.1.207+); older ledgers fell
+        back to fuzzy search, so a non-zero exit or "not found" is always a failure and
+        the caller reads the task back before claiming success.
+        """
+        tid = check_uuid(task_id, "task")
+        args = ["tasks", "update", tid]
+        args += ["--due", check_due(due)] if due else ["--clear-due"]
+        rc, out = self._run(args, timeout=180)
+        ok = rc == 0 and "not found" not in out.lower() and "Updated Task" in out
+        self.store.journal("ledger_task_due", tid, ok, {"due": due or None, "rc": rc})
         self._invalidate()
         return {"ok": ok, "rc": rc, "output_tail": _tail(out)}
 

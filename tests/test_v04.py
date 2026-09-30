@@ -155,13 +155,20 @@ if a[0] == "log":
         if x == "--link":
             print(f"  Linked (explicit): Person {a[i+1][:4]}")
 elif a[:2] == ["tasks", "add"]:
-    print(f"Added Task: {a[-1]} (ID: bbbbbbbb-0000-4000-8000-000000000002) -> Assigned to Me")
+    if "--json" in a:
+        due = a[a.index("--due") + 1] if "--due" in a else None
+        print("INFO noise {'id': 'not-this'}")
+        print(json.dumps({"id": "bbbbbbbb-0000-4000-8000-000000000002", "summary": a[-1], "due_date": due}))
+    else:
+        print(f"Added Task: {a[-1]} (ID: bbbbbbbb-0000-4000-8000-000000000002) -> Assigned to Me")
 elif a[0] == "link":
     print(f"Linked {a[1]} --[{a[4]}]--> {a[2]}")
 elif a[0] == "unlink":
     print(f"Unlinked {a[1]} and {a[2]}.")
 elif a[:2] == ["tasks", "update"]:
-    print("Updated task")
+    if a[2].startswith("00000000"):
+        print("Task not found"); sys.exit(1)
+    print("Updated Task: x")
 else:
     print("unexpected"); sys.exit(3)
 """
@@ -230,7 +237,15 @@ def test_task_text_is_sanitised(writer):
     r = w.task_add("--help   Follow up [/x] with Ben", "HIGH")
     assert r["id"] == "bbbbbbbb-0000-4000-8000-000000000002"
     argv = _calls(log)[0]["argv"]
-    assert argv == ["tasks", "add", "--priority", "HIGH", "--", "--help Follow up (/x) with Ben"]
+    assert argv == [
+        "tasks",
+        "add",
+        "--priority",
+        "HIGH",
+        "--json",
+        "--",
+        "--help Follow up (/x) with Ben",
+    ]
 
 
 def test_only_allowed_commands(writer):

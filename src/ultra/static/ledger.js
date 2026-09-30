@@ -666,7 +666,9 @@ function renderCard() {
     ${c.ledger === false ? `<div class="lint error">The ledger CLI is not available; nothing can be written.</div>` : ""}
     <div class="lc-grid">
       ${isLog ? `<label for="lc-date">Date</label><input id="lc-date" value="${esc(c.date)}" title="Local time, YYYY-MM-DD HH:MM">`
-        : `<label for="lc-pri">Priority</label><select id="lc-pri">${["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((p) => `<option ${p === c.priority ? "selected" : ""}>${p}</option>`).join("")}</select>`}
+        : `<label for="lc-pri">Priority</label><select id="lc-pri">${["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((p) => `<option ${p === c.priority ? "selected" : ""}>${p}</option>`).join("")}</select>
+      <label for="lc-due">Due</label><span class="lc-due"><input type="date" id="lc-due" value="${esc(c.due || "")}" ${c.state !== "staged" ? "disabled" : ""}>
+        <button type="button" class="btn tiny ghost" data-due="0">Today</button><button type="button" class="btn tiny ghost" data-due="1">Tomorrow</button><button type="button" class="btn tiny ghost" data-due="7">+1 week</button><button type="button" class="btn tiny ghost" data-due="">None</button></span>`}
       <label>Links</label><div class="chips" id="lc-chips">${c.chips.map(chipHtml).join("") || `<span class="dim small-t">No ledger matches. Add some below.</span>`}</div>
       <label></label><div class="lc-add"><input id="lc-find" placeholder="Add a link: search the ledger"><div id="lc-found" class="lc-found"></div></div>
     </div>
@@ -684,6 +686,16 @@ function renderCard() {
   const close = () => { dlg.hidden = true; dlg.innerHTML = ""; CARD = null; };
   $("#lc-x").onclick = close;
   $("#lc-cancel").onclick = close;
+  $$("[data-due]", dlg).forEach((b) => {
+    b.onclick = () => {
+      if (CARD.state !== "staged") return;
+      const n = b.dataset.due;
+      let v = "";
+      if (n !== "") { const d = new Date(); d.setDate(d.getDate() + Number(n)); v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+      $("#lc-due").value = v; CARD.due = v;
+    };
+  });
+  if ($("#lc-due")) $("#lc-due").onchange = (e) => { CARD.due = e.target.value; };
   dlg.onkeydown = (e) => { if (e.key === "Escape" && CARD?.state !== "committing") close(); };
   const count = () => { $("#lc-count").textContent = `${$("#lc-text").value.length} chars`; };
   $("#lc-text").oninput = count; count();
@@ -736,10 +748,13 @@ async function commit() {
   const text = $("#lc-text").value.trim();
   if (!text) { toast("The text is empty.", "err"); return; }
   const chips = CARD.chips.filter((c) => c.checked);
-  const body = { card: CARD.id, text, chips, date: $("#lc-date")?.value || "", priority: $("#lc-pri")?.value || "MEDIUM" };
+  const due = $("#lc-due")?.value || "";
+  if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) { toast("The due date must be a full date.", "err"); return; }
+  CARD.due = due;
+  const body = { card: CARD.id, text, chips, date: $("#lc-date")?.value || "", priority: $("#lc-pri")?.value || "MEDIUM", due };
   const summary = CARD.action === "log"
     ? `Write this interaction to the ledger?\n\nDate: ${body.date}\nLinks: ${chips.map((c) => c.name).join(", ") || "(only you)"}\n\n${text.slice(0, 400)}${text.length > 400 ? "..." : ""}`
-    : `Add this task (assigned to you)?\n\nPriority: ${body.priority}\nLinks: ${chips.map((c) => c.name).join(", ") || "(none)"}\n\n${text}`;
+    : `Add this task (assigned to you)?\n\nPriority: ${body.priority}\nDue: ${due || "(no due date)"}\nLinks: ${chips.map((c) => c.name).join(", ") || "(none)"}\n\n${text}`;
   if (!confirm(summary)) return;
   CARD.text = text;
   await api("/api/ledger/commit", { method: "POST", body });

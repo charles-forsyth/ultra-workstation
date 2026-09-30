@@ -26,7 +26,7 @@ from ultra.bucket import (
     snapshot_snippet,
     snapshot_thread,
 )
-from ultra.ledger_write import UUID, WriteError
+from ultra.ledger_write import UUID, WriteError, check_due
 from ultra.lint import ascii_fix
 from ultra.rules import Rules
 from ultra.store import Store
@@ -385,6 +385,7 @@ class Desk:
         chips = [c for c in (b.get("chips") or []) if isinstance(c, dict)]
         date = str(b.get("date") or "")
         priority = str(b.get("priority") or "MEDIUM")
+        due = str(b.get("due") or "").strip()
         try:
             card = self.stager.claim(cid)
         except LookupError as e:
@@ -406,13 +407,17 @@ class Desk:
                 raise WriteError("text is empty")
             if card["action"] == "log" and not re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$", date):
                 raise WriteError("date must be YYYY-MM-DD HH:MM")
+            if card["action"] == "task" and due:
+                due = check_due(due)
+            else:
+                due = ""
         except WriteError as e:
             self.stager.release(cid)
             raise _bad(str(e)) from e
         progress = {"card": cid, "state": "running", "steps": [], "started": time.time()}
         with self.cl:
             self.commits[cid] = progress
-        self.pool.submit(self._commit_run, card, text, date, priority, links, progress)
+        self.pool.submit(self._commit_run, card, text, date, priority, links, progress, due)
         return {"card": cid, "state": "running"}
 
     def _step(self, progress: dict[str, Any], text: str, ok: bool | None = None) -> None:
@@ -429,11 +434,13 @@ class Desk:
         priority: str,
         links: list[dict[str, Any]],
         progress: dict[str, Any],
+        due: str = "",
     ) -> None:
         try:
-            result = (self._commit_log if card["action"] == "log" else self._commit_task)(
-                text, date, priority, links, progress
-            )
+            if card["action"] == "log":
+                result = self._commit_log(text, date, priority, links, progress)
+            else:
+                result = self._commit_task(text, date, priority, links, progress, due)
         except Exception as e:  # noqa: BLE001 - shown on the card, never retried
             result = {"id": None, "error": str(e)[:500]}
             self._step(progress, f"Stopped: {e}", False)
@@ -484,14 +491,24 @@ class Desk:
         priority: str,
         links: list[dict[str, Any]],
         progress: dict[str, Any],
+        due: str = "",
     ) -> dict[str, Any]:
-        self._step(progress, "Adding the task...")
-        r = self.writer.task_add(text, priority)
+        self._step(progress, "Adding the task..." + (f" (due {due})" if due else ""))
+        r = self.writer.task_add(text, priority, due)
         tid = r.get("id")
         if not tid:
             self._step(progress, "The ledger did not add it.", False)
             return {"id": None, "error": "not added", "output": r.get("output_tail", "")}
         self._step(progress, f"Added task {tid[:8]} (assigned to you)", True)
+        if due:
+            got = str(r.get("due_date") or "")[:10]
+            self._step(
+                progress,
+                f"Due date {got} confirmed"
+                if got == due
+                else f"Due date not confirmed ({got or 'none'})",
+                got == due,
+            )
         for x in links:
             lr = self.writer.link(tid, x["id"], "REFERENCED_IN")
             self._step(

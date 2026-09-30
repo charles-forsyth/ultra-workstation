@@ -30,15 +30,29 @@ export function toast(msg, kind = "", action = null) {
 }
 
 let TOKEN = "";
-export async function api(path, { method = "GET", body } = {}) {
+// The server issues a new write token each time it starts. A tab left open across a
+// restart holds the old one, so on a token refusal fetch the current token and retry
+// the request once. The token only proves the request came from this page (CSRF);
+// every action behind it still has its own checks and approvals.
+async function refreshToken() {
+  const r = await fetch("/api/session");
+  const s = await r.json().catch(() => ({}));
+  if (r.ok && s.token) { TOKEN = s.token; return true; }
+  return false;
+}
+export async function api(path, { method = "GET", body } = {}, retried = false) {
   const opt = { method, headers: {} };
   if (method !== "GET") {
+    if (!TOKEN) await refreshToken();
     opt.headers["Content-Type"] = "application/json";
     opt.headers["X-Ultra-Token"] = TOKEN;
     opt.body = JSON.stringify(body ?? {});
   }
   const r = await fetch(path, opt);
   const data = await r.json().catch(() => ({}));
+  if (r.status === 403 && method !== "GET" && !retried && /token/i.test(data.error || "")) {
+    if (await refreshToken()) return api(path, { method, body }, true);
+  }
   if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
   return data;
 }

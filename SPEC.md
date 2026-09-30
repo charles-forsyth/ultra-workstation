@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.13 of the spec; app at v0.6.0 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
+Status: v0.14 of the spec; app at v0.6.1 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-09-29
@@ -1155,6 +1155,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-30 | 0.14 | App v0.6.1: fix "Missing or wrong token" in tabs left open across a server restart (each start issues a new CSRF token). The page now fetches the current token and retries the write once on a token refusal. The check itself is unchanged. |
 | 2026-09-30 | 0.13 | App v0.6.0: Today view (see the delivery table). Calendar writes carry the private extended property `ultra=1` and move/delete refuse anything without it or not organised by the operator (409); blocks never have attendees. Positions use CSSOM because the CSP forbids inline styles. |
 | 2026-09-30 | 0.12 | App v0.5.4: fix, an idle open tab never refreshed (refresh only started on /api/stream, which an idle tab does not call). The 5 s status poll now starts any refresh older than its interval (mail 120 s, Slack 15 min, tasks 5 min); one job per source at a time; nothing polls with no tab open. Task data changes also rebuild the stream. |
 | 2026-09-30 | 0.11 | App v0.5.3 (operator ask): tailnet access narrowed from the whole 100.64.0.0/10 range to the operator's own devices. `tailnet:mine` in `[server] remote_networks` (default with 192.168.0.0/16) = addresses of nodes owned by the same Tailscale user as this machine, from `tailscale status --json`; shared-in nodes and other users' devices are refused. An unknown tailnet address triggers at most one refresh a minute, so new devices work without a restart. |

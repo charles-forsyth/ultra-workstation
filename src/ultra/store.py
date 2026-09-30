@@ -18,6 +18,41 @@ CREATE TABLE IF NOT EXISTS kv_cache (
     value TEXT NOT NULL,
     fetched_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,              -- reply | reply_all | forward | new
+    thread_id TEXT,
+    reply_to_msg TEXT,               -- Gmail message id being answered
+    in_reply_to TEXT,                -- RFC Message-ID header of that message
+    refs TEXT,                       -- References header
+    gmail_draft_id TEXT,
+    state TEXT NOT NULL DEFAULT 'DRAFT',   -- DRAFT | APPROVED | QUEUED | SENT | DISCARDED
+    approved_version INTEGER,
+    approved_hash TEXT,
+    sent_message_id TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS draft_versions (
+    draft_id INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    from_addr TEXT, to_addrs TEXT, cc TEXT, bcc TEXT,
+    subject TEXT, body TEXT,
+    author TEXT NOT NULL,            -- me | ai
+    instruction TEXT,
+    lint TEXT,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (draft_id, version)
+);
+CREATE TABLE IF NOT EXISTS approvals (
+    token TEXT PRIMARY KEY,
+    draft_id INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    issued_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    used_at REAL
+);
 CREATE TABLE IF NOT EXISTS journal (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL NOT NULL,
@@ -67,22 +102,18 @@ class Store:
     def cache_put(self, key: str, value: Any) -> None:
         with self._conn() as c:
             c.execute(
-                "INSERT OR REPLACE INTO kv_cache (key, value, fetched_at) "
-                "VALUES (?,?,?)",
+                "INSERT OR REPLACE INTO kv_cache (key, value, fetched_at) VALUES (?,?,?)",
                 (key, json.dumps(value, default=str), time.time()),
             )
 
     def cache_prune(self, max_age: float = 30 * 86400) -> None:
         with self._conn() as c:
-            c.execute(
-                "DELETE FROM kv_cache WHERE fetched_at < ?", (time.time() - max_age,)
-            )
+            c.execute("DELETE FROM kv_cache WHERE fetched_at < ?", (time.time() - max_age,))
 
     # ---------------------------------------------------------------- journal
     def journal(self, action: str, target: str, ok: bool, detail: Any = None) -> None:
         with self._conn() as c:
             c.execute(
-                "INSERT INTO journal (ts, action, target, ok, detail) "
-                "VALUES (?,?,?,?,?)",
+                "INSERT INTO journal (ts, action, target, ok, detail) VALUES (?,?,?,?,?)",
                 (time.time(), action, target, int(ok), json.dumps(detail, default=str)),
             )

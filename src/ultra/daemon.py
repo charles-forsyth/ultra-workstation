@@ -48,9 +48,7 @@ def read_state() -> dict | None:
 
 def probe(port: int) -> dict | None:
     try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/api/health", timeout=1.5
-        ) as r:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1.5) as r:
             return json.loads(r.read())
     except (OSError, ValueError):
         return None
@@ -59,10 +57,7 @@ def probe(port: int) -> dict | None:
 def start(port: int, demo: bool = False) -> int:
     state = read_state()
     if state:
-        print(
-            f"[INFO] Ultra already running (PID {state['pid']}) "
-            f"on port {state['port']}."
-        )
+        print(f"[INFO] Ultra already running (PID {state['pid']}) on port {state['port']}.")
         return 0
     if probe(port):
         print(f"[ERROR] Something is already answering on port {port}.")
@@ -126,7 +121,6 @@ def status() -> int:
     health = probe(int(state["port"]))
     print(
         f"[INFO] Ultra running (PID {state['pid']}) on http://127.0.0.1:{state['port']}"
-        f" - {'healthy' if health else 'NOT answering'}"
-        + (" (demo)" if state.get("demo") else "")
+        f" - {'healthy' if health else 'NOT answering'}" + (" (demo)" if state.get("demo") else "")
     )
     return 0 if health else 1

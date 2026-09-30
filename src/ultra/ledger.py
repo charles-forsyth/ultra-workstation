@@ -42,9 +42,7 @@ class Ledger:
         self.cfg = cfg
         self.store = store
         self.binary = str(cfg.get("ledger", "binary", "nexus"))
-        self.enabled = bool(cfg.get("ledger", "enabled", True)) and bool(
-            shutil.which(self.binary)
-        )
+        self.enabled = bool(cfg.get("ledger", "enabled", True)) and bool(shutil.which(self.binary))
         self.sem = threading.Semaphore(int(cfg.get("ledger", "max_parallel", 3)))
         self.domain = str(cfg.get("ledger", "org_email_domain", "")).lower()
         self.netid_local = bool(cfg.get("ledger", "netid_from_local_part", False))
@@ -95,11 +93,7 @@ class Ledger:
             return hit[0]
         person = None
         local, _, dom = addr.partition("@")
-        if (
-            self.netid_local
-            and dom == self.domain
-            and re.fullmatch(r"[a-z0-9._-]+", local)
-        ):
+        if self.netid_local and dom == self.domain and re.fullmatch(r"[a-z0-9._-]+", local):
             p = self._run(["people", "show", local])
             if isinstance(p, dict) and p.get("netid"):
                 person = p
@@ -156,14 +150,11 @@ class Ledger:
             "dept": person.get("dept") or "",
             "email": person.get("email_alias") or "",
             "labs": [c["name"] for c in by("Lab")][:8],
-            "projects": [c["name"] for c in by("GCPProject") + by("ResearchProject")][
-                :8
-            ],
+            "projects": [c["name"] for c in by("GCPProject") + by("ResearchProject")][:8],
             "open_tasks": [{"id": t["id"], "summary": t["name"]} for t in tasks][:10],
             # tree lists edges oldest first; the newest five are at the end
             "interactions": [
-                {"id": c["id"], "summary": c["name"]}
-                for c in reversed(by("Interaction")[-5:])
+                {"id": c["id"], "summary": c["name"]} for c in reversed(by("Interaction")[-5:])
             ],
             "interaction_count": len(by("Interaction")),
             "matched_by": person.get("matched_by", "address"),

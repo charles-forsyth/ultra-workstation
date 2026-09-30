@@ -59,10 +59,7 @@ class Slack:
 
     def _cmd(self, prompt: str) -> list[str]:
         allow = ",".join(self.prefix + t for t in READ_TOOLS)
-        deny = (
-            ",".join(self.prefix + t for t in DENY_TOOLS)
-            + ",Bash,Edit,Write,NotebookEdit"
-        )
+        deny = ",".join(self.prefix + t for t in DENY_TOOLS) + ",Bash,Edit,Write,NotebookEdit"
         return [
             self.binary,
             "-p",
@@ -122,8 +119,7 @@ class Slack:
             m = re.search(r"\[\s*(?:\{.*\}\s*)?\]", out, re.S)
             if r.returncode != 0 or not m:
                 raise SlackError(
-                    f"Slack read failed (exit {r.returncode}): "
-                    f"{(out or r.stderr)[:200]}"
+                    f"Slack read failed (exit {r.returncode}): {(out or r.stderr)[:200]}"
                 )
             items = json.loads(m.group(0))
             if not isinstance(items, list):
@@ -177,9 +173,7 @@ class Slack:
                     "addr": (it.get("from_email") or "").lower(),
                     "subject": it.get("channel") or "Slack",
                     "snippet": (it.get("text") or "")[:200],
-                    "ts": datetime.fromtimestamp(ts).astimezone().isoformat()
-                    if ts
-                    else "",
+                    "ts": datetime.fromtimestamp(ts).astimezone().isoformat() if ts else "",
                     "ts_ms": ms,
                     "count": (row or {}).get("count", 0) + 1,
                     "court": "MINE" if it.get("needs_me") else "FYI",

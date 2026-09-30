@@ -1,6 +1,6 @@
 [project]
 name = "ultra-workstation"
-version = "0.2.0"
+version = "0.3.0"
 description = "Ultra AI Workstation Desktop: email, calendar, Slack and a work ledger in one local web workstation, with AI drafting, double-approved sending, and drag-to-log."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -39,7 +39,7 @@ where = ["src"]
 ultra = ["static/*", "static/vendor/*", "config.example.toml", "style.example.toml"]
 
 [tool.ruff]
-line-length = 88
+line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "BLE", "PLW", "RUF", "S"]

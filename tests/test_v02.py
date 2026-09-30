@@ -58,9 +58,7 @@ def test_last_from_other_in_inbox_is_mine():
 
 def test_last_from_me_is_waiting_with_age_badges():
     r = _rules()
-    assert (
-        classify_thread(r, [msg("b@x.org", 9), msg(ME, 1)], True)["court"] == "WAITING"
-    )
+    assert classify_thread(r, [msg("b@x.org", 9), msg(ME, 1)], True)["court"] == "WAITING"
     slow = msg(ME, 3.5)
     slow["to"] = "b@x.org"
     late = msg(ME, 6)
@@ -71,9 +69,7 @@ def test_last_from_me_is_waiting_with_age_badges():
 
 def test_ready_signal_after_my_message_is_flagged():
     r = _rules()
-    c = classify_thread(
-        r, [msg(ME, 2), msg("ben@example.org", 1, "The project is ready.")], True
-    )
+    c = classify_thread(r, [msg(ME, 2), msg("ben@example.org", 1, "The project is ready.")], True)
     assert c["court"] == "MINE" and "READY" in c["badges"] and c["ready"]
     # a "ready" that came BEFORE my reply does not count
     c = classify_thread(r, [msg("ben@example.org", 3, "It is ready"), msg(ME, 2)], True)
@@ -84,9 +80,7 @@ def test_noise_goes_low_unless_vip_or_ready():
     r = _rules()
     assert classify_thread(r, [msg("noreply@x.org", 1)], True)["court"] == "LOW"
     assert (
-        classify_thread(r, [msg("a@x.org", 1, labels=["CATEGORY_PROMOTIONS"])], True)[
-            "court"
-        ]
+        classify_thread(r, [msg("a@x.org", 1, labels=["CATEGORY_PROMOTIONS"])], True)["court"]
         == "LOW"
     )
     c = classify_thread(r, [msg("vip@example.org", 1)], True)
@@ -154,23 +148,17 @@ def test_extract_body_prefers_plain_and_lists_attachments():
     }
     text, from_html, atts = extract_body(payload)
     assert text == "Plain body" and not from_html
-    assert atts == [
-        {"name": "plan.pdf", "mime": "application/pdf", "size": 2048, "id": "A1"}
-    ]
+    assert atts == [{"name": "plan.pdf", "mime": "application/pdf", "size": 2048, "id": "A1"}]
 
 
 def test_html_only_body_is_converted_and_scripts_dropped():
     payload = {
         "mimeType": "text/html",
-        "body": {
-            "data": _b("<style>x{}</style><p>Hi&nbsp;there</p><script>evil()</script>")
-        },
+        "body": {"data": _b("<style>x{}</style><p>Hi&nbsp;there</p><script>evil()</script>")},
     }
     text, from_html, _ = extract_body(payload)
     assert from_html and "Hi" in text and "evil" not in text and "x{}" not in text
-    assert html_to_text("<b>a</b><br>b") == "a\n\nb" or "a" in html_to_text(
-        "<b>a</b><br>b"
-    )
+    assert html_to_text("<b>a</b><br>b") == "a\n\nb" or "a" in html_to_text("<b>a</b><br>b")
 
 
 def test_split_quoted():
@@ -341,9 +329,7 @@ else:
 def _slack(tmp_path, mode: str) -> tuple[Slack, str]:
     b = _fake_bin(tmp_path, "claude", CLAUDE)
     Path(b + ".mode").write_text(mode)
-    cfg = Config(
-        {"slack": {"enabled": True, "claude_binary": b, "claude_cwd": str(tmp_path)}}
-    )
+    cfg = Config({"slack": {"enabled": True, "claude_binary": b, "claude_cwd": str(tmp_path)}})
     return Slack(cfg, Store(tmp_path / "s.db")), b
 
 

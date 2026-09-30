@@ -77,9 +77,7 @@ def test_write_needs_json_token_and_same_origin(srv):
     s, _, _ = req(port, "POST", "/api/health", {}, {guard.CSRF_HEADER: token})
     assert s == 415
     # cross origin
-    s, _, _ = req(
-        port, "POST", "/api/health", {}, {**ok, "Origin": "https://evil.example"}
-    )
+    s, _, _ = req(port, "POST", "/api/health", {}, {**ok, "Origin": "https://evil.example"})
     assert s == 403
     # correct token reaches routing (GET-only route -> 405)
     s, _, _ = req(port, "POST", "/api/health", {}, ok)

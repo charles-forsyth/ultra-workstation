@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 STREAM: list[dict[str, Any]] = [
     {
-        "key": "t-100",
+        "key": "g-100",
         "source": "email",
         "from": "Ben Carter",
         "addr": "ben@example.org",
@@ -50,7 +50,7 @@ STREAM: list[dict[str, Any]] = [
         "waiting_days": 1,
     },
     {
-        "key": "t-400",
+        "key": "g-400",
         "source": "email",
         "from": "Dee Evans",
         "addr": "dee@example.org",
@@ -64,7 +64,7 @@ STREAM: list[dict[str, Any]] = [
 ]
 
 THREADS: dict[str, list[dict[str, str]]] = {
-    "t-100": [
+    "g-100": [
         {
             "from": "Ben Carter <ben@example.org>",
             "ts": "2026-09-28 17:54",
@@ -95,9 +95,7 @@ CONTEXT = {
                 "summary": "Confirm the budget alert covers the new account.",
             },
         ],
-        "interactions": [
-            {"id": "i-1", "summary": "Ben asked for the ada-lab handover plan."}
-        ],
+        "interactions": [{"id": "i-1", "summary": "Ben asked for the ada-lab handover plan."}],
         "interaction_count": 1,
         "matched_by": "address",
     }
@@ -123,3 +121,138 @@ def register(api: Api) -> None:
     api.add("GET", r"/api/stream", stream)
     api.add("GET", r"/api/thread/([A-Za-z0-9_-]+)", thread)
     api.add("GET", r"/api/context/([^/]+)", context)
+    _register_composer(api)
+
+
+class DemoOutbox:
+    """Stands in for Gmail send in demo mode and tests: records, never sends."""
+
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
+
+    def __call__(self, d: dict[str, Any], v: dict[str, Any]) -> dict[str, Any]:
+        self.sent.append({"draft": d["id"], **{k: v[k] for k in ("to_addrs", "subject", "body")}})
+        return {"id": f"demo-{len(self.sent)}", "threadId": d.get("thread_id")}
+
+
+def _register_composer(api: Api) -> None:
+    """Demo composer: real state machine on a temp store, fake outbox, demo threads."""
+    import tempfile
+    from pathlib import Path
+
+    from ultra.compose import ComposeError, Composer
+    from ultra.config import Config
+    from ultra.lint import ascii_fix
+    from ultra.server import ApiError
+    from ultra.store import Store
+
+    tmp = Path(tempfile.mkdtemp(prefix="ultra-demo-"))
+    store = Store(tmp / "demo.db")
+    cfg = Config({"mail": {"send_delay_seconds": 3}})
+    me = {"ada@example.org"}
+    comp = Composer(cfg, store, me)
+    outbox = DemoOutbox()
+    api.demo_outbox = outbox  # type: ignore[attr-defined]
+
+    def wrap(fn: Any, *a: Any) -> Any:
+        try:
+            return fn(*a)
+        except ComposeError as e:
+            raise ApiError(e.status, str(e)) from e
+
+    def demo_thread(key: str) -> dict[str, Any]:
+        msgs = THREADS.get(key, [])
+        return {
+            "key": key,
+            "messages": [
+                {
+                    **m,
+                    "id": f"{key}-{i}",
+                    "message_id": f"<{key}-{i}@example.org>",
+                    "references": "",
+                    "subject": next((s["subject"] for s in STREAM if s["key"] == key), ""),
+                    "to": m.get("to", "ada@example.org"),
+                }
+                for i, m in enumerate(msgs)
+            ],
+        }
+
+    def new(q: dict, body: Any, m: re.Match[str]) -> dict:
+        body = body or {}
+        kind = body.get("kind", "reply")
+        th = None if kind == "new" else demo_thread(str(body.get("thread", "")))
+        if th is not None:
+            th["key"] = "g-" + th["key"].removeprefix("g-")
+        return wrap(comp.create, kind, th, "ada@example.org")
+
+    did = lambda m: int(m.group(1))  # noqa: E731
+    api.add("POST", r"/api/drafts", new)
+    api.add(
+        "GET", r"/api/drafts/(\d+)", lambda q, b, m: {**wrap(comp.get, did(m)), "send_error": ""}
+    )
+    api.add(
+        "GET",
+        r"/api/drafts/thread/([A-Za-z0-9_-]+)",
+        lambda q, b, m: {"drafts": comp.for_thread(m.group(1))},
+    )
+    api.add(
+        "POST",
+        r"/api/drafts/(\d+)/versions",
+        lambda q, b, m: wrap(comp.save, did(m), b or {}, "me", "edit"),
+    )
+    api.add(
+        "POST",
+        r"/api/drafts/(\d+)/fix-ascii",
+        lambda q, b, m: wrap(
+            comp.save,
+            did(m),
+            {
+                k: ascii_fix((comp.get(did(m))["current"] or {}).get(k) or "")
+                for k in ("subject", "body")
+            },
+            "me",
+            "fix ASCII",
+        ),
+    )
+    api.add(
+        "POST",
+        r"/api/drafts/(\d+)/restore",
+        lambda q, b, m: wrap(comp.restore, did(m), int((b or {})["version"])),
+    )
+    api.add("POST", r"/api/drafts/(\d+)/approve", lambda q, b, m: wrap(comp.approve, did(m)))
+    api.add("POST", r"/api/drafts/(\d+)/unapprove", lambda q, b, m: wrap(comp.unapprove, did(m)))
+    api.add("POST", r"/api/drafts/(\d+)/review", lambda q, b, m: wrap(comp.review, did(m)))
+    api.add("POST", r"/api/drafts/(\d+)/discard", lambda q, b, m: wrap(comp.discard, did(m)))
+
+    def ai(q: dict, b: Any, m: re.Match[str]) -> dict:
+        text = "Hi,\n\nThanks for the note. (Demo mode: this is canned text, not AI.)\n\nAda"
+        return {
+            **wrap(comp.save, did(m), {"body": text}, "ai", "demo draft"),
+            "ai": {"model": "demo", "tokens": 0, "seconds": 0},
+        }
+
+    api.add("POST", r"/api/drafts/(\d+)/ai", ai)
+    api.add("POST", r"/api/drafts/(\d+)/gmail", lambda q, b, m: {"gmail_draft_id": None})
+
+    def send(q: dict, b: Any, m: re.Match[str]) -> dict:
+        b = b or {}
+        try:
+            d, t, v = int(b["draft"]), str(b["token"]), int(b["version"])
+        except (KeyError, ValueError, TypeError) as e:
+            raise ApiError(400, "draft, token and version are required") from e
+        return wrap(comp.confirm, d, t, v, outbox)
+
+    api.add("POST", r"/api/send", send)
+    api.add("POST", r"/api/send/(\d+)/cancel", lambda q, b, m: wrap(comp.cancel, did(m)))
+    api.add("POST", r"/api/mail/archive", lambda q, b, m: {"archived": [], "demo": True})
+    api.add("POST", r"/api/mail/unarchive", lambda q, b, m: {"unarchived": [], "demo": True})
+    api.add(
+        "POST",
+        r"/api/ai/summary",
+        lambda q, b, m: {
+            "text": "Demo: Ben asks for the handover plan by Friday.",
+            "model": "demo",
+            "tokens": 0,
+            "seconds": 0,
+        },
+    )

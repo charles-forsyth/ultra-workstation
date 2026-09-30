@@ -55,9 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = sub.add_parser("config", help="Configuration files")
     csub = c.add_subparsers(dest="config_cmd")
-    csub.add_parser(
-        "init", help="Write example config.toml and style.toml (never overwrites)"
-    )
+    csub.add_parser("init", help="Write example config.toml and style.toml (never overwrites)")
     csub.add_parser("path", help="Print the config and data folders")
     return p
 

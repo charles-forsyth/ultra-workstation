@@ -54,9 +54,7 @@ class Rules:
     vip: set[str] = field(default_factory=set)
     noise: re.Pattern[str] = field(default_factory=lambda: _compile(DEFAULT_NOISE))
     ticket_sender: re.Pattern[str] | None = None
-    ticket_number: re.Pattern[str] = field(
-        default_factory=lambda: _compile(DEFAULT_TICKET_RX)
-    )
+    ticket_number: re.Pattern[str] = field(default_factory=lambda: _compile(DEFAULT_TICKET_RX))
     done: re.Pattern[str] = field(default_factory=lambda: _compile(DEFAULT_DONE))
     amber_days: int = 3
     red_days: int = 5
@@ -137,9 +135,7 @@ def is_rsvp(subject: str) -> bool:
     return bool(RSVP_RX.match(subject.strip()))
 
 
-def classify_thread(
-    rules: Rules, messages: list[dict[str, Any]], in_inbox: bool
-) -> dict[str, Any]:
+def classify_thread(rules: Rules, messages: list[dict[str, Any]], in_inbox: bool) -> dict[str, Any]:
     """Court state for one email thread.
 
     messages: oldest first, each {from_addr, from_name, ts_ms, text, labels}.
@@ -157,10 +153,7 @@ def classify_thread(
         badges.append("VIP")
 
     # A peer saying "done/ready" after my last message moves the ball to me.
-    ready = any(
-        m["ts_ms"] > last_mine_ts and rules.done.search(m.get("text", ""))
-        for m in others
-    )
+    ready = any(m["ts_ms"] > last_mine_ts and rules.done.search(m.get("text", "")) for m in others)
     if ready:
         badges.append("READY")
 

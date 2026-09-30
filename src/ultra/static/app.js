@@ -1,5 +1,7 @@
-// Ultra client shell (v0.1). Vanilla JS module, no build step, no inline code (CSP).
+// Ultra client shell. Vanilla JS modules, no build step, no inline code (CSP).
 // Helpers adapted from the deep-research dashboard (MIT, same author).
+
+import { openDraft, resumeForThread, setComposerContext, onSent } from "./compose.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -8,12 +10,20 @@ export function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
-export function toast(msg, kind = "") {
+export function toast(msg, kind = "", action = null) {
+  for (const old of document.querySelectorAll("#toasts .toast")) if (old.dataset.msg === msg) old.remove();
   const t = document.createElement("div");
+  t.dataset.msg = msg;
   t.className = `toast ${kind}`;
   t.textContent = msg;
+  if (action) {
+    const b = document.createElement("button");
+    b.className = "btn tiny"; b.textContent = action.label;
+    b.onclick = () => { t.remove(); action.fn(); };
+    t.append(" ", b);
+  }
   $("#toasts").appendChild(t);
-  setTimeout(() => t.remove(), kind === "err" ? 7000 : 3500);
+  setTimeout(() => t.remove(), action ? 10000 : kind === "err" ? 7000 : 3500);
 }
 
 let TOKEN = "";
@@ -117,18 +127,23 @@ async function openItem(i) {
     const t = await api(`/api/thread/${encodeURIComponent(it.key)}`);
     if (S.key !== it.key && S.items[S.sel]?.key !== it.key) return;  // user moved on
     const soon = (v) => `disabled title="Coming in ${v}"`;
+    const isMail = it.key.startsWith("g-");
+    const mailOnly = isMail ? "" : `disabled title="Email threads only for now"`;
     th.innerHTML = `<h2>${esc(it.subject)}</h2>
       ${it.reason ? `<div class="why dim">${esc(it.court)} &middot; ${esc(it.reason)}</div>` : ""}
       ${t.error ? `<div class="alert">${esc(t.error)}</div>` : ""}
       ${(t.events || []).length ? `<div class="badges ev">${t.events.map((e) => `<span class="badge">${esc(e)}</span>`).join("")}</div>` : ""}
       <div class="thread-acts">
-        <button class="btn small" ${soon("v0.3")}>Reply</button>
-        <button class="btn small" ${soon("v0.3")}>Reply all</button>
-        <button class="btn small" ${soon("v0.3")}>Draft with AI</button>
-        <button class="btn small" ${soon("v0.3")}>Archive</button>
+        <button class="btn small" data-a="reply" ${mailOnly} title="Reply (r)">Reply</button>
+        <button class="btn small" data-a="reply_all" ${mailOnly} title="Reply all (a)">Reply all</button>
+        <button class="btn small" data-a="forward" ${mailOnly} title="Forward (f)">Forward</button>
+        <button class="btn small ai" data-a="summary" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="AI summary (s)">Summarize</button>
+        <button class="btn small" data-a="archive" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="Archive (e). Never deletes.">Archive</button>
         <button class="btn small" data-a="copy">Copy</button>
         ${t.permalink ? `<a class="btn small" href="${esc(t.permalink)}" target="_blank" rel="noopener noreferrer">Open in Slack</a>` : ""}
       </div>
+      <div class="aisum" id="aisum" hidden></div>
+      <section class="composer" id="composer" hidden></section>
       ${(t.messages || []).map((m) => `<div class="msg ${m.mine ? "mine" : ""}">
         <div class="hdr"><b>${esc(m.from)}</b><span class="mono">${esc(fmtTime(m.ts))}</span></div>
         ${m.to ? `<div class="to dim">to ${esc(m.to)}${m.cc ? ` &middot; cc ${esc(m.cc)}` : ""}</div>` : ""}
@@ -137,12 +152,58 @@ async function openItem(i) {
         ${(m.attachments || []).length ? `<div class="atts">${m.attachments.map((a) => `<span class="att" title="${esc(a.mime)}">${esc(a.name)} <span class="dim">${esc(Math.round((a.size || 0) / 1024))} KB</span></span>`).join("")}</div>` : ""}
       </div>`).join("") || `<div class="dim">No messages.</div>`}`;
     $('[data-a="copy"]', th).onclick = () => copyText((t.messages || []).map((m) => `${m.from} (${fmtTime(m.ts)})\n${m.body}`).join("\n\n"));
+    for (const k of ["reply", "reply_all", "forward"]) {
+      const b = $(`[data-a="${k}"]`, th);
+      b.onclick = () => busy(b, () => openDraft(k, it.key));
+    }
+    const sb = $('[data-a="summary"]', th); sb.onclick = () => busy(sb, () => summarize(it));
+    const ab = $('[data-a="archive"]', th); ab.onclick = () => busy(ab, () => archive(it));
+    await resumeForThread(it.key);
   } catch (e) { th.innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
   loadContext(it);
 }
 
+function threadsOf(it) {
+  if (it.key.startsWith("g-")) return [it.key.slice(2)];
+  return it.threads || [];
+}
+
+async function archive(it) {
+  if (S.demo) { toast("Demo mode: nothing is archived."); return; }
+  const tids = threadsOf(it);
+  if (!tids.length) return;
+  await api("/api/mail/archive", { method: "POST", body: { threads: tids } });
+  const idx = S.items.findIndex((x) => x.key === it.key);
+  S.items = S.items.filter((x) => x.key !== it.key);
+  S.sel = Math.min(idx, S.items.length - 1);
+  renderStream();
+  if (S.sel >= 0) openItem(S.sel); else { $("#thread").hidden = true; $("#thread-empty").hidden = false; }
+  toast(`Archived "${(it.subject || "").slice(0, 40)}"`, "ok", {
+    label: "Undo",
+    fn: async () => {
+      await api("/api/mail/unarchive", { method: "POST", body: { threads: tids } });
+      toast("Back in the inbox.", "ok");
+      setTimeout(() => loadStream(true), 2500);
+    },
+  });
+}
+
+async function summarize(it) {
+  const el = $("#aisum"); if (!el) return;
+  if (!S.aiOn) { toast("AI is off: add GEMINI_API_KEY to ~/.config/ultra-workstation/.env", "err"); return; }
+  const tid = threadsOf(it).slice(-1)[0];
+  el.hidden = false; el.innerHTML = `<span class="dim">Summarizing...</span>`;
+  try {
+    const r = await api("/api/ai/summary", { method: "POST", body: { thread: tid } });
+    if (S.key !== it.key) return;
+    el.innerHTML = `<div class="aisum-head"><span class="badge ai">AI summary</span><span class="dim mono">${esc(r.model)} &middot; ${esc(r.seconds)} s</span><button class="btn tiny ghost" id="aisum-x">Hide</button></div><div class="body">${esc(r.text)}</div>`;
+    $("#aisum-x").onclick = () => { el.hidden = true; };
+  } catch (e) { el.innerHTML = `<div class="lint error">${esc(e.message)}</div>`; }
+}
+
 async function loadContext(it) {
   const el = $("#context");
+  setComposerContext("");
   if (!it.addr) { el.innerHTML = `<div class="dim">No address to look up.</div>`; return; }
   el.innerHTML = `<div class="dim">Looking up ${esc(it.addr)} in the ledger... (a few seconds the first time)</div>`;
   const want = it.key;
@@ -155,6 +216,13 @@ async function loadContext(it) {
     if (c.unresolved) { el.innerHTML = `<div class="dim">${esc(it.addr)} is not in the ledger.</div>`; return; }
     const list = (xs, f) => xs.length ? `<ul class="clist">${xs.map(f).join("")}</ul>` : `<div class="dim">none</div>`;
     const tasks = Array.isArray(c.open_tasks) ? c.open_tasks : [];
+    setComposerContext([
+      `${c.name}${c.title ? ", " + c.title : ""}`,
+      (c.labs || []).length ? `Labs: ${(c.labs || []).join("; ")}` : "",
+      (c.projects || []).length ? `Projects: ${(c.projects || []).join("; ")}` : "",
+      tasks.length ? `Open tasks with them: ${tasks.map((x) => x.summary).join("; ")}` : "",
+      (c.interactions || []).length ? `Recent history: ${(c.interactions || []).map((x) => x.summary).join("; ")}` : "",
+    ].filter(Boolean).join("\n"));
     el.innerHTML = `<div class="cname">${esc(c.name)} <span class="dim mono">${esc(c.netid || "")}</span></div>
       <div class="dim">${esc(c.title || "")}</div>
       ${c.matched_by === "name" ? `<div class="warnline">Matched by name, not address: check it's the right person.</div>` : ""}
@@ -166,9 +234,8 @@ async function loadContext(it) {
 }
 
 // ---------------------------------------------------------------- status polling
-const SRC = { mail: "sb-mail", slack: "sb-slack", ledger: "sb-ledger" };
+const SRC = { mail: "sb-mail", slack: "sb-slack", ledger: "sb-ledger", ai: "sb-ai" };
 $("#sb-cal") && ($("#sb-cal").title = "Calendar arrives in v0.6");
-$("#sb-ai") && ($("#sb-ai").title = "AI arrives in v0.3 (needs GEMINI_API_KEY)");
 let lastBuilt = { mail: null, slack: null };
 async function pollStatus() {
   if (S.demo) return;
@@ -179,6 +246,14 @@ async function pollStatus() {
       const el = document.getElementById(id);
       const label = name[0].toUpperCase() + name.slice(1);
       let cls = "", txt = `${label} --`;
+      if (name === "ai") {
+        const on = s.enabled;
+        el.className = `src ${on ? (s.ok === false ? "err" : "ok") : ""}`;
+        el.textContent = on ? `AI ${s.ok === false ? "!" : "on"}` : "AI off";
+        el.title = on ? `${s.model}${s.tokens ? ` - ${s.tokens} tokens this session` : ""}${s.error ? ` - ${s.error}` : ""}` : "Set GEMINI_API_KEY to turn on AI";
+        S.aiOn = !!on;
+        continue;
+      }
       if (s.enabled === false) { txt = `${label} off`; }
       else if (s.busy || st.jobs[name]?.state === "running") { cls = "warn"; txt = `${label} ...`; }
       else if (s.ok === true) { cls = "ok"; txt = `${label} ${s.age != null ? age(Date.now() - s.age * 1000) : "ok"}`; }
@@ -235,7 +310,19 @@ function wire() {
     toast("Bucket arrives in v0.4 (log and link to the ledger).");
   });
   document.addEventListener("keydown", (e) => {
-    if (e.target.matches("input, textarea, select")) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); palette(); return; }
+    if (e.target.matches("input, textarea, select") || !$("#review").hidden || !$("#palette").hidden) return;
+    const it = S.items[S.sel];
+    const click = (a) => { const b = $(`#thread [data-a="${a}"]`); if (b && !b.disabled) b.click(); };
+    if (it && S.key === it.key) {
+      if (e.key === "r") { e.preventDefault(); click("reply"); return; }
+      if (e.key === "a") { e.preventDefault(); click("reply_all"); return; }
+      if (e.key === "f") { e.preventDefault(); click("forward"); return; }
+      if (e.key === "e") { e.preventDefault(); click("archive"); return; }
+      if (e.key === "s") { e.preventDefault(); click("summary"); return; }
+    }
+    if (e.key === "c") { e.preventDefault(); openDraft("new", null).catch((x) => toast(x.message, "err")); return; }
+    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, c compose, m Mine, w Waiting, Ctrl+K commands"); return; }
     if (e.key === "j") { S.sel = Math.min(S.items.length - 1, S.sel + 1); renderStream(); }
     else if (e.key === "k") { S.sel = Math.max(0, S.sel - 1); renderStream(); }
     else if (e.key === "Enter" && S.sel >= 0) openItem(S.sel);
@@ -247,7 +334,7 @@ function wire() {
   $("#btn-left").onclick = () => drawer("#left");
   $("#btn-right").onclick = () => drawer("#right");
   $("#scrim").onclick = closeDrawers;
-  $("#btn-palette").onclick = () => toast("Command palette arrives in v0.3.");
+  $("#btn-palette").onclick = () => palette();
   $("#btn-refresh").onclick = (e) => busy(e.currentTarget, async () => {
     await api("/api/refresh", { method: "POST", body: { what: "all" } });
     toast("Refreshing mail" + (S.slackOn ? " and Slack" : "") + "...");
@@ -255,16 +342,62 @@ function wire() {
 
 }
 
+// ---------------------------------------------------------------- command palette
+function commands() {
+  const it = S.items[S.sel];
+  const c = [
+    { t: "Compose new email", k: "c", run: () => openDraft("new", null) },
+    { t: "Refresh everything", k: "Shift+R", run: () => $("#btn-refresh").click() },
+    ...["mine", "waiting", "all", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
+  ];
+  if (it && S.key === it.key) {
+    for (const [a, label, k] of [["reply", "Reply", "r"], ["reply_all", "Reply all", "a"], ["forward", "Forward", "f"], ["summary", "Summarize with AI", "s"], ["archive", "Archive", "e"], ["copy", "Copy thread", ""]]) {
+      c.unshift({ t: `${label}: ${it.subject || ""}`.slice(0, 90), k, run: () => $(`#thread [data-a="${a}"]`)?.click() });
+    }
+  }
+  for (const [i, x] of S.items.entries()) c.push({ t: `Open: ${x.from} - ${x.subject}`.slice(0, 100), run: () => openItem(i) });
+  return c;
+}
+
+function palette() {
+  const box = $("#palette");
+  if (!box.hidden) { box.hidden = true; return; }
+  box.innerHTML = `<div class="pal-card"><input id="pal-q" placeholder="Type a command or a name..." autocomplete="off"><div id="pal-list" class="pal-list"></div></div>`;
+  box.hidden = false;
+  const all = commands();
+  let sel = 0, shown = all;
+  const paint = () => {
+    $("#pal-list").innerHTML = shown.slice(0, 40).map((c, i) => `<div class="pal-item ${i === sel ? "sel" : ""}" data-i="${i}"><span>${esc(c.t)}</span>${c.k ? `<span class="kbd">${esc(c.k)}</span>` : ""}</div>`).join("") || `<div class="dim pal-item">No match.</div>`;
+  };
+  const go = (i) => { const c = shown[i]; box.hidden = true; if (c) Promise.resolve(c.run()).catch((e) => toast(e.message, "err")); };
+  const q = $("#pal-q");
+  q.oninput = () => {
+    const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+    shown = all.filter((c) => words.every((w) => c.t.toLowerCase().includes(w)));
+    sel = 0; paint();
+  };
+  q.onkeydown = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(sel + 1, Math.min(shown.length, 40) - 1); paint(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(0, sel - 1); paint(); }
+    else if (e.key === "Enter") { e.preventDefault(); go(sel); }
+    else if (e.key === "Escape") { box.hidden = true; }
+  };
+  $("#pal-list").onclick = (e) => { const r = e.target.closest("[data-i]"); if (r) go(Number(r.dataset.i)); };
+  box.onclick = (e) => { if (e.target === box) box.hidden = true; };
+  paint(); q.focus();
+}
+
 async function boot() {
   wire();
   try {
     const s = await api("/api/session");
-    TOKEN = s.token; S.tz = s.timezone || "UTC"; S.demo = s.demo; S.slackOn = s.slack;
+    TOKEN = s.token; S.tz = s.timezone || "UTC"; S.demo = s.demo; S.slackOn = s.slack; S.aiOn = s.ai;
     if (!s.slack) $('#filter-seg button[data-f="slack"]').hidden = true;
     $("#sb-version").textContent = `ultra ${s.version}${s.demo ? " demo" : ""}`;
   } catch (e) { toast(`Server: ${e.message}`, "err"); }
   $$("#filter-seg button").forEach((b) => { b.dataset.label = b.textContent; });
   tick(); setInterval(tick, 30000);
+  onSent(() => setTimeout(() => loadStream(true), 3000));
   await loadStream();
   pollStatus(); setInterval(pollStatus, 5000);
 }

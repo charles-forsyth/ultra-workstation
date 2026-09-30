@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.5 of the spec; app at v0.2.0 (read-only mail, tickets, court rules, ledger rail, Slack read)
+Status: v0.6 of the spec; app at v0.3.0 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, ledger rail, Slack read)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-09-29
@@ -1122,7 +1122,8 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 |---|---|
 | v0.1 Skeleton | Repo, CLI (start/stop/status/doctor/auth), server with security guard, theme and layout shell (7.0), frontend helpers, demo mode, config loading, gauntlet + CI + gitleaks + check-private |
 | v0.2 Read | Mail stream and threads, Sent, ticket cards, noise row, court rules, context rail via ledger reads, Slack read (cached), status bar, Copy + Export (Markdown, text, HTML, JSON, .eml, Print/PDF) on threads, selection bar with highlights and notes |
-| v0.3 Write | Composer with versions, diff, lint, Gmail draft sync, AI summary/draft/revise, double approval, send delay, archive + undo, Tidy, astropost parity (search, drafts list, labels create/apply, attachments save/preview/attach, send-as, forward) |
+| v0.3 Write (shipped 0.3.0) | Composer with versions + restore, lint (ASCII, forbidden patterns, reply-all drops, external, missing attachment), Gmail draft sync, AI summary/draft/revise (Gemini, on demand), double approval with single-use expiring token and content hash, 15 s send delay + cancel, send verified in Sent, archive + undo, forward, Ctrl-K palette, keyboard r/a/f/s/e/c |
+| v0.35 Write, part 2 | Version diff view, Tidy, astropost parity (search, all-drafts list, labels create/apply, attachments save/preview/attach, send-as picker) |
 | v0.4 Ledger | Bucket, staged log/task/link cards, CLI writes with read-back, send-then-log, selection Search Nexus |
 | v0.45 Listen + Research | Read aloud, AI voice read/summary with cache and player, audio exports; Research panel (search, runs, report view, launcher with estimate), selection Search research / Research this / Explain |
 | v0.5 Slack reply | Slack composer, double approval, send via connector, verification read |
@@ -1154,6 +1155,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-09-29 | 0.6 | App v0.3.0: composer (reply, reply all, forward, new), every edit a version, restore; lint with errors that block approval; AI summary/draft/revise on Gemini (mail passed as data, output only ever a DRAFT version); approval 1 locks a content hash, approval 2 issues a single-use 10-minute token; send refused if token unknown, used, expired, wrong version, or the stored text no longer hashes to the approved hash; 15 s cancel window; send verified by re-reading the message's SENT label; archive removes INBOX only, with Undo; Ctrl-K palette; demo mode runs the real state machine with a recording outbox. Ruff line length 100. |
 | 2026-09-29 | 0.5 | App v0.2.0 shipped: Gmail read (inbox + 14 days of Sent, cached by historyId, batched), ticket cards, court rules (MINE/WAITING/LOW, READY/VIP/SLOW/OVERDUE), calendar RSVP mail and notes-to-self hidden, ledger rail (people show / search / tree / tasks list, cached, parallel), Slack read via claude -p (ANTHROPIC_API_KEY stripped), `ultra auth google`, status bar. Existing token files are reused through config. TOML regex patterns are literal strings. |
 | 2026-09-29 | 0.4 | Build started. R-1 done (deep-research --json), R-2 decided (thread text sent to research only when ticked per run). Added Web search (Google Search grounding) to the selection bar and API. |
 | 2026-09-29 | 0.3 draft | Stays Python. Added selection functions (Search Nexus, Search research, Research this, Read aloud, Explain; highlights keep their functions), Research panel over the deep-research CLI (7.9), read aloud and AI voice audio (7.10), astropost parity in the mail adapter and composer (search, drafts list, labels create, attachments, send-as, forward, send saved draft), new tables and API routes, `[audio]` and `[research]` config, v0.45 milestone. Replaced X-1 with R-1/R-2. |

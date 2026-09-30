@@ -24,9 +24,7 @@ def _tool_version(binary: str, args: list[str]) -> tuple[bool, str]:
     if not path:
         return False, "not found on PATH"
     try:
-        r = subprocess.run(
-            [path, *args], capture_output=True, text=True, timeout=60, check=False
-        )
+        r = subprocess.run([path, *args], capture_output=True, text=True, timeout=60, check=False)
     except (OSError, subprocess.SubprocessError) as e:
         return False, f"failed to run: {e}"
     text = (r.stdout or r.stderr).strip()
@@ -51,9 +49,7 @@ def run(cfg: Config) -> list[Check]:
                 Check(
                     f"perms {p.name or p}",
                     not insecure(p),
-                    "ok (owner only)"
-                    if not insecure(p)
-                    else "readable by others: chmod 700/600",
+                    "ok (owner only)" if not insecure(p) else "readable by others: chmod 700/600",
                     required=True,
                 )
             )
@@ -106,7 +102,5 @@ def run(cfg: Config) -> list[Check]:
             note += "; ANTHROPIC_API_KEY is set here, Ultra removes it for Slack calls"
         out.append(Check("slack (claude)", ok, note))
     ff = shutil.which("ffmpeg")
-    out.append(
-        Check("ffmpeg", bool(ff), "found (MP3 audio)" if ff else "missing (WAV only)")
-    )
+    out.append(Check("ffmpeg", bool(ff), "found (MP3 audio)" if ff else "missing (WAV only)"))
     return out

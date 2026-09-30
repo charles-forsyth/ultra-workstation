@@ -80,6 +80,7 @@ class Api:
             "operator": self.cfg.get("operator", "name", ""),
             "timezone": self.cfg.timezone,
             "slack": bool(self.live and self.live.slack.enabled) or self.demo,
+            "ai": bool(self.live and self.live.ai.enabled) or self.demo,
         }
 
 
@@ -147,9 +148,7 @@ def make_handler(api: Api, port: int) -> type[BaseHTTPRequestHandler]:
             if method != "GET":
                 if not guard.origin_allowed(self.headers.get("Origin"), host):
                     return self._json(403, {"error": "Cross-origin request refused"})
-                if not self.headers.get("Content-Type", "").startswith(
-                    "application/json"
-                ):
+                if not self.headers.get("Content-Type", "").startswith("application/json"):
                     return self._json(415, {"error": "Use application/json"})
                 if not guard.token_ok(self.headers.get(guard.CSRF_HEADER), api.token):
                     return self._json(403, {"error": "Missing or wrong token"})
@@ -182,9 +181,7 @@ def make_handler(api: Api, port: int) -> type[BaseHTTPRequestHandler]:
     return H
 
 
-def build(
-    cfg: Config, port: int, demo: bool = False
-) -> tuple[ThreadingHTTPServer, Api]:
+def build(cfg: Config, port: int, demo: bool = False) -> tuple[ThreadingHTTPServer, Api]:
     """Bind 127.0.0.1:port (0 = any free port) and return the server and its Api."""
     api = Api(cfg, guard.new_token(), demo=demo)
     httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(api, port))

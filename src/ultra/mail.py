@@ -72,9 +72,7 @@ def html_to_text(s: str) -> str:
 
 
 def _b64(data: str) -> str:
-    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode(
-        "utf-8", "replace"
-    )
+    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", "replace")
 
 
 def extract_body(payload: dict[str, Any]) -> tuple[str, bool, list[dict[str, Any]]]:
@@ -119,18 +117,13 @@ def split_quoted(text: str) -> tuple[str, str]:
             r"^-{2,}\s*Original Message\s*-{2,}", line, re.I
         ):
             return "\n".join(lines[:i]).rstrip(), "\n".join(lines[i:])
-        if line.startswith(">") and all(
-            (x.startswith(">") or not x.strip()) for x in lines[i:]
-        ):
+        if line.startswith(">") and all((x.startswith(">") or not x.strip()) for x in lines[i:]):
             return "\n".join(lines[:i]).rstrip(), "\n".join(lines[i:])
     return text, ""
 
 
 def _headers(msg: dict[str, Any]) -> dict[str, str]:
-    return {
-        h["name"].lower(): h["value"]
-        for h in (msg.get("payload") or {}).get("headers", [])
-    }
+    return {h["name"].lower(): h["value"] for h in (msg.get("payload") or {}).get("headers", [])}
 
 
 class Mail:
@@ -272,9 +265,7 @@ class Mail:
                 raise
 
     # ---------------------------------------------------------------- stream
-    def _build_stream(
-        self, threads: dict[str, Any], inbox_ids: set[str]
-    ) -> dict[str, Any]:
+    def _build_stream(self, threads: dict[str, Any], inbox_ids: set[str]) -> dict[str, Any]:
         items: list[dict[str, Any]] = []
         tickets: dict[str, dict[str, Any]] = {}
         for tid, t in threads.items():
@@ -296,9 +287,7 @@ class Mail:
             if any(self.rules.is_ticket_sender(m["from_addr"]) for m in msgs):
                 nums = self.rules.ticket_numbers(subject + " " + last["text"])
                 if nums:
-                    self._add_ticket(
-                        tickets, nums[0], tid, t, subject, tid in inbox_ids
-                    )
+                    self._add_ticket(tickets, nums[0], tid, t, subject, tid in inbox_ids)
                     continue
             c = classify_thread(self.rules, msgs, tid in inbox_ids)
             if c["court"] == "NONE":
@@ -356,9 +345,7 @@ class Mail:
                 "threads": [],
                 "events": [],
                 "court": "MINE" if in_inbox else "LOW",
-                "reason": "ticket notice in your inbox"
-                if in_inbox
-                else "archived notices",
+                "reason": "ticket notice in your inbox" if in_inbox else "archived notices",
                 "badges": [],
                 "waiting_days": 0,
                 "unread": False,
@@ -387,13 +374,7 @@ class Mail:
     # ---------------------------------------------------------------- thread
     def thread(self, tid: str) -> dict[str, Any]:
         with self.lock:
-            t = (
-                self._svc()
-                .users()
-                .threads()
-                .get(userId="me", id=tid, format="full")
-                .execute()
-            )
+            t = self._svc().users().threads().get(userId="me", id=tid, format="full").execute()
         out = []
         for m in t.get("messages", []):
             h = _headers(m)
@@ -415,9 +396,52 @@ class Mail:
                     "from_html": from_html,
                     "attachments": atts,
                     "labels": m.get("labelIds") or [],
+                    "message_id": h.get("message-id", ""),
+                    "references": h.get("references", ""),
                 }
             )
-        return {"key": f"g-{tid}", "messages": out}
+        in_inbox = any("INBOX" in (m.get("labelIds") or []) for m in t.get("messages", []))
+        return {"key": f"g-{tid}", "messages": out, "in_inbox": in_inbox}
+
+    # ---------------------------------------------------------------- triage (modify)
+    def _modify_svc(self) -> Any:
+        return google_auth.service(self.cfg, "gmail", "v1", "modify")
+
+    def archive(self, tids: list[str]) -> list[str]:
+        """Remove INBOX from threads. Never trashes, never marks read."""
+        done = []
+        with self.lock:
+            g = self._modify_svc()
+            for tid in tids:
+                g.users().threads().modify(
+                    userId="me", id=tid, body={"removeLabelIds": ["INBOX"]}
+                ).execute()
+                done.append(tid)
+        self._drop_from_stream(done)
+        return done
+
+    def unarchive(self, tids: list[str]) -> list[str]:
+        with self.lock:
+            g = self._modify_svc()
+            for tid in tids:
+                g.users().threads().modify(
+                    userId="me", id=tid, body={"addLabelIds": ["INBOX"]}
+                ).execute()
+        return tids
+
+    def _drop_from_stream(self, tids: list[str]) -> None:
+        """Optimistic: take archived threads out of the cached stream right away."""
+        hit = self.store.cache_get("mail:stream")
+        if not hit:
+            return
+        s = hit[0]
+        gone = {f"g-{t}" for t in tids}
+        s["items"] = [
+            i
+            for i in s["items"]
+            if i["key"] not in gone and not (set(i.get("threads") or []) & set(tids))
+        ]
+        self.store.cache_put("mail:stream", s)
 
 
 def _first_recipient(rules: Rules, msgs: list[dict[str, Any]]) -> tuple[str, str]:

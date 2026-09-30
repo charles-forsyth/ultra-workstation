@@ -281,6 +281,7 @@ class Stager:
             for p in it.get("people") or []:
                 people.setdefault(p["addr"], p)
         plist = list(people.values())[:MAX_PEOPLE]
+        # chips are keyed by ledger id, so two addresses of one person give one chip
         chips: list[dict[str, Any]] = []
         unresolved: list[dict[str, Any]] = []
         seen: set[str] = set()

@@ -48,7 +48,7 @@ export async function loadPeople(it) {
       : l && l.error ? `<span class="badge warn" title="${esc(l.error)}">?</span>` : `<span class="badge dim">not in ledger</span>`;
     return `<div class="prow" data-i="${i}" draggable="${l && l.id ? "true" : "false"}" tabindex="0">
       <div class="pmain"><b>${esc(p.name || p.addr)}</b> ${tag}</div>
-      <div class="dim small-t">${esc(p.addr)} &middot; ${role}${p.sent > 1 ? ` (${p.sent})` : ""}${l?.title ? ` &middot; ${esc(l.title)}` : ""}</div>
+      <div class="dim small-t">${esc((p.addrs || [p.addr]).join(", "))} &middot; ${role}${p.sent > 1 ? ` (${p.sent})` : ""}${l?.title ? ` &middot; ${esc(l.title)}` : ""}</div>
     </div>`;
   }).join("")}</div>
   <div class="dim small-t hint">Click a person for their labs, projects, open tasks and history. Drag a person into the bucket to link them.</div>`;

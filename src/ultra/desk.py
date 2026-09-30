@@ -106,8 +106,23 @@ class Desk:
                 res = list(ex.map(self._resolve_brief, people))
         else:
             res = [None] * len(people)
+        # One row per ledger person: people often write from two addresses
+        # (netid@ and first.last@), which resolve to the same record.
+        by_id: dict[str, dict[str, Any]] = {}
         for p, r in zip(people, res, strict=True):
-            out.append({**p, "ledger": r})
+            rid = (r or {}).get("id")
+            if rid and rid in by_id:
+                row = by_id[rid]
+                row["addrs"].append(p["addr"])
+                row["roles"] = sorted(
+                    set(row["roles"]) | set(p["roles"]), key=["from", "to", "cc"].index
+                )
+                row["sent"] += p["sent"]
+                continue
+            row = {**p, "addrs": [p["addr"]], "ledger": r}
+            out.append(row)
+            if rid:
+                by_id[rid] = row
         return {"key": key, "people": out, "ledger": self.ledger.enabled}
 
     def _resolve_brief(self, p: dict[str, Any]) -> dict[str, Any] | None:

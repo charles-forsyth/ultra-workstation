@@ -301,6 +301,37 @@ def test_desk_people_tab_lists_everyone(tmp_path):
     assert by["dee@partner.test"]["ledger"] is None
 
 
+def test_people_tab_merges_two_addresses_of_one_person(tmp_path):
+    led = DemoLedger()
+    orig = led.resolve
+    led.resolve = lambda addr, name="": orig(  # type: ignore[method-assign]
+        "ben@example.org" if addr in ("ben@example.org", "b.carter@example.org") else addr, name
+    )
+    msgs = _msgs() + [
+        {
+            "from": "Ben Carter <b.carter@example.org>",
+            "to": ME,
+            "subject": "x",
+            "ts": "2026-09-29T15:00:00+00:00",
+            "body": "y",
+        }
+    ]
+    desk = Desk(
+        Store(tmp_path / "d.db"),
+        _rules(),
+        led,
+        DemoWriter(led),
+        lambda key: {"key": key, "messages": msgs},
+        "UTC",
+        "adal",
+    )
+    r = desk.r_people({}, None, _m("g-t1"))
+    bens = [p for p in r["people"] if (p["ledger"] or {}).get("id") == BEN]
+    assert len(bens) == 1
+    assert sorted(bens[0]["addrs"]) == ["b.carter@example.org", "ben@example.org"]
+    assert bens[0]["sent"] == 2
+
+
 def test_desk_log_commit_with_readback(tmp_path):
     desk, w = _desk(tmp_path)
     desk.r_bucket_add({}, {"kind": "conversation", "key": "g-t1"}, None)

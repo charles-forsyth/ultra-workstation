@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.35 of the spec; app at v0.15.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, and the Board; see the delivery plan in section 19)
+Status: v0.36 of the spec; app at v0.16.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -449,23 +449,37 @@ four columns. Code: `board.py`, `static/board.js`; tests `tests/test_v015_board.
   interactions. Drag stream items onto nodes to add them to the bucket with that link.
   For exploring back story, not for triage.
 
-### 7.7 Keyboard
+### 7.7 Keyboard (as built, v0.16)
+
+One table, `static/keys.js`, drives the help panel (`?`, the top-bar `?` button, the
+palette) and the README Keys section; `tests/test_v016_polish.py` fails if a handled
+key is missing from the table, a documented key has no handler, or the README drops
+one.
 
 | Key | Action | Key | Action |
 |---|---|---|---|
-| j / k | next / previous item | e | archive (with undo toast) |
-| Enter | open | r / a / f | reply / reply all / forward |
-| b | add to bucket | l | log (bucket or current item) |
-| t | task | c | calendar block |
-| s | ask summary | d | draft with AI |
-| m / w | Mine / Waiting filter | g d / g b / g t | Desk / Board / Today |
-| / | search | Ctrl-K | palette |
-| Ctrl-Enter | approve (in composer) | ? | help overlay |
-| n | search Nexus for selection | g r | Research panel |
-| p | read aloud (play/pause) | Shift-p | AI voice summary dialog |
+| j / k | next / previous item | c | compose a new email (works with nothing open) |
+| Enter | open the selected item | o | Board |
+| / | search mail | d | Day |
+| Ctrl-K | palette | g | Today |
+| Esc | close the open view or dialog | n | Ledger tab |
+| r / a / f | reply / reply all / forward (item) | m / w / T | stream Mine / Waiting / Tasks |
+| s | AI summary (item) | R | refresh mail and Slack |
+| h | Ask Hermes (item) | ? | keyboard help |
+| e | archive / complete task / Slack done (item) | Ctrl-Enter | Ask (in the Ask box) |
+| b / l / t | bucket / log / task (item) | | |
 
-Destructive or external actions are never on a single unmodified key: archive has undo,
-send needs the two-step flow.
+Keys fire only outside text boxes and when no dialog is open. Any key with Ctrl, Alt or
+Meta is left to the browser (so Ctrl-R reloads, never replies), except Ctrl-K.
+
+Destructive or external actions are never on a single unmodified key: archive and task
+complete have Undo, sending needs the two-step flow, ledger writes open a card.
+
+Not built from the original plan: two-key `g d / g b / g t / g r` view keys (single
+keys `o`, `g`, `d`, `n` instead), `p` / `Shift-p` read-aloud keys (Listen buttons
+instead), `n` for "search Nexus for selection" (`n` opens the Ledger tab; selection
+search is on the selection toolbar), `d` for "draft with AI" (Draft Studio button),
+Ctrl-Enter to approve (approval stays a click by design).
 
 ### 7.8 Export, copy and selection tools
 
@@ -1648,16 +1662,16 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v0.12 Ledger tab (shipped 0.12.0) | Full dashboard for the ledger tool: home (counts, activity, tasks, overdue, going-cold people), browse/search every entity type, entity pages with links/history/tasks/cited briefing, task board, interactions (edit via `interactions edit`, link/unlink), org tree, GCP audit and cost reports, graph health (`doctor`); writes only through allow-listed commands with review cards, read-back, double confirmation for destructive or bulk changes; ledger additions each on their own reviewed PR |
 | v0.13 Ask Hermes (shipped 0.13.0) | Section 7.12: Ask Hermes on stream rows, threads, tickets, Slack, tasks, calendar meetings, Day plan and report, Ledger entity pages, research reports, selections and the palette; context preview; follow-ups in one Hermes session tagged `ultra`; read-only toolset allow-list (no memory/skill writes); web per question; journaled without text |
 | v0.14 Answers into cards (shipped 0.14.0) | Section 7.12: Use as reply (email/Slack draft as an AI version, both approvals), Log it and Task from it (normal staged cards with the item's people as chips), + Bucket |
-| v1.0 | Polish, keyboard help, docs, public release |
+| v1.0 polish (shipped 0.16.0) | Keyboard help panel from one table (7.7), modifier keys left to the browser, Esc closes Day, README rewritten for a new user (features, Google tokens both routes, optional tools, keys, commands, development), Q1 and Q3 decided. The version number 1.0.0 is the operator's call. |
 | v1.x | Graph view, Slack Web API backend (S-1) |
 
 ## 20. Open items
 
 | Id | Item | Notes |
 |---|---|---|
-| Q1 | Final name and CLI command | Working: "Ultra AI Workstation Desktop", repo `ultra-workstation`, command `ultra`. |
+| Q1 | Final name and CLI command | DECIDED (operator, 2026-10-01): "Ultra AI Workstation Desktop", repo `ultra-workstation`, command `ultra`. |
 | Q2 | Default port | DECIDED: 7440, in use since v0.1 (the operator's other dashboard uses 7420). |
-| Q3 | Reuse existing Google tokens or mint app-specific ones | Config supports both; app-specific is cleaner for a public tool. |
+| Q3 | Reuse existing Google tokens or mint app-specific ones | DECIDED (operator, 2026-10-01): the operator keeps reusing his existing per-capability token files; the README documents minting app-specific tokens (`ultra auth google --capability read/modify/send/calendar` with your own OAuth client) as the route for new installs. |
 | S-1 | Slack send has a model in the path | Mitigated by exact-text prompt, send-only tool list and verification read. A user-token Web API backend would remove it. |
 | S-2 | Slack read cadence and cost | Each refresh is a `claude -p` run; 15 min while open is the proposal. |
 | L-1 | Ledger reads are slow (6-10 s per call) | RESOLVED without ledger changes (v0.7.1): the Full context tab combines `dossier --json`, `search --json` and `tasks list --json` in parallel. Remaining ledger-side gaps, optional: dossier omits tasks linked to the person (it fetches them but only emits them under connections when present), and `search` has no type filter. |
@@ -1674,6 +1688,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 0.36 | App v0.16.0 (7.7, 19, 20): v1.0 polish. Keyboard help panel (`?`, top-bar button, palette) from one table in `static/keys.js`, kept in step with the handlers and README by tests; Ctrl/Alt/Meta keys left to the browser (Ctrl-R used to trigger Reply on an open item); Esc closes Day. Section 7.7 rewritten as built, with the unbuilt plan keys listed. README rewritten. Q1 and Q3 decided. |
 | 2026-10-01 | 0.35 | App v0.15.0 (7.3, 14, 19): the Board. Four columns over the merged stream; Watching is a local flag that lapses on its date; Done card runs only the ticked existing actions; Wait stages a follow-up task card; Nudge makes one new-email draft to a Waiting on person listing their email threads (two approvals to send, person must be on the board). New email now opens in the center pane with no item open (Compose `c` did nothing before). Key `o`. |
 | 2026-10-01 | 0.34 | App v0.14.0 (7.12, 14, 19, 20 U-1): answers into cards. Each Ask Hermes answer has Use as reply (email/Slack; saved as an AI version in the item's draft, still two approvals), Log it and Task from it (new `POST /api/ledger/stage-answer`: normal single-use staged card, item's people as chips, task text = first line), and + Bucket. The panel itself never writes or sends. U-1 done. |
 | 2026-10-01 | 0.33 | App v0.13.1 (7.12, 20 H-1): the Ask allow-list drops the workspace entry. v0.13.0 listed it under a name that never started the server (`mcp-google_workspace`; `-t` matches the config key `google_workspace`), so no mail tools ever loaded. Under its real name the server brings send and delete tools, so the operator chose to leave mail and calendar tools out; H-1 decided. Config that names it falls back to `session_search`. Also: a calendar test that used the real clock (it broke after 14:00 on 2026-10-01) now pins the time. |

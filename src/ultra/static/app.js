@@ -3,6 +3,7 @@
 
 import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent, openDraftById } from "./compose.js";
 import { initBoard, openBoard, closeBoard, boardOpen } from "./board.js";
+import { toggleHelp, helpOpen } from "./keys.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, openPersonByAddr } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
@@ -615,7 +616,10 @@ function wire() {
 
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); palette(); return; }
-    if (e.target.matches("input, textarea, select") || !$("#review").hidden || !$("#palette").hidden || !$("#ledger-card").hidden || !$("#ask").hidden) return;
+    if (e.key === "Escape" && helpOpen()) { toggleHelp(); return; }
+    // Browser and OS shortcuts (Ctrl+R, Ctrl+F, Ctrl+C, Ctrl+A, Alt+...) are never ours
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.matches("input, textarea, select, [contenteditable=true]") || !$("#review").hidden || !$("#palette").hidden || !$("#ledger-card").hidden || !$("#ask").hidden || helpOpen()) return;
     const it = S.items[S.sel];
     const click = (a) => { const b = $(`#thread [data-a="${a}"]`); if (b && !b.disabled) b.click(); };
     if (it && S.key === it.key) {
@@ -632,12 +636,13 @@ function wire() {
     if (e.key === "c") { e.preventDefault(); composeNew(); return; }
     if (e.key === "o") { e.preventDefault(); boardOpen() ? closeBoard() : openBoard(); return; }
     if (e.key === "Escape" && boardOpen()) { closeBoard(); return; }
-    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, h ask Hermes, c compose, o Board, m Mine, w Waiting, g Today, d Day, n Ledger, Esc close, Ctrl+K commands"); return; }
+    if (e.key === "?") { e.preventDefault(); toggleHelp(); return; }
     if (e.key === "g") { e.preventDefault(); todayOpen() ? closeToday() : openToday(); return; }
     if (e.key === "d") { e.preventDefault(); dayOpen() ? closeDay() : openDay(); return; }
     if (e.key === "n") { e.preventDefault(); ledgerTabOpen() ? closeLedgerTab() : openLedgerTab(); return; }
     if (e.key === "Escape" && todayOpen()) { closeToday(); return; }
     if (e.key === "Escape" && ledgerTabOpen()) { closeLedgerTab(); return; }
+    if (e.key === "Escape" && dayOpen()) { closeDay(); return; }
     if (e.key === "j") { S.sel = Math.min(S.items.length - 1, S.sel + 1); renderStream(); }
     else if (e.key === "k") { S.sel = Math.max(0, S.sel - 1); renderStream(); }
     else if (e.key === "Enter" && S.sel >= 0) openItem(S.sel);
@@ -651,6 +656,7 @@ function wire() {
   $("#btn-right").onclick = () => drawer("#right");
   $("#scrim").onclick = closeDrawers;
   $("#btn-palette").onclick = () => palette();
+  $("#btn-help").onclick = () => toggleHelp();
   $("#btn-refresh").onclick = (e) => busy(e.currentTarget, async () => {
     await api("/api/refresh", { method: "POST", body: { what: "all" } });
     toast("Refreshing mail" + (S.slackOn ? " and Slack" : "") + "...");
@@ -663,6 +669,7 @@ function commands() {
   const it = S.items[S.sel];
   const c = [
     { t: "Compose new email", k: "c", run: () => composeNew() },
+    { t: "Keyboard shortcuts", k: "?", run: () => toggleHelp() },
     { t: "Board: my court, waiting on, watching, done", k: "o", run: () => openBoard() },
     { t: "Refresh everything", k: "Shift+R", run: () => $("#btn-refresh").click() },
     { t: "Log the bucket", run: () => stage("log") },

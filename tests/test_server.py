@@ -110,7 +110,11 @@ def test_demo_stream_filters(srv):
     port, _ = srv
     _, _, raw = req(port, "GET", "/api/stream?filter=waiting")
     items = json.loads(raw)["items"]
-    assert items and all(i["court"] == "WAITING" for i in items)
+    assert items and all(
+        i["court"] == "WAITING" or (i["source"] == "task" and i["status"] == "BLOCKED")
+        for i in items
+    )
+    assert any(i["court"] == "WAITING" for i in items)
     _, _, raw = req(port, "GET", "/api/stream?filter=slack")
     assert all(i["source"] == "slack" for i in json.loads(raw)["items"])
 

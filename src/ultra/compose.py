@@ -684,6 +684,11 @@ class Composer:
                 )
             self.store.journal("send_failed", str(did), False, str(e)[:300])
             return
+        # Store the Slack result BEFORE flipping to SENT: a reader that sees SENT must also
+        # see whether it was verified (the old order left a window where SENT had no
+        # result, which a poller could show as unverified; it also made a test flaky).
+        if d["kind"] == "slack":
+            self.store.cache_put(f"draft:{did}:sent_result", result)
         with self._db() as c:
             c.execute(
                 "UPDATE drafts SET state='SENT', sent_message_id=?, updated_at=? WHERE id=?",
@@ -704,8 +709,6 @@ class Composer:
                 "permalink": result.get("permalink", ""),
             },
         )
-        if d["kind"] == "slack":
-            self.store.cache_put(f"draft:{did}:sent_result", result)
         self._delete_gmail_draft(d)
 
     # ---------------------------------------------------------------- gmail drafts

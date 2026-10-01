@@ -15,7 +15,8 @@ Pipeline, per mail thread (key ``g-<threadId>``):
 4. draft (AI): body plus a claim map (sentence -> source ids).
 5. check (AI + rules): each claim against its source; unsupported claims default to Cut.
 
-Starts when a thread is opened (``POST /api/studio/start``) and runs in the background;
+Starts when asked (``POST /api/studio/start``: the Gather context button, Draft with AI,
+or Email from this task; v0.12.1 no longer starts it on open) and runs in the background;
 the page polls ``GET /api/studio/<key>``. Everything is cached per thread version.
 Model output only ever becomes a DRAFT version; nothing here approves or sends.
 

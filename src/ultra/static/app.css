@@ -322,7 +322,14 @@ li.ix.unlinked { opacity: .85; }
 .item:hover .ract, .item.sel .ract, .item:focus-within .ract { opacity: 1; max-height: 30px; }
 .item .ra { background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; color: var(--dim); font-size: 11px; padding: 1px 7px; cursor: pointer; }
 .item .ra:hover { color: var(--cyan); border-color: var(--cyan); }
+.item .ra.ra-arch:hover { color: var(--amber); border-color: var(--amber); }
 @media (hover: none) { .item .ract { opacity: 1; max-height: 30px; } }  /* phones: always shown */
+/* Archive / Done sits on the first line of every row, always visible, so a row can be
+   archived from the list without opening it (the other row actions still show on hover). */
+.item { position: relative; }
+.item .ra-quick { position: absolute; top: 6px; right: 6px; opacity: .55; }
+.item:hover .ra-quick, .item.sel .ra-quick, .item .ra-quick:focus { opacity: 1; }
+.item .row1 .age { margin-right: 64px; }
 
 /* ---- v0.8 item context: People + Full ---- */
 .chip-s { display: inline-block; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 6px; margin: 2px 2px 0 0; font-size: 11px; color: var(--text); }

@@ -63,7 +63,11 @@ if TYPE_CHECKING:
 
 FILTERS = {
     "mine": lambda it: it["court"] == "MINE",
-    "waiting": lambda it: it["court"] == "WAITING",
+    # a BLOCKED ledger task is waiting on someone else (the operator files waits as
+    # BLOCKED, with who in the text), so it shows here as well as under Tasks
+    "waiting": lambda it: (
+        it["court"] == "WAITING" or (it["source"] == "task" and it.get("status") == "BLOCKED")
+    ),
     "all": lambda it: it["court"] in ("MINE", "WAITING", "FYI", "TASK"),
     "slack": lambda it: it["source"] == "slack",
     "tasks": lambda it: it["source"] == "task",

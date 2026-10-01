@@ -123,3 +123,18 @@ def test_demo_tasks_filter_complete_and_slack_done():
     assert api.dispatch("GET", "/api/stream", {"filter": ["slack"]}, None)[1]["items"] == []
     _call(api, "POST", "/api/slack/undone", {"key": slack[0]["key"]})
     assert len(api.dispatch("GET", "/api/stream", {"filter": ["slack"]}, None)[1]["items"]) == 1
+
+
+def test_blocked_tasks_show_under_waiting_and_tasks_but_not_mine(tmp_path):
+    """The operator files "waiting on someone" as BLOCKED; those belong in Waiting."""
+    from ultra.live import FILTERS
+
+    s = Store(tmp_path / "s.db")
+    rows = {r["status"]: r for r in task_rows(_tasks(), s)}
+    blocked, todo = rows["BLOCKED"], rows["TODO"]
+    assert FILTERS["waiting"](blocked) and not FILTERS["waiting"](todo)
+    assert FILTERS["tasks"](blocked) and FILTERS["tasks"](todo)
+    assert not FILTERS["mine"](blocked) and not FILTERS["mine"](todo)
+    mail_waiting = {"court": "WAITING", "source": "mail"}
+    mail_mine = {"court": "MINE", "source": "mail", "status": "BLOCKED"}
+    assert FILTERS["waiting"](mail_waiting) and not FILTERS["waiting"](mail_mine)

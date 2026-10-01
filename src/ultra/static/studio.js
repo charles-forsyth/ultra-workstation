@@ -11,13 +11,34 @@ const STAGE_LABEL = { thread: "Thread", history: "History", precedents: "Your pa
 const TASK_LABEL = { ...STAGE_LABEL, thread: "Task", history: "Related mail", precedents: "Your past emails" };
 const isTask = () => (ST.key || "").startsWith("t-");
 
-export function studioStart(key) {
+// Opening an item no longer starts the gather + brief (operator's call: it spent model
+// calls and time on items he only reads or archives). The strip shows a button; the run
+// starts only when it is clicked, when "Draft with AI" needs it (the composer starts it
+// on demand), or when run=true (e.g. "Email from this task"). A run already made for
+// this item is shown as is.
+export function studioStart(key, { run = false } = {}) {
   stopPoll();
   ST.key = key; ST.data = null; ST.answers = {}; ST.draft = null; ST.check = null;
   const host = $("#studio");
   if (!host) return;
   if (!key || !(key.startsWith("g-") || key.startsWith("t-"))) { host.hidden = true; return; }
   host.hidden = false;
+  if (run) return studioRun(key);
+  host.innerHTML = idleStrip();
+  $("#st-go", host)?.addEventListener("click", () => studioRun(key));
+  api(`/api/studio/${encodeURIComponent(key)}`)
+    .then((r) => { if (ST.key === key && r.state && r.state !== "idle") { ST.data = r; render(); schedule(); } })
+    .catch(() => {});
+}
+
+function idleStrip() {
+  return `<div class="st-strip"><b>Draft Studio</b><span class="dim small-t">Reads the thread, history, your past replies and policy pages, then writes a brief.</span><span class="grow"></span>
+    <button class="btn tiny ai" id="st-go" title="Gather context and build a brief (uses AI)">Gather context</button></div>`;
+}
+
+function studioRun(key) {
+  const host = $("#studio"); if (!host) return;
+  ST.autoOpened = false;
   host.innerHTML = `<div class="st-strip dim small-t">Draft Studio: starting...</div>`;
   api("/api/studio/start", { method: "POST", body: { key } })
     .then((r) => { if (ST.key === key) { ST.data = r; render(); schedule(); } })

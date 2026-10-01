@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.29 of the spec; app at v0.12.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, and the Ledger tab with reviewed writes; see the delivery plan in section 19)
+Status: v0.30 of the spec; app at v0.12.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, and the Ledger tab with reviewed writes; see the delivery plan in section 19)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -940,8 +940,11 @@ replies and match them, check policy on the real source page, flag anything
 unverified, and ask me before stating a fact you can't cite." Draft Studio makes those
 steps the pipeline, not a hope in a prompt.
 
-**Starts on open.** Opening a mail item starts the gather in the background (no click),
-so the brief is ready by the time the operator has read the message. Results are cached
+**Starts when asked (since v0.12.1).** Opening a mail item shows the strip with a
+Gather context button; nothing runs until it is clicked, Draft with AI needs the brief,
+or Email from this task opens it. (v0.9.5-v0.12.0 started on every open; the operator
+turned that off: it spent model calls and time on items only read or archived.) A run
+already made for the item is shown as it is. Results are cached
 per thread and message count; a new message in the thread rebuilds them. Progress shows
 in a small strip on the thread ("Thread / People / Past replies / Sources / Brief").
 Target: brief ready in under 20 s for a typical thread; each stage renders as it lands.
@@ -1492,6 +1495,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 0.30 | App v0.12.1 (sections 7.1, 9.6): Draft Studio no longer gathers on open (operator: wasted model calls and time on items only read or archived); it starts from its Gather context button, from Draft with AI, or from Email from this task. Archive (mail, tickets) / Done (Slack) on every stream row, always visible, so items can be cleared without opening them; Undo in the toast. BLOCKED ledger tasks also show under Waiting (the operator files waits as BLOCKED). |
 | 2026-10-01 | 0.29 | App v0.12.0 (sections 7.11, 8.4): Ledger tab (home, browse, search, entity pages with cited briefing, task board, interactions, org, health and audit reports) with 25 allow-listed writes through review cards, single-use tokens, two confirmations for destructive changes and read-back; `people add` stays on the Add to ledger button only. Reads and writes use the ledger's new local server when it runs (0.3-2 s instead of 6-10 s). |
 | 2026-09-30 | 0.28 | App v0.11.0 (sections 7.8, 8.1): mail search, labels, attachments, composer files in the approval hash, send-as, highlights and notes, thread export. Attachments are addressed by MIME partId because Gmail's attachmentId changes on every read (found by the live check). |
 | 2026-09-30 | 0.27a | App v0.10.1: Google API clients are cached per thread. The shared client's HTTP transport (httplib2) is not thread-safe; concurrent requests (for example People and Full for one item) could fail with TLS "record layer" or "NoneType has no attribute close" errors. Found by the live check of meeting prep. |

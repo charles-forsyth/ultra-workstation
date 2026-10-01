@@ -149,7 +149,10 @@ function renderStream() {
 // (Dragging still works; these are for when you'd rather click.)
 function rowActs(it) {
   const task = it.source === "task";
-  return `<div class="ract" role="group" aria-label="Actions">
+  const arch = it.source === "slack"
+    ? `<button class="ra ra-arch ra-quick" data-ra="archive" title="Mark done: hide until someone writes again (nothing is sent)">Done</button>`
+    : threadsOf(it).length ? `<button class="ra ra-arch ra-quick" data-ra="archive" title="Archive (leaves the inbox; Undo in the toast)">Archive</button>` : "";
+  return `${arch}<div class="ract" role="group" aria-label="Actions">
     <button class="ra" data-ra="bucket" title="Add to bucket">+ Bucket</button>
     <button class="ra" data-ra="log" title="${task ? "Log progress on this task" : "Log this conversation in the ledger"}">Log</button>
     ${task ? "" : `<button class="ra" data-ra="task" title="Make a ledger task from it">Task</button>`}
@@ -158,6 +161,7 @@ function rowActs(it) {
 }
 
 async function rowAction(a, it) {
+  if (a === "archive") return it.source === "slack" ? slackDone(it, { keepOpen: true }) : archive(it, { keepOpen: true });
   if (a === "block") {
     window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));
     return;
@@ -272,7 +276,7 @@ async function openItem(i) {
     $('[data-a="listen"]', th).onclick = () => readAloud(th);
     $('[data-a="aiaudio"]', th).onclick = () => audioDialog({ thread: it.key }, it.subject || "Conversation");
     setToolsThread(it.key, it.subject);
-    if (S.aiOn && isMail) studioStart(it.key); else studioStart(null);  // gather + brief start on open
+    if (S.aiOn && isMail) studioStart(it.key); else studioStart(null);  // idle: runs only when asked
     $('[data-a="log"]', th).onclick = () => stage("log", it.key);
     $('[data-a="task"]', th).onclick = () => stage("task", it.key);
     $('[data-a="block"]', th).onclick = () => window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));
@@ -359,19 +363,28 @@ function quoteIntoReply(text) {
 }
 
 // ---------------------------------------------------------------- slack done
-async function slackDone(it) {
+async function slackDone(it, { keepOpen = false } = {}) {
   await api("/api/slack/done", { method: "POST", body: { key: it.key } });
-  removeRow(it);
+  removeRow(it, keepOpen);
   toast("Marked done. It comes back if someone writes again.", "ok", {
     label: "Undo", fn: async () => { await api("/api/slack/undone", { method: "POST", body: { key: it.key } }); loadStream(true); },
   });
 }
 
-function removeRow(it) {
+// Take a row out of the stream. From a row button (keepOpen) the open conversation stays
+// open unless it is the one removed; from the thread view the next one opens.
+function removeRow(it, keepOpen = false) {
   const idx = S.items.findIndex((x) => x.key === it.key);
+  const openKey = S.key;
   S.items = S.items.filter((x) => x.key !== it.key);
+  if (keepOpen && openKey && openKey !== it.key) {
+    S.sel = S.items.findIndex((x) => x.key === openKey);
+    renderStream();
+    return;
+  }
   S.sel = Math.min(idx, S.items.length - 1);
   renderStream();
+  if (keepOpen && !openKey) return;
   if (S.sel >= 0) openItem(S.sel); else { $("#thread").hidden = true; $("#thread-empty").hidden = false; }
 }
 
@@ -432,7 +445,7 @@ async function openTask(i) {
     if (a === "bucket") { addEntityToBucket({ id: t.id, name: t.summary, type: "Task" }); return; }
     if (a === "log") { stageTaskLog(t, d.links); return; }
     if (a === "block") { window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: `t-${t.id}`, subject: t.summary } })); return; }
-    if (a === "email") { studioStart(`t-${t.id}`); $("#studio")?.scrollIntoView({ block: "nearest" }); return; }
+    if (a === "email") { studioStart(`t-${t.id}`, { run: true }); $("#studio")?.scrollIntoView({ block: "nearest" }); return; }
     busy(b, async () => {
       if (a === "complete") {
         if (!confirm(`Mark this task DONE in the ledger?\n\n${t.summary}`)) return;
@@ -479,16 +492,12 @@ function threadsOf(it) {
   return it.threads || [];
 }
 
-async function archive(it) {
+async function archive(it, { keepOpen = false } = {}) {
   if (S.demo) { toast("Demo mode: nothing is archived."); return; }
   const tids = threadsOf(it);
   if (!tids.length) return;
   await api("/api/mail/archive", { method: "POST", body: { threads: tids } });
-  const idx = S.items.findIndex((x) => x.key === it.key);
-  S.items = S.items.filter((x) => x.key !== it.key);
-  S.sel = Math.min(idx, S.items.length - 1);
-  renderStream();
-  if (S.sel >= 0) openItem(S.sel); else { $("#thread").hidden = true; $("#thread-empty").hidden = false; }
+  removeRow(it, keepOpen);
   toast(`Archived "${(it.subject || "").slice(0, 40)}"`, "ok", {
     label: "Undo",
     fn: async () => {

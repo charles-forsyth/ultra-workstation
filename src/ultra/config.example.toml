@@ -88,6 +88,16 @@ price_in_per_1m = 0.0
 price_out_per_1m = 0.0
 chunk_chars = 3500
 
+[hermes]
+# Ask Hermes: read-only questions to your own Hermes Agent about what is on screen.
+enabled = true
+binary = "hermes"
+toolsets = ["session_search"]          # pick from: session_search, mcp-google_workspace
+allow_web = true                       # shows the per-question "Allow web" tick
+source = "ultra"                       # session tag in your Hermes session list
+max_turns = 25
+budget_seconds = 300
+
 [research]
 enabled = true
 binary = "deep-research"

@@ -101,6 +101,9 @@ def run(cfg: Config) -> list[Check]:
         if os.getenv("ANTHROPIC_API_KEY"):
             note += "; ANTHROPIC_API_KEY is set here, Ultra removes it for Slack calls"
         out.append(Check("slack (claude)", ok, note))
+    if cfg.get("hermes", "enabled", True):
+        ok, d = _tool_version(str(cfg.get("hermes", "binary", "hermes")), ["--version"])
+        out.append(Check("hermes (Ask Hermes)", ok, d))
     ff = shutil.which("ffmpeg")
     out.append(Check("ffmpeg", bool(ff), "found (MP3 audio)" if ff else "missing (WAV only)"))
     return out

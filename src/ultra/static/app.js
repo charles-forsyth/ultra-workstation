@@ -9,6 +9,7 @@ import { initToday, openToday, closeToday, todayOpen } from "./today.js";
 import { initLedgerTab, openLedgerTab, closeLedgerTab, ledgerTabOpen } from "./ltab.js";
 import { studioStart } from "./studio.js";
 import { initSearch, labelMenu, attHtml, wireAttachments, loadNotes, addHighlight, wireHighlightClicks, exportMenu } from "./mailx.js";
+import { initAsk, openAsk, askButton } from "./ask.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -157,10 +158,12 @@ function rowActs(it) {
     <button class="ra" data-ra="log" title="${task ? "Log progress on this task" : "Log this conversation in the ledger"}">Log</button>
     ${task ? "" : `<button class="ra" data-ra="task" title="Make a ledger task from it">Task</button>`}
     <button class="ra" data-ra="block" title="Block time for it on your calendar">Block</button>
+    <button class="ra ra-ask" data-ra="ask" title="Ask Hermes about it (read-only)">Ask</button>
   </div>`;
 }
 
 async function rowAction(a, it) {
+  if (a === "ask") { closeDrawers(); return openAsk({ type: "item", key: it.key }, it.subject || ""); }
   if (a === "archive") return it.source === "slack" ? slackDone(it, { keepOpen: true }) : archive(it, { keepOpen: true });
   if (a === "block") {
     window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));
@@ -230,6 +233,7 @@ async function openItem(i) {
         <button class="btn small" data-a="reply_all" ${mailOnly} title="Reply all (a)">Reply all</button>
         <button class="btn small" data-a="forward" ${mailOnly} title="Forward (f)">Forward</button>
         <button class="btn small ai" data-a="summary" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="AI summary (s)">Summarize</button>
+        ${askButton("btn small ai")}
         <button class="btn small" data-a="archive" ${isMail || it.key.startsWith("k-") ? "" : mailOnly} title="Archive (e). Never deletes.">Archive</button>
         <button class="btn small" data-a="labels" ${isMail ? "" : mailOnly} title="Add or remove Gmail labels">Labels</button>
         <button class="btn small" data-a="copy">Copy</button>
@@ -267,6 +271,7 @@ async function openItem(i) {
       ra.hidden = true; fw.hidden = true;
     }
     const sb = $('[data-a="summary"]', th); sb.onclick = () => busy(sb, () => summarize(it));
+    $("[data-ask]", th).onclick = () => openAsk({ type: "item", key: it.key }, it.subject || "");
     const lb = $('[data-a="labels"]', th); lb.onclick = () => busy(lb, () => labelMenu(lb, it));
     const xb = $('[data-a="export"]', th); xb.onclick = () => exportMenu(xb, it.subject || "", t.messages || []);
     if (isMail) wireAttachments(th, () => Number($("#composer")?.dataset.did || 0));
@@ -309,6 +314,7 @@ function wireSelection(th, it) {
       <span class="more"><button class="btn tiny" data-s="more">More</button>
         <span class="more-menu" hidden>
           <button class="btn tiny ai" data-s="explain">Explain</button>
+          <button class="btn tiny ai" data-s="ask">Ask Hermes</button>
           <button class="btn tiny" data-s="rsearch">Search research</button>
           <button class="btn tiny" data-s="research">Research this...</button>
           <button class="btn tiny" data-s="read">Read aloud</button>
@@ -326,6 +332,7 @@ function wireSelection(th, it) {
       else if (a === "bucket") addSnippet(text, it.key, it.subject, it.ts);
       else if (a === "web") webSearch(text.slice(0, 1000));
       else if (a === "explain") explain(text);
+      else if (a === "ask") openAsk({ type: "text", text: text.slice(0, 20000), key: it.key, title: `Selection in ${it.subject || "item"}` }, `Selection: ${text.slice(0, 60)}`);
       else if (a === "rsearch") researchSearch(text.slice(0, 500));
       else if (a === "research") launcher(text.slice(0, 2000));
       else if (a === "read") readAloud(null, text);
@@ -424,6 +431,7 @@ async function openTask(i) {
       <button class="btn small" data-t="bucket" title="Add to bucket (b)">+ Bucket</button>
       <button class="btn small" data-t="block" title="Block time for this task on your calendar">Block time</button>
       <button class="btn small" data-t="copy">Copy</button>
+      ${askButton("btn small ai").replace('data-ask="1"', 'data-ask="1" data-t="ask"')}
       <button class="btn small ai" data-t="email" title="Draft an email that moves this task forward: Draft Studio reads the task, related mail, your past emails, policy pages and the ledger" ${S.aiOn ? "" : "disabled"}>Draft email</button>
     </div>
     <section class="studio" id="studio" hidden></section>
@@ -445,6 +453,7 @@ async function openTask(i) {
     if (a === "bucket") { addEntityToBucket({ id: t.id, name: t.summary, type: "Task" }); return; }
     if (a === "log") { stageTaskLog(t, d.links); return; }
     if (a === "block") { window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: `t-${t.id}`, subject: t.summary } })); return; }
+    if (a === "ask") { openAsk({ type: "item", key: `t-${t.id}` }, t.summary); return; }
     if (a === "email") { studioStart(`t-${t.id}`, { run: true }); $("#studio")?.scrollIntoView({ block: "nearest" }); return; }
     busy(b, async () => {
       if (a === "complete") {
@@ -604,7 +613,7 @@ function wire() {
 
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); palette(); return; }
-    if (e.target.matches("input, textarea, select") || !$("#review").hidden || !$("#palette").hidden || !$("#ledger-card").hidden) return;
+    if (e.target.matches("input, textarea, select") || !$("#review").hidden || !$("#palette").hidden || !$("#ledger-card").hidden || !$("#ask").hidden) return;
     const it = S.items[S.sel];
     const click = (a) => { const b = $(`#thread [data-a="${a}"]`); if (b && !b.disabled) b.click(); };
     if (it && S.key === it.key) {
@@ -616,9 +625,10 @@ function wire() {
       if (e.key === "b") { e.preventDefault(); click("bucket"); return; }
       if (e.key === "l") { e.preventDefault(); const tl = $('#thread [data-t="log"]'); if (tl) tl.click(); else click("log"); return; }
       if (e.key === "t") { e.preventDefault(); click("task"); return; }
+      if (e.key === "h") { e.preventDefault(); const hb = $("#thread [data-ask]"); if (hb && !hb.disabled) hb.click(); return; }
     }
     if (e.key === "c") { e.preventDefault(); openDraft("new", null).catch((x) => toast(x.message, "err")); return; }
-    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, c compose, m Mine, w Waiting, g Today, d Day, n Ledger, Esc close, Ctrl+K commands"); return; }
+    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, h ask Hermes, c compose, m Mine, w Waiting, g Today, d Day, n Ledger, Esc close, Ctrl+K commands"); return; }
     if (e.key === "g") { e.preventDefault(); todayOpen() ? closeToday() : openToday(); return; }
     if (e.key === "d") { e.preventDefault(); dayOpen() ? closeDay() : openDay(); return; }
     if (e.key === "n") { e.preventDefault(); ledgerTabOpen() ? closeLedgerTab() : openLedgerTab(); return; }
@@ -656,6 +666,7 @@ function commands() {
     { t: "Web search...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tw-q")?.focus(); } },
     { t: "Search past research...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tr-q")?.focus(); } },
     { t: "New deep research...", run: () => launcher("") },
+    { t: "Ask Hermes (no item attached)...", run: () => openAsk({ type: "none" }, "") },
     { t: "Today (calendar)", run: () => openToday() },
     { t: "Ledger: home", k: "n", run: () => openLedgerTab("home") },
     { t: "Ledger: task board", run: () => openLedgerTab("tasks") },
@@ -667,6 +678,7 @@ function commands() {
     ...["mine", "waiting", "all", "tasks", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
   if (it && S.key === it.key) {
+    c.unshift({ t: `Ask Hermes about: ${it.subject || ""}`.slice(0, 90), k: "h", run: () => openAsk({ type: "item", key: it.key }, it.subject || "") });
     for (const [a, label, k] of [["reply", "Reply", "r"], ["reply_all", "Reply all", "a"], ["forward", "Forward", "f"], ["summary", "Summarize with AI", "s"], ["archive", "Archive", "e"], ["copy", "Copy thread", ""], ["bucket", "Add to bucket", "b"], ["log", "Log in ledger", "l"], ["task", "Ledger task", "t"]]) {
       c.unshift({ t: `${label}: ${it.subject || ""}`.slice(0, 90), k, run: () => $(`#thread [data-a="${a}"]`)?.click() });
     }
@@ -723,7 +735,7 @@ async function boot() {
     }
     else if (d?.thread_id) stageAfterSend("g-" + d.thread_id);
   });
-  initRail(); wireSearch(); initTools();
+  initRail(); wireSearch(); initTools(); initAsk();
   initSearch({
     onResults: (r) => {
       S.search = r; S.items = r.items || []; S.sel = S.items.length ? 0 : -1;

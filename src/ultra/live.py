@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from ultra import google_auth
 from ultra.ai import AI, AIError
+from ultra.ask import AskDesk
 from ultra.audio import Audio
 from ultra.calendar import Calendar
 from ultra.compose import ComposeError, Composer, gmail_send
@@ -24,6 +25,7 @@ from ultra.config import Config, data_dir, expand, private_dir
 from ultra.day import Day
 from ultra.desk import Desk
 from ultra.drafttools import compare, cut_sentences, tidy
+from ultra.hermes import Hermes
 from ultra.itemctx import ItemContext
 from ultra.itemdesk import ItemDesk
 from ultra.learn import EditLearner
@@ -192,6 +194,16 @@ class Live:
             self.operator,
             now=lambda: datetime.now(self.calendar.tz).replace(tzinfo=None),
         )
+        # v0.13 Ask Hermes: read-only questions to the operator's own agent
+        self.hermes = Hermes(cfg, self.store)
+        self.ask = AskDesk(
+            self.hermes,
+            self._ask_item,
+            self._ask_full,
+            self._ask_day,
+            self._ask_entity,
+            self._ask_report,
+        )
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jl = threading.Lock()
@@ -249,6 +261,7 @@ class Live:
         self.day.register(api)
         self.studio.register(api)
         self.ledgertab.register(api)
+        self.ask.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -300,6 +313,39 @@ class Live:
         api.add("POST", r"/api/notes", self.r_note_add)
         api.add("POST", r"/api/notes/(\d+)", self.r_note_update)
         api.add("POST", r"/api/notes/(\d+)/delete", self.r_note_del)
+
+    # ---------------------------------------------------------------- Ask Hermes glue
+    def _ask_item(self, key: str) -> tuple[str, list[dict[str, Any]], Any]:
+        msgs, task = self.itemdesk._item(key)
+        title = (task or {}).get("summary") or next(
+            (str(x.get("subject")) for x in msgs if x.get("subject")), key
+        )
+        return str(title), msgs, task
+
+    def _ask_full(self, key: str, msgs: list[dict[str, Any]], task: Any) -> str:
+        from ultra.itemctx import context_text
+
+        if not self.ledger.enabled:
+            return ""
+        return context_text(self.ictx.full(key, msgs, task))
+
+    def _ask_day(self, view: str, day: str) -> str:
+        if view == "report":
+            return self.day.report_text(self.day.report(day))
+        return self.day.plan_text(self.day.plan(day))
+
+    def _ask_entity(self, kind: str, key: str) -> tuple[str, str]:
+        page = self.ledgertab.r_entity({"kind": [kind], "key": [key]}, None, None)  # type: ignore[arg-type]
+        rec = page.get("record") or {}
+        title = str(rec.get("name") or rec.get("summary") or rec.get("project_id") or key)
+        text, _ = self.ledgertab._brief_context(page)
+        return title, text
+
+    def _ask_report(self, rid: int) -> tuple[str, str]:
+        from ultra.research import report_text
+
+        d = self.research.show(rid)
+        return f"Research #{rid}: {str(d.get('prompt', ''))[:160]}", report_text(d)
 
     # ---------------------------------------------------------------- Draft Studio glue
     def _studio_ledger(self, key: str, msgs: list[dict[str, Any]]) -> str:

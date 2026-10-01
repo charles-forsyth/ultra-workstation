@@ -4,6 +4,7 @@
 // card you review and commit.
 
 import { api, esc, toast, busy, copyText } from "./app.js";
+import { askButton, openAsk } from "./ask.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const D = { open: false, tab: "plan", day: null, onOpen: null, onClose: null, plan: null, report: null };
@@ -72,7 +73,7 @@ function renderPlan() {
   th.innerHTML = head() + `
     ${(p.warnings || []).map((w) => `<div class="warnline">${esc(w)}</div>`).join("")}
     <div class="day-sum">${p.meetings.length} meetings (${(p.meeting_minutes / 60).toFixed(1)} h) &middot; ${p.free.reduce((a, f) => a + f.minutes, 0)} min free in work hours &middot; ${p.mine_count} items are your move &middot; ${p.open_tasks} open tasks</div>
-    <div class="pacts"><button class="btn small ai" id="day-note">AI read of the day</button><button class="btn small" id="day-copy">Copy plan</button><button class="btn small" id="day-listen">Listen</button></div>
+    <div class="pacts"><button class="btn small ai" id="day-note">AI read of the day</button><button class="btn small" id="day-copy">Copy plan</button><button class="btn small" id="day-listen">Listen</button>${askButton("btn small ai")}</div>
     <div id="day-note-out"></div>
     ${sec("Meetings", p.meetings.length ? `<ul class="day-list">${p.meetings.map((m) => `<li>${esc(tOf(m.start))}-${esc(tOf(m.end))} <b>${esc(m.summary)}</b>${m.attendees > 1 ? ` <span class="dim small-t">${m.attendees} people</span>` : ""}${m.response === "needsAction" ? ` <span class="badge warn">not answered</span>` : ""}${m.mine ? ` <span class="badge dim">your block</span>` : ""}</li>`).join("")}</ul>` : `<div class="dim small-t">No meetings.</div>`)}
     ${sec("Suggested focus blocks", p.blocks.length ? `<ul class="day-list">${p.blocks.map((b, i) => `<li>${esc(b.label)} ${esc(b.title)} <button class="btn tiny" data-block="${i}" title="Open the block card for this slot (nothing is added until you confirm there)">Block it</button></li>`).join("")}</ul><div class="dim small-t">Free: ${p.free.map((f) => esc(f.label)).join(", ")}</div>` : (p.free.length ? `<div class="dim small-t">Free: ${p.free.map((f) => esc(f.label)).join(", ")}</div>` : `<div class="dim small-t">No free time left in work hours.</div>`))}
@@ -89,6 +90,7 @@ function renderPlan() {
     if (li) { closeDay(); D.openItem?.(li.dataset.key); }
   };
   $("#day-copy").onclick = () => copyText(p.text);
+  th.querySelector(".pacts [data-ask]").onclick = (ev) => { ev.stopPropagation(); openAsk({ type: "day", view: "plan", day: p.day }, `Plan for ${p.day}`); };
   $("#day-listen").onclick = () => window.dispatchEvent(new CustomEvent("ultra:listen", { detail: { text: p.text, title: `Plan for ${p.day}` } }));
   $("#day-note").onclick = (e) => busy(e.currentTarget, async () => {
     const out = $("#day-note-out");
@@ -105,13 +107,14 @@ function renderReport() {
   const sections = ["Sent", "Ledger", "Triage", "Calendar", "Research", "Other"].filter((s) => (r.sections[s] || []).length);
   th.innerHTML = head() + `
     <div class="day-sum">${r.day} &middot; ${r.counts.sent || 0} sent &middot; ${r.counts.archive || 0} archived &middot; ${r.counts.ledger_log || 0} logged &middot; ${r.counts.ledger_task_status || 0} task changes${r.failures ? ` &middot; <span class="badge warn">${r.failures} failed actions</span>` : ""}</div>
-    <div class="pacts"><button class="btn small" id="rep-copy">Copy</button><button class="btn small" id="rep-listen">Listen</button><button class="btn small primary" id="rep-log" title="Save as a ledger log (you review it on the card first)">Save to ledger</button></div>
+    <div class="pacts"><button class="btn small" id="rep-copy">Copy</button><button class="btn small" id="rep-listen">Listen</button>${askButton("btn small ai")}<button class="btn small primary" id="rep-log" title="Save as a ledger log (you review it on the card first)">Save to ledger</button></div>
     <textarea id="rep-text" rows="14" class="rep-text">${esc(r.text)}</textarea>
     <div class="dim small-t">Edit freely; Copy, Listen and Save use what is in the box.</div>
     ${sections.map((s) => `<section class="day-sec"><div class="label">${s} <span class="dim">${r.sections[s].length}</span></div><ul class="day-list">${r.sections[s].map((x) => `<li><span class="mono dim small-t">${esc(x.time)}</span> ${esc(x.text)}${x.ok ? "" : ` <span class="badge warn">failed</span>`}</li>`).join("")}</ul></section>`).join("") || `<div class="dim">Nothing in Ultra's journal for today yet.</div>`}`;
   wireHead();
   const text = () => $("#rep-text").value;
   $("#rep-copy").onclick = () => copyText(text());
+  th.querySelector(".pacts [data-ask]").onclick = () => openAsk({ type: "day", view: "report", day: r.day }, `End of day ${r.day}`);
   $("#rep-listen").onclick = () => window.dispatchEvent(new CustomEvent("ultra:listen", { detail: { text: text(), title: `End of day ${r.day}` } }));
   $("#rep-log").onclick = (e) => busy(e.currentTarget, async () => {
     window.dispatchEvent(new CustomEvent("ultra:stage-text", { detail: { text: text(), title: `End of day ${r.day}` } }));

@@ -585,3 +585,5 @@ mark.hl { color: inherit; border-radius: 2px; padding: 0 1px; cursor: pointer; }
   .ask-opts #ask-go { padding: 8px 22px; font-size: 14px; }
   .ask-a .aisum-head .btn { padding: 5px 10px; }
 }
+.ask-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; padding-top: 6px; border-top: 1px dashed rgba(232, 121, 249, .35); }
+@media (max-width: 800px) { .ask-acts .btn { padding: 5px 10px; } }

@@ -4,7 +4,7 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, ask, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger.
 
-Status: v0.16.0. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
+Status: v1.0.0. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
 delivery plan, section 21 the change log).
 
 Nothing in this repo contains credentials or personal data. Runtime config and tokens

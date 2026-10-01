@@ -310,6 +310,40 @@ class AI:
         )
         return self._gen(f"<mail>\n{context_text}\n</mail>", system, 3000, require_complete=True)
 
+    def entity_brief(self, context: str, kind: str, operator: str) -> Result:
+        """Cited briefing on one ledger record (v0.12 Ledger tab entity page).
+
+        ``context`` lists the record, its links and its interactions, each with an id.
+        Every claim must cite one: [L:abcd1234] interaction, [T:abcd1234] task,
+        [E:abcd1234] any other linked record. Returns Markdown, shown as an editable
+        draft that is never saved to the ledger unless the operator logs it.
+        """
+        system = (
+            f"You brief {operator or 'the operator'} on one {kind} in their work ledger: "
+            "what it is, who is involved, what has happened, and what is open. "
+            + GUARD.replace("email content", "ledger records")
+            + " Write in plain ASCII (no smart quotes, no em dashes, no emoji). "
+            "Use exactly these Markdown sections, in order:\n"
+            "## Who or what this is\n(2-3 sentences)\n"
+            "## Relationships\n(bullets: the people, labs, projects, grants and assets it "
+            "is linked to, and how)\n"
+            "## History\n(bullets, oldest to newest: date and what happened)\n"
+            "## Open items\n(bullets: open tasks and unresolved threads)\n"
+            "## Suggested next steps\n(1-3 bullets for the operator)\n"
+            "Cite every factual bullet with the id prefix given in the data: [L:abcd1234] "
+            "for an interaction, [T:abcd1234] for a task, [E:abcd1234] for another record. "
+            + (
+                f"Never write ticket keys that start with {self.hide_prefix}. "
+                if self.hide_prefix
+                else ""
+            )
+            + "Use only facts in the data; if something is unclear or missing, say so. "
+            "Do not guess dates, roles or amounts. Names are as written in the data. "
+            "Keep it under 450 words: at most 8 bullets per section; when there are many "
+            "links or logs, summarize the pattern and cite the clearest examples."
+        )
+        return self._gen(f"<mail>\n{context}\n</mail>", system, 4000, require_complete=True)
+
     def possible_matches(
         self, item_text: str, candidates: list[dict[str, Any]], known: list[str]
     ) -> list[dict[str, Any]]:

@@ -29,6 +29,7 @@ from ultra.itemdesk import ItemDesk
 from ultra.learn import EditLearner
 from ultra.ledger import Ledger, LedgerError
 from ultra.ledger_write import LedgerWriter
+from ultra.ledgertab import LedgerTab, LedgerTabWriter
 from ultra.lint import ascii_fix, load_style
 from ultra.mail import Mail
 from ultra.mailx import (
@@ -178,6 +179,15 @@ class Live:
             task_fn=self._studio_task,
         )
         self.show_tasks = bool(cfg.get("ledger", "tasks_in_stream", True))
+        # v0.12 Ledger tab: its own writer with its own allow-list and two-step tokens
+        self.ledgertab = LedgerTab(
+            self.ledger,
+            LedgerTabWriter(self.ledger, self.store),
+            self.store,
+            self.ai,
+            self.operator,
+            now=lambda: datetime.now(self.calendar.tz).replace(tzinfo=None),
+        )
         self.pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="ultra")
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jl = threading.Lock()
@@ -234,6 +244,7 @@ class Live:
         self.today.register(api)
         self.day.register(api)
         self.studio.register(api)
+        self.ledgertab.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)

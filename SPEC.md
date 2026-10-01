@@ -1,9 +1,9 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.18 of the spec; app at v0.9.0 (mail read + write with double approval, AI summary/draft/revise, archive + undo, tickets, court rules, context tabs for everyone on a conversation, bucket and ledger log/task writes with read-back, Slack read)
+Status: v0.29 of the spec; app at v0.12.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, and the Ledger tab with reviewed writes; see the delivery plan in section 19)
 Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
-Last updated: 2026-09-29
+Last updated: 2026-10-01
 
 This document is public. It must never contain real names, email addresses, NetIDs,
 Slack IDs, billing or project IDs, ticket numbers, or anything else specific to one
@@ -591,6 +591,53 @@ AI voice (Gemini TTS, costs money, cached)
   `ultra purge --audio` deletes them.
 - Model ids and prices are config values (`[audio]`), not hard-coded.
 
+### 7.11 Ledger tab
+
+A full dashboard for the ledger tool, opened from the top-bar Ledger button, `n`, or
+the palette. It fills the centre pane like Day and Today.
+
+- **Source.** Reads go through the ledger's local server (`nexus serve`, 8.4) when it
+  is running, otherwise the CLI. The header shows which. All reads use the existing
+  read allow-list and cache; Refresh bypasses the cache.
+- **Home.** Counts per entity type, open and overdue tasks, logs this week, the
+  overdue list, the next due dates, blocked tasks and recent interactions. Dates use
+  the server clock.
+- **Browse and search.** Lists for people, labs and units, GCP projects, projects,
+  grants and assets, with a filter; full-graph search from the header.
+- **Entity pages.** The record (including details, cached cloud scan, documents and
+  links), its connections grouped by type (each with Unlink), open tasks, interactions,
+  the write actions allowed for that kind, and an AI briefing. The briefing is written
+  from the page's data only, cites ids as `[E:xxxxxxxx]` / `[L:...]` / `[T:...]`,
+  flags any cited id that is not in the data, is editable and is never saved unless
+  logged. Citation chips jump to the source row.
+- **Task board.** TODO, In progress, Blocked; sorted by priority then due date;
+  overdue cards marked. Dragging a card to another column opens a review card.
+- **Interactions.** Filter by text and start date; log a new one.
+- **Org.** Unit tree with leads and members.
+- **Health and audit.** Graph health (`doctor`, read-only; fixes stay in the terminal),
+  relationship health (cold and stale people), and the GCP audit (live, slow). They run
+  as background jobs; the result is cached.
+
+Writes:
+
+- Allow-list (25): add/update/delete tasks (with due dates), log, correct an
+  interaction (`interactions edit`, keeps the prior text), delete an interaction,
+  link, unlink, update/tag/delete people, add/update/delete labs, add/delete projects,
+  add/remove project documents, add/delete GCP projects, grants and assets.
+  **Not allowed:** `people add` (only the Add to ledger button, 7.2), and anything
+  the ledger server refuses (db-reset, init, doctor fixes, sync, bulk changes).
+- Every write is two steps. Review validates the form, re-resolves every entity to a
+  full UUID or exact key, builds the exact command, and returns a card in plain
+  language with a single-use token bound to that command (5 minutes). Commit takes only
+  the token; nothing sent at commit can change the command.
+- Destructive writes (every delete, unlink, document removal) need a second, separate
+  confirmation: review returns `confirm_1`, a separate click exchanges it for
+  `confirm_2`, and the final button arms after 2 s. Each token is single use.
+- After every write the record is read back and the card says what the ledger holds
+  (fields match, interaction id and links, record gone). Never retried. Journaled.
+- Text goes on stdin, never the command line. Text with `[` is checked so the ledger's
+  own printing cannot fail after a write.
+
 ## 8. Adapters
 
 ### 8.1 Mail (Gmail API)
@@ -790,7 +837,16 @@ Writes (only after a staged card is committed):
   and asks for confirmation (the CLI prompts, so the adapter pipes the confirmation
   only after the operator has confirmed in the UI).
 - Close task: `nexus tasks update <uuid> --status DONE`.
-- The app never calls destructive ledger commands (`delete`, `db-reset`) in v1.
+- The desk never calls destructive ledger commands. The Ledger tab (7.11) may run
+  single-record deletes and unlinks, only after two confirmations; `db-reset`, `init`,
+  doctor fixes, sync and bulk commands are never available.
+- **Local server (v0.12).** When `nexus serve` is running (127.0.0.1, token file
+  `~/.config/nexus/serve.token`), every read and write goes through it: one warm
+  process, so calls take 0.3-2 s instead of 6-10 s. Ultra's own allow-lists, review
+  cards and read-backs apply unchanged. If the server is down the CLI is used. A write
+  whose outcome is unknown (connection lost after sending) is never re-sent through
+  the CLI; it is reported as unknown so the operator can check, because a retry could
+  make a duplicate.
 
 ### 8.5 Tickets (ServiceNow notifications in email)
 
@@ -1410,7 +1466,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | v0.9.5 Draft Studio (shipped 0.9.5) | Section 9.6: gather on open (thread, 120-day history per participant, Full context, 2-3 precedents from Sent, work notes, policy pages), private policy sources with 24 h cache (site sitemaps, fixed pages, public ServiceNow KB via the portal page API), house facts, brief with asks / constraints / audience / known / unknown / risks, question cards before drafting, draft with claim map, claim check (cut by default) plus rule checks, source-side review, send-then-log with follow-up task, suggestions from edits |
 | v0.10 Calendar (shipped 0.10.0) | Week view with "Needs your answer"; RSVP with one confirm and a bound single-use token; meetings with guests through two approvals (hash-locked invite, review with busy/unknown/external guests, 10-minute single-use token, read-back); meeting prep from item context (`c-` item keys: People, Full, cited briefing); log a meeting through the staged card; weekly repeating Ultra blocks (RRULE with UNTIL, 26-week cap) and Delete series; sent meetings are never movable |
 | v0.11 Email, rest (shipped 0.11.0) | Mail search with saved searches, labels (user labels only, read-back, Undo), attachments (preview/download/save/attach by partId), composer files in the approval hash with re-hash at send, send-as picker checked at lint and send, highlights and notes, thread export (Markdown/text/JSON/Print). The all-drafts list was dropped by the operator. ServiceNow replies, version diff and Tidy shipped earlier (0.9.8, 0.9.9) |
-| v0.12 Ledger tab | Full dashboard for the ledger tool: home (counts, activity, tasks, overdue, going-cold people), browse/search every entity type, entity pages with links/history/tasks/cited briefing, task board, interactions (edit via `interactions edit`, link/unlink), org tree, GCP audit and cost reports, graph health (`doctor`); writes only through allow-listed commands with review cards, read-back, double confirmation for destructive or bulk changes; ledger additions each on their own reviewed PR |
+| v0.12 Ledger tab (shipped 0.12.0) | Full dashboard for the ledger tool: home (counts, activity, tasks, overdue, going-cold people), browse/search every entity type, entity pages with links/history/tasks/cited briefing, task board, interactions (edit via `interactions edit`, link/unlink), org tree, GCP audit and cost reports, graph health (`doctor`); writes only through allow-listed commands with review cards, read-back, double confirmation for destructive or bulk changes; ledger additions each on their own reviewed PR |
 | v1.0 | Polish, keyboard help, docs, public release |
 | v1.x | Graph view, palette Ask, Slack Web API backend (S-1) |
 
@@ -1436,6 +1492,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 0.29 | App v0.12.0 (sections 7.11, 8.4): Ledger tab (home, browse, search, entity pages with cited briefing, task board, interactions, org, health and audit reports) with 25 allow-listed writes through review cards, single-use tokens, two confirmations for destructive changes and read-back; `people add` stays on the Add to ledger button only. Reads and writes use the ledger's new local server when it runs (0.3-2 s instead of 6-10 s). |
 | 2026-09-30 | 0.28 | App v0.11.0 (sections 7.8, 8.1): mail search, labels, attachments, composer files in the approval hash, send-as, highlights and notes, thread export. Attachments are addressed by MIME partId because Gmail's attachmentId changes on every read (found by the live check). |
 | 2026-09-30 | 0.27a | App v0.10.1: Google API clients are cached per thread. The shared client's HTTP transport (httplib2) is not thread-safe; concurrent requests (for example People and Full for one item) could fail with TLS "record layer" or "NoneType has no attribute close" errors. Found by the live check of meeting prep. |
 | 2026-09-30 | 0.27 | App v0.10.0 (section 7.4): week view, RSVP, meetings with guests through two approvals, meeting prep from item context, meeting log card, weekly repeating blocks. Built before the remaining email items (mail search, labels, attachments, send-as, highlights), which follow as v0.11; the delivery table is renumbered. Ultra-sent meetings are excluded from block moves and deletes. |

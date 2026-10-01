@@ -16,6 +16,7 @@ import threading
 from typing import Any
 
 from ultra.config import Config
+from ultra.ledger_serve import ServeClient, ServeError, ServeUnavailable
 from ultra.store import Store
 
 TTL_PERSON = 86400
@@ -41,7 +42,31 @@ READ_COMMANDS = {  # the only subcommands this adapter will ever run
     ("projects", "list"),
     ("grants", "list"),
     ("assets", "list"),
+    # v0.12 Ledger tab (all read-only; each has --json)
+    ("labs", "show"),
+    ("projects", "show"),
+    ("grants", "show"),
+    ("assets", "show"),
+    ("stats",),
+    ("org", "show"),
+    ("doctor",),
+    ("ship", "status"),
+    ("gcp", "audit-report"),
 }
+# Flags a read may never carry (they write files or change the ledger)
+READ_DENIED_FLAGS = (
+    "--fix",
+    "--fix-safe",
+    "--force",
+    "--draft",
+    "--output",
+    "-o",
+    "--html",
+    "--pdf",
+    "--save-json",
+    "--save-csv",
+    "--save-table",
+)
 
 
 class LedgerError(Exception):
@@ -60,21 +85,38 @@ class Ledger:
         self.state: dict[str, Any] = {"ok": None, "error": ""}
         self._inflight: dict[str, threading.Event] = {}
         self._il = threading.Lock()
+        # `nexus serve` when it is running (milliseconds); the CLI otherwise (seconds)
+        self.serve = ServeClient(cfg)
 
     def _run(self, args: list[str], timeout: int = 120) -> Any:
         key = tuple(a for a in args[:2] if not a.startswith("-"))
         if key not in READ_COMMANDS and key[:1] not in READ_COMMANDS:
             raise LedgerError(f"not an allowed read command: {' '.join(args[:2])}")
-        with self.sem:
-            r = subprocess.run(
-                [self.binary, *args, "--json"],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-                stdin=subprocess.DEVNULL,
-            )
-        out = (r.stdout or "").strip()
+        if any(a == f or a.startswith(f + "=") for a in args for f in READ_DENIED_FLAGS):
+            raise LedgerError("that option is not allowed on a ledger read")
+        out = ""
+        done = False
+        if self.serve.available():
+            try:
+                _rc, out, _err = self.serve.run([*args, "--json"], timeout=timeout)
+                out = out.strip()
+                done = True
+            except ServeUnavailable:
+                pass  # nothing ran: use the CLI below
+            except ServeError as e:
+                # reads are safe to repeat, but don't hammer a stuck serve
+                self.serve.mark_down(str(e))
+        if not done:
+            with self.sem:
+                r = subprocess.run(
+                    [self.binary, *args, "--json"],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    stdin=subprocess.DEVNULL,
+                )
+            out = (r.stdout or "").strip()
         if not out.startswith(("{", "[")):
             # e.g. "Researcher x not found." on stdout with exit 0
             self.state = {"ok": True, "error": ""}

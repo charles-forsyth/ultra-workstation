@@ -6,6 +6,7 @@ in demo mode: the adapters are not constructed at all.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -261,6 +262,7 @@ def register(api: Api) -> None:
     _register_desk(api)
     _register_tools(api)
     _register_today(api)
+    _register_ledgertab(api)
 
 
 class DemoResearch:
@@ -353,6 +355,20 @@ class DemoAI:
             0,
             0.0,
         )
+
+    def entity_brief(self, context: str, kind: str, operator: str) -> Any:
+        from ultra.ai import Result
+
+        ids = re.findall(r"\[(L|T|E):([0-9a-f]{8})\]", context)
+        cite = lambda k: next((f"[{a}:{b}]" for a, b in ids if a == k), "")  # noqa: E731
+        md = (
+            f"## Who or what this is\nA {kind} record in the demo ledger {cite('E')}.\n\n"
+            f"## Relationships\n- Linked to the records listed on this page {cite('E')}.\n\n"
+            f"## History\n- The most recent interaction is on record {cite('L')}.\n\n"
+            f"## Open items\n- One open task {cite('T')}.\n\n"
+            "## Suggested next steps\n- Check the open task's due date."
+        )
+        return Result(md, "demo", 0, 0.0)
 
     def briefing(self, context_text: str, operator: str) -> Any:
         from ultra.ai import Result
@@ -1243,6 +1259,556 @@ class DemoWriter:
         self.ledger.added.append({**f, "id": self._id()})
         after = exists(f["netid"])
         return {"ok": bool(after), "rc": 0, "record": after}
+
+
+class DemoLedgerCLI:  # demo double: loose types on purpose (records are plain JSON-ish dicts)
+    """A tiny in-memory ledger that answers the read commands the Ledger tab uses,
+    with invented records only. Writes change it in memory; nothing leaves the process.
+    Enough to exercise every Ledger tab screen and the review/confirm/commit flow."""
+
+    enabled = True
+    binary = "nexus-demo"
+
+    def __init__(self) -> None:
+        from ultra.config import Config
+        from ultra.ledger_serve import ServeClient
+
+        self.serve = ServeClient(Config({"ledger": {"use_serve": False}}))
+        P = "aaaaaaaa-0000-4000-8000-0000000000"
+        self.people: dict[str, dict[str, Any]] = {
+            "bcarter": {
+                "id": P + "01",
+                "netid": "bcarter",
+                "name": "Ben Carter",
+                "title": "Deputy Director",
+                "dept": "Research Computing",
+                "details": {"tags": ["VIP"], "email": "ben@example.org"},
+            },
+            "cdunn": {
+                "id": P + "02",
+                "netid": "cdunn",
+                "name": "Cy Dunn",
+                "title": "Analyst",
+                "dept": "Research Computing",
+                "details": {},
+            },
+            "devans": {
+                "id": P + "03",
+                "netid": "devans",
+                "name": "Dee Evans",
+                "title": "Budget Officer",
+                "dept": "Finance",
+                "details": {},
+            },
+            "adal": {
+                "id": P + "04",
+                "netid": "adal",
+                "name": "Ada Lovelace",
+                "title": "Professor",
+                "dept": "Mathematics",
+                "details": {},
+            },
+        }
+        self.labs: dict[str, dict[str, Any]] = {
+            "Lovelace Lab": {
+                "id": P + "11",
+                "name": "Lovelace Lab",
+                "type": "LAB",
+                "strategic_status": "ALIGNED",
+                "description": "Analytical engines",
+            },
+            "Research Computing": {
+                "id": P + "12",
+                "name": "Research Computing",
+                "type": "DEPARTMENT",
+                "strategic_status": "PENDING",
+                "description": "",
+            },
+        }
+        self.gcp: dict[str, dict[str, Any]] = {
+            "ada-lab": {
+                "id": P + "21",
+                "project_id": "ada-lab",
+                "name": "Ada Lab",
+                "status": "ACTIVE",
+                "details": {},
+                "external_state": {
+                    "data": {
+                        "project_id": "ada-lab",
+                        "scan_time": "2026-09-29T08:00:00",
+                        "services": {"compute": {"cost_30d": 41.2}},
+                    },
+                    "last_updated": "2026-09-29T08:00:00",
+                },
+            }
+        }
+        self.projects: dict[str, dict[str, Any]] = {
+            "Campus Storage": {
+                "id": P + "31",
+                "name": "Campus Storage",
+                "status": "ACTIVE",
+                "details": {
+                    "documents": [{"title": "Plan", "url": "https://docs.example.org/plan"}]
+                },
+            }
+        }
+        self.grants: dict[str, dict[str, Any]] = {
+            "NSF-2400001": {
+                "id": P + "41",
+                "c_number": "NSF-2400001",
+                "title": "Campus storage upgrade",
+                "agency": "NSF",
+            }
+        }
+        self.assets: dict[str, dict[str, Any]] = {
+            "lab-share": {
+                "id": P + "51",
+                "name": "lab-share",
+                "type": "STORAGE",
+                "location": "Data center",
+            }
+        }
+        self.tasks: dict[str, dict[str, Any]] = {
+            P + "61": {
+                "id": P + "61",
+                "summary": "Send Ben the ada-lab handover plan",
+                "status": "TODO",
+                "priority": "HIGH",
+                "due_date": "2026-09-28T17:00:00",
+                "details": {},
+                "assigned_to": None,
+            },
+            P + "62": {
+                "id": P + "62",
+                "summary": "Confirm lab-share move window with Eli",
+                "status": "IN_PROGRESS",
+                "priority": "MEDIUM",
+                "due_date": "2026-10-06T12:00:00",
+                "details": {},
+                "assigned_to": None,
+            },
+            P + "63": {
+                "id": P + "63",
+                "summary": "Budget sign-off from Dee",
+                "status": "BLOCKED",
+                "priority": "CRITICAL",
+                "due_date": None,
+                "details": {},
+                "assigned_to": None,
+            },
+        }
+        self.ix: dict[str, dict[str, Any]] = {
+            P + "71": {
+                "id": P + "71",
+                "date": "2026-09-14T10:00:00",
+                "summary": "Kickoff for the ada-lab cloud project; Ben is the admin contact.",
+                "details": {},
+                "notes": None,
+            },
+            P + "72": {
+                "id": P + "72",
+                "date": "2026-09-28T09:30:00",
+                "summary": "Ben asked for the ada-lab handover plan: APIs first, then owner, "
+                "then billing.",
+                "details": {},
+                "notes": None,
+            },
+            P + "73": {
+                "id": P + "73",
+                "date": "2026-09-22T15:00:00",
+                "summary": "Dee approved the storage budget under NSF-2400001.",
+                "details": {},
+                "notes": None,
+            },
+        }
+        self.edges: list[tuple[str, str, str]] = [
+            (P + "01", P + "71", "PARTICIPATED_IN"),
+            (P + "01", P + "72", "PARTICIPATED_IN"),
+            (P + "03", P + "73", "PARTICIPATED_IN"),
+            (P + "01", P + "12", "MEMBER_OF"),
+            (P + "04", P + "11", "PI_OF"),
+            (P + "61", P + "01", "ASSIGNED_TO"),
+            (P + "11", P + "21", "USES_RESOURCE"),
+            (P + "41", P + "31", "FUNDS"),
+            (P + "31", P + "51", "USES_ASSET"),
+            (P + "62", P + "51", "LINKS_TO"),
+        ]
+        self.n = 0
+
+    # -- lookups
+    def _all(self) -> dict[str, tuple[str, dict[str, Any]]]:
+        out: dict[str, tuple[str, dict[str, Any]]] = {}
+        for t, d in (
+            ("Researcher", self.people),
+            ("Lab", self.labs),
+            ("GCPProject", self.gcp),
+            ("ResearchProject", self.projects),
+            ("Grant", self.grants),
+            ("Asset", self.assets),
+            ("Task", self.tasks),
+            ("Interaction", self.ix),
+        ):
+            for r in d.values():
+                out[r["id"]] = (t, r)
+        return out
+
+    @staticmethod
+    def _name(t: str, r: dict[str, Any]) -> str:
+        if t == "Researcher":
+            return f"{r['name']} ({r['netid']})"
+        return str(r.get("name") or r.get("summary") or r.get("title") or r.get("project_id"))
+
+    def _tree(self, rid: str) -> dict[str, Any]:
+        everything = self._all()
+        conns = []
+        for a, b, kind in self.edges:
+            if rid in (a, b):
+                other = b if a == rid else a
+                if other in everything:
+                    t, r = everything[other]
+                    conns.append(
+                        {
+                            "type": kind,
+                            "role": None,
+                            "id": other,
+                            "entity_type": t,
+                            "name": self._name(t, r),
+                        }
+                    )
+        t, r = everything.get(rid, ("", {}))
+        return {
+            "root": {"id": rid, "type": t, "name": self._name(t, r) if r else ""},
+            "connections": conns,
+        }
+
+    def _run(self, args: list[str], timeout: int = 0) -> Any:
+        from ultra.ledger import READ_COMMANDS, READ_DENIED_FLAGS, LedgerError
+
+        key = tuple(a for a in args[:2] if not a.startswith("-"))
+        if key not in READ_COMMANDS and key[:1] not in READ_COMMANDS:
+            raise LedgerError(f"not an allowed read command: {' '.join(args[:2])}")
+        if any(a == f for a in args for f in READ_DENIED_FLAGS):
+            raise LedgerError("that option is not allowed on a ledger read")
+        a0 = args[0]
+        a1 = args[1] if len(args) > 1 else ""
+        arg = args[2] if len(args) > 2 else ""
+        if a0 == "stats":
+            open_t = [t for t in self.tasks.values() if t["status"] != "DONE"]
+            return {
+                "counts": {
+                    "researchers": len(self.people),
+                    "labs": len(self.labs),
+                    "gcp_projects": len(self.gcp),
+                    "projects": len(self.projects),
+                    "grants": len(self.grants),
+                    "assets": len(self.assets),
+                    "interactions": len(self.ix),
+                    "tasks": len(self.tasks),
+                },
+                "units_by_type": {"LAB": 1, "DEPARTMENT": 1},
+                "tasks_by_status": {
+                    s: sum(1 for t in self.tasks.values() if t["status"] == s)
+                    for s in ("TODO", "IN_PROGRESS", "BLOCKED", "DONE")
+                },
+                "tasks_overdue": sum(
+                    1 for t in open_t if t["due_date"] and t["due_date"] < "2026-09-30"
+                ),
+                "interactions_recent": {"last_7d": 1, "last_30d": 3, "last_90d": 3},
+                "active_grant_value": 250000,
+                "pipeline": {},
+                "strategic_status": {"ALIGNED": 1},
+                "vip_coverage": {"total": 1, "contacted": 1, "score": 100.0},
+            }
+        if a0 == "tasks" and a1 == "list":
+            rows = list(self.tasks.values())
+            if "--all" not in args:
+                rows = [t for t in rows if t["status"] != "DONE"]
+            return [{k: v for k, v in t.items() if k != "details"} for t in rows]
+        if a0 == "tasks" and a1 == "show":
+            return dict(self.tasks[arg]) if arg in self.tasks else None
+        if a0 == "interactions" and a1 == "list":
+            return sorted(
+                (
+                    {"id": i["id"], "date": i["date"], "summary": i["summary"]}
+                    for i in self.ix.values()
+                ),
+                key=lambda x: x["date"],
+                reverse=True,
+            )
+        if a0 == "interactions" and a1 == "show":
+            if arg not in self.ix:
+                return None
+            links = [
+                {
+                    "id": c["id"],
+                    "name": c["name"],
+                    "entity_type": c["entity_type"],
+                    "connection_type": c["type"],
+                }
+                for c in self._tree(arg)["connections"]
+            ]
+            return {**self.ix[arg], "links": links}
+        if a0 == "tree":  # `nexus tree ID`: the id is the second word
+            return self._tree(a1) if a1 in self._all() else {}
+        if a0 == "search":
+            term = a1.lower()
+            return [
+                {"id": rid, "type": t, "name": self._name(t, r), "score": 0.9, "reason": "demo"}
+                for rid, (t, r) in self._all().items()
+                if term and term in self._name(t, r).lower()
+            ][:30]
+        if a1 == "list":
+            d = {
+                "people": self.people,
+                "labs": self.labs,
+                "gcp": self.gcp,
+                "projects": self.projects,
+                "grants": self.grants,
+                "assets": self.assets,
+            }.get(a0)
+            return [
+                {k: v for k, v in r.items() if k not in ("details", "external_state")}
+                for r in (d or {}).values()
+            ]
+        if a1 == "show" and a0 != "org":
+            d = {
+                "people": self.people,
+                "labs": self.labs,
+                "gcp": self.gcp,
+                "projects": self.projects,
+                "grants": self.grants,
+                "assets": self.assets,
+            }.get(a0)
+            r = (d or {}).get(arg)
+            return dict(r) if r else None
+        if a0 == "org":
+            return {
+                "name": arg,
+                "type": "Unit",
+                "id": self.labs.get(arg, {}).get("id"),
+                "leaders": [
+                    {
+                        "name": "Ben Carter",
+                        "netid": "bcarter",
+                        "role": "Deputy Director",
+                        "id": self.people["bcarter"]["id"],
+                    }
+                ],
+                "members": [
+                    {
+                        "name": "Cy Dunn",
+                        "netid": "cdunn",
+                        "role": "Analyst",
+                        "id": self.people["cdunn"]["id"],
+                    }
+                ],
+                "sub_units": [
+                    {
+                        "name": "Lovelace Lab",
+                        "type": "Unit",
+                        "id": self.labs["Lovelace Lab"]["id"],
+                        "leaders": [],
+                        "members": [],
+                        "sub_units": [],
+                    }
+                ],
+            }
+        if a0 == "doctor":
+            return {
+                "researchers_total": 4,
+                "edges_total": len(self.edges),
+                "placeholder_researchers": [],
+                "placeholder_edges": 0,
+                "dangling_edges": [],
+                "dangling_orphaned": 0,
+                "dangling_half_linked": 0,
+                "interactions_total": 3,
+                "orphan_interactions": 0,
+            }
+        if a0 == "ship":
+            return {
+                "threshold_days": 90,
+                "vip_only": False,
+                "counts": {"HEALTHY": 1, "STALE": 0, "COLD": 1},
+                "researchers": [
+                    {
+                        "id": self.people["bcarter"]["id"],
+                        "netid": "bcarter",
+                        "name": "Ben Carter",
+                        "title": "Deputy Director",
+                        "dept": "Research Computing",
+                        "vip": True,
+                        "status": "HEALTHY",
+                        "days_ago": 2,
+                        "last_contact": "2026-09-28T09:30:00",
+                    },
+                    {
+                        "id": self.people["adal"]["id"],
+                        "netid": "adal",
+                        "name": "Ada Lovelace",
+                        "title": "Professor",
+                        "dept": "Mathematics",
+                        "vip": False,
+                        "status": "COLD",
+                        "days_ago": None,
+                        "last_contact": None,
+                    },
+                ],
+            }
+        if a0 == "gcp" and a1 == "audit-report":
+            return [{"project_id": "ada-lab", "zombies": [], "cost_30d": 41.2, "status": "ACTIVE"}]
+        raise LedgerError(f"demo ledger cannot answer {' '.join(args[:2])}")
+
+    # -- the writer's runner: (argv, stdin) -> (rc, output)
+    def write(self, argv: list[str], stdin: str) -> tuple[int, str]:
+        self.n += 1
+        nid = f"bbbbbbbb-0000-4000-8000-{self.n:012x}"
+        a0, a1 = argv[0], argv[1] if len(argv) > 1 else ""
+        rest = argv[argv.index("--") + 1 :] if "--" in argv else []
+        if a0 == "tasks" and a1 == "add":
+            pri = argv[argv.index("--priority") + 1]
+            due = argv[argv.index("--due") + 1] + "T17:00:00" if "--due" in argv else None
+            self.tasks[nid] = {
+                "id": nid,
+                "summary": rest[0],
+                "status": "TODO",
+                "priority": pri,
+                "due_date": due,
+                "details": {},
+                "assigned_to": None,
+            }
+            return 0, json.dumps({"id": nid, "summary": rest[0], "due_date": due})
+        if a0 == "tasks" and a1 == "update":
+            t = self.tasks.get(argv[2])
+            if not t:
+                return 1, "Task not found"
+            for flag, field in (("--status", "status"), ("--priority", "priority")):
+                if flag in argv:
+                    t[field] = argv[argv.index(flag) + 1]
+            if "--due" in argv:
+                t["due_date"] = argv[argv.index("--due") + 1] + "T17:00:00"
+            if "--clear-due" in argv:
+                t["due_date"] = None
+            return 0, f"Updated Task {t['id']}"
+        if a0 in ("tasks", "interactions") and a1 == "delete":
+            d = self.tasks if a0 == "tasks" else self.ix
+            d.pop(argv[2], None)
+            self.edges = [e for e in self.edges if argv[2] not in e[:2]]
+            return 0, "Deleted"
+        if a0 == "log":
+            self.ix[nid] = {
+                "id": nid,
+                "date": argv[argv.index("--date") + 1],
+                "summary": stdin.strip(),
+                "details": {},
+                "notes": None,
+            }
+            i = 0
+            while "--link" in argv[i:]:
+                i = argv.index("--link", i) + 1
+                self.edges.append((argv[i], nid, "PARTICIPATED_IN"))
+            return 0, f"Logged (ID: {nid})"
+        if a0 == "interactions" and a1 == "edit":
+            r = self.ix[argv[2]]
+            if "--summary" in argv:
+                r["details"]["superseded"] = r["summary"]
+                r["summary"] = argv[argv.index("--summary") + 1]
+            return 0, "Updated"
+        if a0 == "link":
+            self.edges.append((argv[1], argv[2], argv[argv.index("--type") + 1]))
+            return 0, "Linked"
+        if a0 == "unlink":
+            self.edges = [e for e in self.edges if {e[0], e[1]} != {argv[1], argv[2]}]
+            return 0, "Unlinked"
+        if a0 == "people" and a1 == "add":
+            title = argv[argv.index("--title") + 1] if "--title" in argv else ""
+            self.people[rest[0]] = {
+                "id": nid,
+                "netid": rest[0],
+                "name": rest[1],
+                "title": title,
+                "dept": "",
+                "details": {},
+            }
+            return 0, f"Added {rest[1]}"
+        if a1 == "update":
+            d = self.people if a0 == "people" else self.labs
+            r = d[argv[2]]
+            i = 0
+            while "--set" in argv[i:]:
+                i = argv.index("--set", i) + 1
+                k, v = argv[i].split("=", 1)
+                if k in r:
+                    r[k] = v
+                else:
+                    r.setdefault("details", {})[k] = v
+            return 0, "Updated"
+        if a0 == "people" and a1 == "tag":
+            self.people[argv[2]].setdefault("details", {}).setdefault("tags", []).append(argv[3])
+            return 0, "Tagged"
+        if a1 == "delete":
+            d = {
+                "people": self.people,
+                "labs": self.labs,
+                "gcp": self.gcp,
+                "projects": self.projects,
+                "grants": self.grants,
+                "assets": self.assets,
+            }[a0]
+            gone: dict[str, Any] | None = d.pop(argv[2], None)
+            if gone:
+                r = gone
+                self.edges = [e for e in self.edges if r["id"] not in e[:2]]
+            return 0, "Deleted"
+        if a0 == "projects" and a1 == "docs":
+            proj = self.projects[argv[3]]
+            docs = proj["details"].setdefault("documents", [])
+            if argv[2] == "add":
+                docs.append({"title": argv[argv.index("--title") + 1], "url": argv[4]})
+            else:
+                proj["details"]["documents"] = [x for x in docs if x["url"] != argv[4]]
+            return 0, "Done"
+        if a1 == "add":
+            d = {
+                "labs": self.labs,
+                "projects": self.projects,
+                "grants": self.grants,
+                "assets": self.assets,
+                "gcp": self.gcp,
+            }[a0]
+            key = argv[2] if a0 == "gcp" else rest[0]
+            d[key] = {
+                "id": nid,
+                "name": key,
+                "project_id": key,
+                "c_number": key,
+                "title": rest[1] if a0 == "grants" else key,
+                "details": {},
+            }
+            return 0, "Added"
+        return 1, "demo ledger: write not supported"
+
+
+def _register_ledgertab(api: Api) -> None:
+    import tempfile
+    from pathlib import Path
+
+    from ultra.ledgertab import LedgerTab, LedgerTabWriter
+    from ultra.store import Store
+
+    store = Store(Path(tempfile.mkdtemp(prefix="ultra-demo-lt-")) / "lt.db")
+    led = DemoLedgerCLI()
+    writer = LedgerTabWriter(led, store, run=led.write)  # type: ignore[arg-type]
+    tab = LedgerTab(
+        led,  # type: ignore[arg-type]
+        writer,
+        store,
+        DemoAI(),
+        "Ada",
+        now=lambda: __import__("datetime").datetime(2026, 9, 30, 10, 0),
+    )
+    api.demo_ledgertab = led  # type: ignore[attr-defined]
+    tab.register(api)
 
 
 def _register_desk(api: Api) -> None:

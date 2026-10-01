@@ -35,6 +35,9 @@ tasks_in_stream = true             # show open ledger tasks in the stream (Tasks
 org_email_domain = "example.org"
 netid_from_local_part = true
 max_parallel = 3
+use_serve = true                   # use `nexus serve` (warm, fast) when it is running
+# serve_url = "http://127.0.0.1:7450"          # loopback only
+# serve_token_file = "~/.config/nexus/serve.token"
 
 [slack]
 enabled = false

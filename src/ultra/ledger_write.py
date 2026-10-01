@@ -23,6 +23,7 @@ from datetime import date
 from typing import Any
 
 from ultra.config import Config
+from ultra.ledger_serve import ServeClient, ServeError, ServeUnavailable
 from ultra.store import Store
 
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -112,6 +113,7 @@ class LedgerWriter:
         self.binary = str(cfg.get("ledger", "binary", "nexus"))
         self.enabled = bool(cfg.get("ledger", "enabled", True)) and bool(shutil.which(self.binary))
         self.lock = threading.Lock()  # one write at a time: keeps ordering obvious
+        self.serve = ServeClient(cfg)
 
     def _env(self) -> dict[str, str]:
         env = dict(os.environ)
@@ -133,6 +135,17 @@ class LedgerWriter:
         if not self.enabled:
             raise WriteError("ledger CLI not found")
         with self.lock:
+            if self.serve.available():
+                try:
+                    rc, out, err = self.serve.run(args, stdin=stdin or "", timeout=timeout)
+                    return rc, clean(out + "\n" + err)
+                except ServeUnavailable:
+                    pass  # serve refused before running anything: the CLI is safe
+                except ServeError as e:
+                    # The write may have happened. Never re-run it (a second `log` is a
+                    # duplicate record); report it and let the read-back decide.
+                    self.serve.mark_down(str(e))
+                    return 1, f"ledger serve: {e}"
             r = subprocess.run(
                 [self.binary, *args],
                 input=stdin if stdin is not None else "",

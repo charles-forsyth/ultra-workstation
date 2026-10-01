@@ -494,3 +494,60 @@ mark.hl { color: inherit; border-radius: 2px; padding: 0 1px; cursor: pointer; }
   body.printing, body.printing .thread, body.printing .msg { background: #fff !important; color: #000 !important; }
   body.printing mark.hl { background: #fff59d !important; }
 }
+
+/* ---- Ledger tab (v0.12) ---- */
+.lt-head { position: sticky; top: 0; background: var(--bg); z-index: 3; padding-bottom: 6px; }
+.lt-q { width: 220px; }
+.lt-title { margin: 4px 0 10px; font-size: 15px; }
+.lt-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 8px 0 12px; }
+.lt-tiles.small { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+.lt-tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; }
+.lt-tile[data-go] { cursor: pointer; }
+.lt-tile[data-go]:hover { border-color: var(--cyan); }
+.lt-tile b { font: 600 20px var(--mono); color: var(--cyan); }
+.lt-tile span { color: var(--dim); font-size: 11.5px; }
+.lt-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.lt-ent { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--line-2); }
+.lt-ent:hover { color: var(--cyan); border-color: var(--cyan); }
+.lt-dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 6px 0; font-size: 12.5px; }
+.lt-dl dt { color: var(--dim); }
+.lt-dl dd { margin: 0; overflow-wrap: anywhere; }
+.lt-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.lt-gap { margin-top: 10px; }
+.lt-nowrap { white-space: nowrap; }
+.lt-cols { align-items: start; }
+.lt-id { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.lt-id .mono { word-break: break-all; }
+.lt-tile.zero b { color: var(--dim); }
+.lt-unlink { margin-left: 6px; opacity: .7; }
+.lt-unlink:hover { opacity: 1; }
+.day-list li:last-child { border-bottom: 0; }
+.lt-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.lt-pre { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 8px; font: 11.5px/1.4 var(--mono); max-height: 320px; overflow: auto; white-space: pre-wrap; }
+.lt-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.lt-col { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; min-height: 120px; }
+.lt-col.over { border-color: var(--cyan); background: var(--cyan-d); }
+.lt-task { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin-top: 6px; cursor: grab; }
+.lt-task.overdue { border-left: 3px solid var(--red); }
+.lt-filters { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.lt-filters .rinput { width: auto; flex: 1 1 180px; }
+.lt-tree { list-style: none; padding-left: 16px; border-left: 1px solid var(--line); margin: 4px 0; }
+.lt-tree li { margin: 6px 0; }
+.lt-form { display: flex; flex-direction: column; gap: 8px; }
+.lt-f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--dim); }
+.lt-f select, .lt-f input[type=date] { background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 4px; padding: 4px 6px; }
+.lt-modal.danger { border-color: var(--red); }
+.lt-cmd { overflow-wrap: anywhere; background: var(--bg-2); padding: 6px; border-radius: 4px; }
+.ls-row.on { background: var(--cyan-d); color: var(--cyan); }
+.flash { animation: ltflash 1.4s ease-out; }
+@keyframes ltflash { from { background: var(--amber-d); } to { background: transparent; } }
+@media (max-width: 760px) {
+  .lt-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lt-tile { padding: 6px; min-width: 0; }
+  .lt-tile span { overflow-wrap: anywhere; }
+  #lt-seg { overflow-x: auto; flex-wrap: nowrap; max-width: 100%; }
+  #lt-seg button { white-space: nowrap; }
+  .lt-board { grid-template-columns: 1fr; }
+  .lt-q { width: 100%; order: 9; }
+  .lt-cols { grid-template-columns: 1fr; }
+}

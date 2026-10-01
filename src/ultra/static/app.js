@@ -6,6 +6,7 @@ import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntit
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
 import { initToday, openToday, closeToday, todayOpen } from "./today.js";
+import { initLedgerTab, openLedgerTab, closeLedgerTab, ledgerTabOpen } from "./ltab.js";
 import { studioStart } from "./studio.js";
 import { initSearch, labelMenu, attHtml, wireAttachments, loadNotes, addHighlight, wireHighlightClicks, exportMenu } from "./mailx.js";
 
@@ -204,6 +205,7 @@ async function openItem(i) {
   const it = S.items[i]; if (!it) return;
   if (todayOpen()) closeToday();
   if (dayOpen()) closeDay();
+  if (ledgerTabOpen()) closeLedgerTab();
   if (it.source === "task") return openTask(i);
   S.sel = i; S.key = it.key; renderStream();
   $("#thread-empty").hidden = true;
@@ -607,10 +609,12 @@ function wire() {
       if (e.key === "t") { e.preventDefault(); click("task"); return; }
     }
     if (e.key === "c") { e.preventDefault(); openDraft("new", null).catch((x) => toast(x.message, "err")); return; }
-    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, c compose, m Mine, w Waiting, g Today, Esc close Today, Ctrl+K commands"); return; }
+    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, c compose, m Mine, w Waiting, g Today, d Day, n Ledger, Esc close, Ctrl+K commands"); return; }
     if (e.key === "g") { e.preventDefault(); todayOpen() ? closeToday() : openToday(); return; }
     if (e.key === "d") { e.preventDefault(); dayOpen() ? closeDay() : openDay(); return; }
+    if (e.key === "n") { e.preventDefault(); ledgerTabOpen() ? closeLedgerTab() : openLedgerTab(); return; }
     if (e.key === "Escape" && todayOpen()) { closeToday(); return; }
+    if (e.key === "Escape" && ledgerTabOpen()) { closeLedgerTab(); return; }
     if (e.key === "j") { S.sel = Math.min(S.items.length - 1, S.sel + 1); renderStream(); }
     else if (e.key === "k") { S.sel = Math.max(0, S.sel - 1); renderStream(); }
     else if (e.key === "Enter" && S.sel >= 0) openItem(S.sel);
@@ -644,6 +648,12 @@ function commands() {
     { t: "Search past research...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tr-q")?.focus(); } },
     { t: "New deep research...", run: () => launcher("") },
     { t: "Today (calendar)", run: () => openToday() },
+    { t: "Ledger: home", k: "n", run: () => openLedgerTab("home") },
+    { t: "Ledger: task board", run: () => openLedgerTab("tasks") },
+    { t: "Ledger: browse people, labs, projects...", run: () => openLedgerTab("browse") },
+    { t: "Ledger: interactions", run: () => openLedgerTab("interactions") },
+    { t: "Ledger: org tree", run: () => openLedgerTab("org") },
+    { t: "Ledger: health and audit reports", run: () => openLedgerTab("reports") },
     { t: "Search mail...", k: "/", run: () => $("#ms-q")?.focus() },
     ...["mine", "waiting", "all", "tasks", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
@@ -718,11 +728,15 @@ async function boot() {
     onClear: () => { if (S.search) { S.search = null; loadStream(); } },
   });
   initToday(S.tz, {
-    onOpen: () => { if (dayOpen()) closeDay(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); S.key = null; S.sel = -1; renderStream(); },
+    onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
+  });
+  initLedgerTab({
+    onOpen: () => { if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
   });
   initDay({
-    onOpen: () => { if (todayOpen()) closeToday(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (todayOpen()) closeToday(); if (ledgerTabOpen()) closeLedgerTab(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
     openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter.", "err"); },
   });

@@ -25,6 +25,7 @@ import datetime as dt
 import html
 import re
 import threading
+import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -197,7 +198,7 @@ class Calendar:
             str(cfg.get("calendar", "day_end", "17:00")),
         )
         self.lock = threading.Lock()
-        self.state: dict[str, Any] = {"ok": None, "error": ""}
+        self.state: dict[str, Any] = {"ok": None, "error": "", "at": None}
 
     # ------------------------------------------------------------ helpers
     def _svc(self) -> Any:
@@ -317,11 +318,17 @@ class Calendar:
                     page = r.get("nextPageToken")
                     if not page:
                         break
-            self.state = {"ok": True, "error": ""}
-        except google_auth.AuthNeeded:
+            self.state = {"ok": True, "error": "", "at": time.time()}
+        except google_auth.AuthNeeded as e:
+            self.state = {
+                "ok": False,
+                "error": str(e)[:300],
+                "at": time.time(),
+                "auth": e.capability,
+            }
             raise
         except Exception as e:
-            self.state = {"ok": False, "error": str(e)[:300]}
+            self.state = {"ok": False, "error": str(e)[:300], "at": time.time()}
             raise CalendarError(f"Calendar read failed: {e}") from e
         return events
 

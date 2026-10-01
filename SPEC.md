@@ -1,7 +1,7 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.30 of the spec; app at v0.12.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, and the Ledger tab with reviewed writes; see the delivery plan in section 19)
-Repo: ultra-workstation (planned public GitHub repo, installed as a uv tool)
+Status: v0.31 of the spec; app at v0.12.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, and the Ledger tab with reviewed writes; see the delivery plan in section 19)
+Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
 
@@ -867,8 +867,10 @@ Writes (only after a staged card is committed):
 
 ### 8.6 AI (Gemini, on demand)
 
-- Uses `GEMINI_API_KEY` from `~/.config/ultra-workstation/.env`. Model and fallback are
-  config values. No call is made unless a button is pressed.
+- Uses `GEMINI_API_KEY` from `~/.config/ultra-workstation/.env`. The model is
+  `[ai] model` (default `gemini-3.8-flash`). There is no fallback model: a failure is
+  shown, never retried on another model (since v0.9.2; `fallback_model` in config is
+  ignored). No call is made unless a button is pressed.
 - Functions:
   - Ask summary: what the latest message asks of the operator, deadlines, who is
     waiting on whom, in 3-6 lines.
@@ -1215,13 +1217,29 @@ Low priority row. VIP list overrides noise.
 
 ### 12.1 Network
 
-- Binds to 127.0.0.1 only. Rejects requests whose peer is not loopback, whose Host is
-  not `127.0.0.1:<port>` or `localhost:<port>`, or whose Origin (when present) differs.
+- Binds to 127.0.0.1 by default. In loopback mode it rejects requests whose peer is not
+  loopback or whose Host is not `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>`.
+- Remote mode (`--host 0.0.0.0` on `start`, `restart` or `serve`; `restart` keeps the
+  previous host when none is given). Clients are admitted by address only, before
+  routing (403 otherwise): this machine always, plus `[server] remote_networks`
+  (default `["192.168.0.0/16", "tailnet:mine"]`). `tailnet:mine` is not a range: it is
+  the addresses of devices owned by the same Tailscale user as this machine, read from
+  `tailscale status --json`; shared-in nodes and other users' devices are refused. An
+  unknown tailnet address triggers at most one refresh a minute, so a new device works
+  without a restart. There is no access key (removed in v0.5.2). `ultra remote` prints
+  the addresses to open. Code: `remote.py`, `guard.py`.
+- Host allow-list in remote mode: IP literals, bare machine names and LAN/tailnet
+  suffixes (`.local`, `.lan`, `.home`, `.home.arpa`, `.localdomain`, `.internal`,
+  `.ts.net`) on the server's port. Public DNS names are always refused (DNS rebinding).
+- On writes, Origin (when present) must match Host and the body must be
+  `application/json` (415 otherwise).
 - Every state-changing request needs a CSRF token (random per server start, delivered
-  in the page, sent as a header). GET requests never change state.
-- Content-Security-Policy: `default-src 'self'; script-src 'self'; frame-src 'self';
-  img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none';
-  base-uri 'none'`.
+  in the page, sent as the `X-Ultra-Token` header, compared in constant time). GET
+  requests never change state.
+- Content-Security-Policy: `default-src 'self'; script-src 'self'; style-src 'self';
+  frame-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self';
+  object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
+  Responses also carry `X-Content-Type-Options: nosniff`.
 
 ### 12.2 Credentials
 
@@ -1291,6 +1309,8 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
 
     [server]
     port = 7440
+    # with --host 0.0.0.0, the clients that may connect (this machine always can)
+    remote_networks = ["192.168.0.0/16", "tailnet:mine"]
     poll_mail_seconds = 120
     poll_slack_minutes = 15
 
@@ -1333,8 +1353,9 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
 
     [ai]
     provider = "gemini"                   # or "none"
-    model = "<model id>"
-    fallback_model = "<model id>"
+    model = ""                            # empty = gemini-3.8-flash
+    fallback_model = ""                   # ignored since v0.9.2 (no fallback)
+    hide_ticket_prefix = ""               # e.g. "INT-": reports never repeat these keys
 
     [audio]
     tts_model = "<gemini tts model id>"
@@ -1353,7 +1374,7 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
 
 ## 14. HTTP API (server)
 
-All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
+All JSON. Writes need `X-Ultra-Token` (the CSRF token, 12.1). Long calls return `202 {job_id}`; poll
 `GET /api/jobs/<id>` (or the page listens on a single SSE stream `/api/events`).
 
 | Method | Path | Purpose |
@@ -1397,17 +1418,30 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 ## 15. CLI
 
-    ultra start [--port N] [--demo]     start the server detached
-    ultra stop | restart | status
+    ultra start [--port N] [--demo] [--host ADDR]
+                                        start the server detached (default 127.0.0.1;
+                                        0.0.0.0 = remote mode, 12.1)
+    ultra restart [--port N] [--demo] [--host ADDR]
+                                        stop and start; keeps the previous host
+    ultra serve [--port N] [--demo] [--host ADDR]
+                                        run in the foreground (Ctrl-C to stop)
+    ultra stop | status
     ultra open                          open the browser at the running server
+    ultra remote                        print the addresses other devices can use
     ultra doctor                        check config, token perms, scopes, nexus, claude,
                                         Slack connector (and ANTHROPIC_API_KEY), Gemini key,
                                         deep-research, ffmpeg
     ultra auth google [--capability read|modify|send|calendar]
-    ultra config init                   write config.example to ~/.config (never overwrites)
-    ultra purge [--cache|--audio|--attachments|--all]
-    ultra journal [--since DATE] [--json]
+    ultra config init                   write example config.toml and style.toml
+                                        (never overwrites)
+    ultra config path                   print the config and data folders
+    ultra purge [--audio] [--uploads] [--attachments]
+                                        delete generated audio, research thread uploads,
+                                        saved mail attachments (drafts' files are kept)
     ultra --version
+
+The journal is read in the Day view (end-of-day report, `.csv` export); there is no
+`journal` command.
 
 ## 16. Error handling and status
 
@@ -1459,7 +1493,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | v0.1 Skeleton | Repo, CLI (start/stop/status/doctor/auth), server with security guard, theme and layout shell (7.0), frontend helpers, demo mode, config loading, gauntlet + CI + gitleaks + check-private |
 | v0.2 Read | Mail stream and threads, Sent, ticket cards, noise row, court rules, context rail via ledger reads, Slack read (cached), status bar, Copy + Export (Markdown, text, HTML, JSON, .eml, Print/PDF) on threads, selection bar with highlights and notes |
 | v0.3 Write (shipped 0.3.0) | Composer with versions + restore, lint (ASCII, forbidden patterns, reply-all drops, external, missing attachment), Gmail draft sync, AI summary/draft/revise (Gemini, on demand), double approval with single-use expiring token and content hash, 15 s send delay + cancel, send verified in Sent, archive + undo, forward, Ctrl-K palette, keyboard r/a/f/s/e/c |
-| v0.35 Write, part 2 | Version diff view, Tidy, astropost parity (search, all-drafts list, labels create/apply, attachments save/preview/attach, send-as picker) |
+| v0.35 Write, part 2 (superseded: diff and Tidy shipped in 0.9.9, the rest in 0.11.0; all-drafts list dropped) | Version diff view, Tidy, astropost parity (search, all-drafts list, labels create/apply, attachments save/preview/attach, send-as picker) |
 | v0.4 Ledger (shipped 0.4.0) | Context rail tabs (People on the whole conversation, Person, Ledger search); bucket (conversations, people, labs, projects, snippets) with drag and drop; staged Log and Task cards with pre-resolved chips (every resolved participant, labs via graph, GCP ids and ticket numbers in the text), deterministic template text, Rewrite with AI; commit through the CLI with UUID-only args, text on stdin, one commit per card, progress steps, read-back, Link now on missing chips; mark task Done; send-then-log; selection bar (Search ledger, Add to bucket, Copy); inbox-only stream by default |
 | v0.45 Listen + Research (shipped 0.5.0) | Read aloud (browser voice, block highlight, rate/voice, prev/next); AI audio (spoken summary or full read, Gemini TTS, cached by text+mode+voice, MP3 via ffmpeg, mode 600, served with HTTP Range, player with speed/download/script, `ultra purge --audio`); Research tab (web search with Google grounding and sources, past-research search, recent runs, report viewer, launcher with estimate, confirm flag, opt-in thread upload); selection bar Copy / Quote in reply / Search ledger / Web search / Add to bucket / More: Explain, Search research, Research this, Read aloud. Highlights with notes and export menus move to v0.46 |
 | v0.5 Slack reply (shipped 0.7.0) | Reply on a Slack conversation opens a Slack composer (target channel and thread fixed from the cached stream row, part of the approval hash); versions, AI draft/revise in chat style (no signature), Fix ASCII, Slack lint (4000 chars, @channel warning); approval 1, review dialog with the model-in-path notice and a 2 s disabled Post button, approval 2 with a single-use token; delay and cancel; send run allowed only slack_send_message, verify run allowed only read tools; the connector's "Sent using Claude" line is ignored when comparing; mismatch or unclear result is shown, never retried; send-then-log card for the conversation |
@@ -1478,7 +1512,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 | Id | Item | Notes |
 |---|---|---|
 | Q1 | Final name and CLI command | Working: "Ultra AI Workstation Desktop", repo `ultra-workstation`, command `ultra`. |
-| Q2 | Default port | 7440 proposed (the operator's other dashboard uses 7420). |
+| Q2 | Default port | DECIDED: 7440, in use since v0.1 (the operator's other dashboard uses 7420). |
 | Q3 | Reuse existing Google tokens or mint app-specific ones | Config supports both; app-specific is cleaner for a public tool. |
 | S-1 | Slack send has a model in the path | Mitigated by exact-text prompt, send-only tool list and verification read. A user-token Web API backend would remove it. |
 | S-2 | Slack read cadence and cost | Each refresh is a `claude -p` run; 15 min while open is the proposal. |
@@ -1495,6 +1529,7 @@ All JSON. Writes need `X-CSRF-Token`. Long calls return `202 {job_id}`; poll
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 0.31 | Docs only, no app change (still v0.12.1). Caught up sections that lagged the change log: 12.1 now describes remote mode (`--host 0.0.0.0`, address allow-list with `tailnet:mine`, no access key, remote Host rules), the real CSRF header `X-Ultra-Token` and the full CSP; 13 adds `[server] remote_networks` and `[ai] hide_ticket_prefix` and marks `fallback_model` ignored; 8.6 says there is no fallback model; 14 header name fixed; 15 adds `serve`, `remote`, `--host` and `config path`, fixes the `purge` flags and drops the never-built `journal` command; 19 marks v0.35 superseded; Q2 decided; header says the repo is public. |
 | 2026-10-01 | 0.30 | App v0.12.1 (sections 7.1, 9.6): Draft Studio no longer gathers on open (operator: wasted model calls and time on items only read or archived); it starts from its Gather context button, from Draft with AI, or from Email from this task. Archive (mail, tickets) / Done (Slack) on every stream row, always visible, so items can be cleared without opening them; Undo in the toast. BLOCKED ledger tasks also show under Waiting (the operator files waits as BLOCKED). |
 | 2026-10-01 | 0.29 | App v0.12.0 (sections 7.11, 8.4): Ledger tab (home, browse, search, entity pages with cited briefing, task board, interactions, org, health and audit reports) with 25 allow-listed writes through review cards, single-use tokens, two confirmations for destructive changes and read-back; `people add` stays on the Add to ledger button only. Reads and writes use the ledger's new local server when it runs (0.3-2 s instead of 6-10 s). |
 | 2026-09-30 | 0.28 | App v0.11.0 (sections 7.8, 8.1): mail search, labels, attachments, composer files in the approval hash, send-as, highlights and notes, thread export. Attachments are addressed by MIME partId because Gmail's attachmentId changes on every read (found by the live check). |

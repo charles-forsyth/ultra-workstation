@@ -18,6 +18,7 @@ export const KEYS = [
   ["t", "Make a ledger task", "Item", "item"],
   ["c", "Compose a new email", "Write", "any"],
   ["o", "Board: my court, waiting on, watching, done", "Views", "any"],
+  ["v", "Graph: your ledger neighborhood", "Views", "any"],
   ["d", "Day: check-in plan and end-of-day report", "Views", "any"],
   ["g", "Today: calendar", "Views", "any"],
   ["n", "Ledger tab", "Views", "any"],

@@ -1,5 +1,5 @@
 /* Ultra layout (SPEC 7.1). */
-#app { position: relative; display: grid; grid-template-rows: 44px 1fr 26px; height: 100vh; overflow: hidden; }
+#app { position: relative; display: grid; grid-template-rows: 44px 1fr 26px; grid-template-columns: minmax(0, 1fr); height: 100vh; overflow: hidden; }
 .topbar { display: flex; align-items: center; gap: 16px; padding: 0 12px; border-bottom: 1px solid var(--line); background: rgba(11, 15, 21, .92); }
 .brand { display: flex; align-items: baseline; gap: 8px; }
 .brand-mark { font: 700 14px var(--mono); color: var(--bg); background: var(--cyan); border-radius: 4px; padding: 0 6px; }
@@ -295,8 +295,14 @@
 .meeting-card a.btn.small:not(.ghost) { background: var(--cyan-d); border-color: var(--cyan); color: var(--cyan); text-decoration: none; }
 @media (max-width: 800px) {
   .tl .ev-m { display: none; }
-  .topbar { gap: 8px; padding: 0 8px; }
+  .topbar { gap: 8px; padding: 0 8px; min-width: 0; }
   .brand-sub { display: none; }
+  /* The view buttons outgrow a phone: scroll them sideways inside the bar instead of
+     letting the bar (and with it the whole grid) grow past the screen. */
+  .top-actions { min-width: 0; overflow-x: auto; scrollbar-width: none; flex: 1 1 auto; }
+  .top-actions > :first-child { margin-left: auto; }  /* right-align without flex-end (which hides the overflow off the left edge) */
+  .top-actions::-webkit-scrollbar { display: none; }
+  .top-actions .btn { flex: 0 0 auto; }
   #btn-palette { padding: 5px 8px; }
   .today-head h2 { font-size: 15px; }
   .today-head .grow { display: none; }
@@ -635,3 +641,26 @@ mark.hl { color: inherit; border-radius: 2px; padding: 0 1px; cursor: pointer; }
 @media (max-width: 700px) { .td-row { grid-template-columns: auto minmax(0, 1fr); } .td-kept { grid-template-columns: minmax(0, 1fr); } .td-why { grid-column: 2; white-space: normal; } .td-kept .td-why { grid-column: 1; } }
 .td-card .lc-head { flex-wrap: wrap; row-gap: 6px; }
 .td-daysbox { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+/* v1.2 Graph */
+.gr-help { margin: 0 0 6px; }
+.gr-wrap { position: relative; height: calc(100vh - 210px); min-height: 420px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-2); overflow: hidden; }
+#gr-svg { width: 100%; height: 100%; display: block; }
+.gr-edge { stroke: var(--line-2); stroke-width: 1; }
+.gr-edge.c { stroke: var(--dim); stroke-opacity: .55; }
+.gr-node { cursor: pointer; outline: none; }
+.gr-node circle { fill: var(--panel); stroke-width: 2; }
+.gr-node text { fill: var(--text); font-size: 11px; paint-order: stroke; stroke: var(--bg-2); stroke-width: 3px; pointer-events: none; }
+.gr-node:hover circle, .gr-node:focus circle, .gr-node.over circle { stroke-width: 4; }
+.gr-node.over circle { fill: var(--cyan-d); }
+.gr-node.center circle { fill: var(--cyan-d); stroke: var(--cyan); }
+.gr-node.center text { font-weight: 700; font-size: 13px; }
+.gr-node.t-Researcher circle { stroke: var(--cyan); }
+.gr-node.t-Lab circle { stroke: var(--green); }
+.gr-node.t-ResearchProject circle { stroke: var(--amber); }
+.gr-node.t-GCPProject circle { stroke: var(--magenta); }
+.gr-node.t-Grant circle { stroke: var(--red); }
+.gr-node.t-Asset circle { stroke: var(--dim); }
+.gr-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line-2); border-radius: 4px; padding: 3px 7px; font-size: 12px; max-width: 320px; z-index: 2; }
+.gr-head .seg button { font-size: 11px; }
+@media (max-width: 800px) { .gr-wrap { height: calc(100vh - 290px); } .gr-head { flex-wrap: wrap; } #gr-sum { flex-basis: 100%; order: 3; } #gr-types { flex-wrap: wrap; } }

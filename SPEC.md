@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.1 of the spec; app at v1.1.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
+Status: v1.2 of the spec; app at v1.2.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -205,6 +205,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `day.py` | Day plan, report, exports |
 | `board.py` | Board |
 | `tidy.py` | Inbox Tidy (rule, preview token, run, Undo) |
+| `graph.py` | Graph view data (ledger trees to nodes and edges) |
 | `hermes.py`, `ask.py` | Hermes adapter; Ask routes and context builders |
 | `research.py`, `tools.py` | deep-research client; research, web search, explain, audio routes |
 | `ai.py`, `audio.py` | Gemini on demand; AI audio (TTS) |
@@ -216,6 +217,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `static/ask.js`, `tools.js`, `mailx.js` | Ask panel; research/web/audio; mail search, labels, notes |
 | `static/keys.js` | keyboard table (help panel, README, tests) |
 | `static/tidy.js` | Inbox Tidy dialog |
+| `static/graph.js` | Graph view (SVG force layout) |
 
 ## 6. Data model (local store)
 
@@ -243,7 +245,7 @@ from the sources and kept in `kv_cache`.
 `kv_cache` key prefixes: `mail:` (inbox and thread cache), `slack:` (stream cache),
 `slackdone:` (Slack Mark done), `tasks:` (ledger tasks in the stream), `snooze:` (task
 snooze on this laptop), `watch:` (Board Watching flag), `draft` (Draft Studio gathers),
-`person:` / `tree:` / `lt:` / `catalog:` (ledger reads), `cal:` (calendar), `research:`,
+`person:` / `tree:` / `lt:` / `catalog:` / `graph:` (ledger reads), `cal:` (calendar), `research:`,
 `audio:`, `search:`.
 
 Staged ledger cards and commit progress live in memory (desk.py), so a card that was
@@ -515,11 +517,31 @@ four columns. Code: `board.py`, `static/board.js`; tests `tests/test_v015_board.
   ledger, and "Ask" (free-text request to the AI adapter, answered as cards: a draft,
   a staged log, a staged task). Ask never executes anything by itself.
 
-### 7.6 Graph (v1.x, optional)
+### 7.6 Graph (v1.2)
 
-- The operator's neighborhood from `nexus tree --json`: people, labs, projects, recent
-  interactions. Drag stream items onto nodes to add them to the bucket with that link.
-  For exploring back story, not for triage.
+A view (top-bar Graph, key `v`, palette, and a Graph button on every Ledger record
+page) of a ledger neighborhood. Code: `graph.py`, `static/graph.js`; tests
+`tests/test_v120_graph.py`. Read only.
+
+- Data: `nexus tree <id> --json` (an allow-listed read), cached 10 minutes. The center
+  is the operator (`[ledger] my_id`) unless a record is chosen. One hop out is drawn
+  at once (about 3 s on the CLI). Links between neighbors and per-node counts need the
+  trees of up to 40 neighbors (labs, projects and people first): those are read in a
+  background thread, 3 at a time (measured: about 75 s for the operator's 145-node
+  neighborhood over the CLI), and the answer says `pending: N`; the page asks again
+  every 4 s and redraws once when they are in. A neighbor whose read fails is cached
+  as having no links, so it is not retried every poll.
+- Nodes: people, labs, GCP projects, research projects, grants, assets (assets hidden
+  by default; each type toggles in the header). Interactions and tasks are not nodes:
+  each node shows how many link to it, and the header shows the center's totals.
+  At most 250 nodes ("first 250 shown").
+- Layout: a small force simulation in plain JS drawn as SVG (no library), center
+  fixed. Names are set with `textContent` only.
+- Actions: click a node to open its Ledger record page (by NetID or name, the keys the
+  ledger's `show` commands take); double-click to center on it; Enter on a focused
+  node opens it. Drag a stream item onto a node to put the item and the record in the
+  bucket, then Log or Task builds the normal staged card. The graph never writes.
+- Ids are validated (UUID or NetID) before any ledger call.
 
 ### 7.7 Keyboard (as built, v0.16)
 
@@ -531,7 +553,7 @@ one.
 | Key | Action | Key | Action |
 |---|---|---|---|
 | j / k | next / previous item | c | compose a new email (works with nothing open) |
-| Enter | open the selected item | o | Board |
+| Enter | open the selected item | o / v | Board / Graph |
 | / | search mail | d | Day |
 | Ctrl-K | palette | g | Today |
 | Esc | close the open view or dialog | n | Ledger tab |
@@ -1613,7 +1635,7 @@ All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` an
 `Content-Type: application/json` (12.1). Long calls return a job id that the page polls.
 There is no SSE stream and no generic jobs route; each feature has its own job route.
 Path parameters are shown as `<name>`; the server matches each with a strict pattern.
-153 route paths as of v1.1.0 (`tests/test_v101_spec.py` fails if one is added without a row
+154 route paths as of v1.2.0 (`tests/test_v101_spec.py` fails if one is added without a row
 here).
 
 **Core** (server.py)
@@ -1748,6 +1770,12 @@ here).
 | POST | `/api/board/watch`, `/api/board/unwatch` | local Watching flag with optional date |
 | POST | `/api/board/nudge` | one new-email draft to a Waiting on person (never sends) |
 
+**Graph** (graph.py; 7.6)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/graph` | nodes and edges around `id` (default: you); `hops`, `hide`, `fresh` |
+
 **Ask Hermes** (ask.py; 7.12)
 
 | Method | Path | Purpose |
@@ -1862,7 +1890,8 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v0.14 Answers into cards (shipped 0.14.0) | Section 7.12: Use as reply (email/Slack draft as an AI version, both approvals), Log it and Task from it (normal staged cards with the item's people as chips), + Bucket |
 | v1.0 (shipped 0.16.0, released as 1.0.0) | Keyboard help panel from one table (7.7), modifier keys left to the browser, Esc closes Day, README rewritten for a new user (features, Google tokens both routes, optional tools, keys, commands, development), Q1 and Q3 decided. The operator called it 1.0 (1.0.0, same code as 0.16.0). |
 | v1.1 Inbox Tidy (shipped 1.1.0) | Section 8.1: rule-based bulk archive with a preview, untick, single-use run token, one Undo |
-| v1.x | Graph view (7.6), Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) |
+| v1.2 Graph (shipped 1.2.0) | Section 7.6: ledger neighborhood as an SVG graph; click to open, double-click to center, drag an item onto a node to bucket both; plus the phone top-bar fix (16) |
+| v1.x | Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) |
 
 ## 20. Open items
 
@@ -1887,6 +1916,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 1.2 | App v1.2.0 (7.6, 7.7, 14, 5.2, 19): Graph view (key `v`, top bar, Graph button on Ledger records). Also fixes a phone layout bug present since the Board button was added: the top-bar buttons were wider than a 390 px screen, which widened the whole page (505 px); they now scroll sideways inside the bar. Ledger tab: one `entityKey` helper decides how a record is opened (NetID / name / UUID), shared with the graph. |
 | 2026-10-01 | 1.1 | App v1.1.0 (8.1, 14, 5.2, 19): Inbox Tidy. Rule-based bulk archive over the stream (keeps Watching, VIP, READY, assigned tickets, your move, today, newer than N days; archives bulk mail and older non-actionable threads), previewed with a reason per row, untick to keep, single-use run token that refuses threads outside the preview, one Undo. Slack and tasks never touched. Demo gains three inbox rows Tidy acts on. |
 | 2026-10-01 | 1.0.2 | App v1.0.1 (16): the status bar's Calendar light now works. The page had never read calendar status (a v0.1 placeholder said "Calendar arrives in v0.6"), so it stayed grey. The server checks today's calendar every 10 minutes while a tab is open and reports ok / error / age, including a missing-token error with the fix command. |
 | 2026-10-01 | 1.0.1 | Docs only, audited against the code. Section 5 redrawn as built (all route groups, Hermes, Board, Studio; no SSE; real runtime files; `remote.key` is a leftover). New 5.2 code map. Section 6 rebuilt from the live schema (14 tables; stream items live in `kv_cache`; staged cards in memory). Section 14 rebuilt: every route path (150), grouped by module, with a test that keeps it complete. 12.3 data-at-rest list corrected. Inbox Tidy (8.1) marked not built and moved to v1.x. S-1 note: Claude Code's Slack connector token is not on this machine; the Web API route needs a Slack app. |

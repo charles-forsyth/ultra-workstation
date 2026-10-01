@@ -4,7 +4,7 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, ask, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger.
 
-Status: v1.1.0. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
+Status: v1.2.0. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
 delivery plan, section 21 the change log).
 
 Nothing in this repo contains credentials or personal data. Runtime config and tokens
@@ -23,6 +23,9 @@ folder.
   find a time, RSVP.
 - **Day** (`d`). A morning check-in plan and an end-of-day report from what you did.
 - **Ledger tab** (`n`). Search people, labs, projects and tasks; reviewed writes.
+- **Graph** (`v`). Your ledger neighborhood: people, labs, projects and their links.
+  Click to open a record, double-click to center on it, drag an item onto a node to
+  put both in the bucket.
 - **Ask Hermes** (`h`). Ask your Hermes agent about the item, day, person or
   selection in front of you; turn the answer into a reply draft, log card, task card
   or bucket snippet.
@@ -195,6 +198,7 @@ keys need an item open. Browser shortcuts (Ctrl+R, Ctrl+F, ...) are left alone.
 |---|---|---|---|
 | `j / k` | next / previous item | `c` | compose a new email |
 | `Enter` | open the selected item | `o` | Board |
+| `v` | Graph | | |
 | `/` | search mail | `d` | Day |
 | `Ctrl+K` | command palette | `g` | Today (calendar) |
 | `Esc` | close the open view or dialog | `n` | Ledger tab |

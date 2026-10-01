@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.36 of the spec; app at v0.16.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
+Status: v1.0 of the spec; app at v1.0.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -1662,7 +1662,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v0.12 Ledger tab (shipped 0.12.0) | Full dashboard for the ledger tool: home (counts, activity, tasks, overdue, going-cold people), browse/search every entity type, entity pages with links/history/tasks/cited briefing, task board, interactions (edit via `interactions edit`, link/unlink), org tree, GCP audit and cost reports, graph health (`doctor`); writes only through allow-listed commands with review cards, read-back, double confirmation for destructive or bulk changes; ledger additions each on their own reviewed PR |
 | v0.13 Ask Hermes (shipped 0.13.0) | Section 7.12: Ask Hermes on stream rows, threads, tickets, Slack, tasks, calendar meetings, Day plan and report, Ledger entity pages, research reports, selections and the palette; context preview; follow-ups in one Hermes session tagged `ultra`; read-only toolset allow-list (no memory/skill writes); web per question; journaled without text |
 | v0.14 Answers into cards (shipped 0.14.0) | Section 7.12: Use as reply (email/Slack draft as an AI version, both approvals), Log it and Task from it (normal staged cards with the item's people as chips), + Bucket |
-| v1.0 polish (shipped 0.16.0) | Keyboard help panel from one table (7.7), modifier keys left to the browser, Esc closes Day, README rewritten for a new user (features, Google tokens both routes, optional tools, keys, commands, development), Q1 and Q3 decided. The version number 1.0.0 is the operator's call. |
+| v1.0 (shipped 0.16.0, released as 1.0.0) | Keyboard help panel from one table (7.7), modifier keys left to the browser, Esc closes Day, README rewritten for a new user (features, Google tokens both routes, optional tools, keys, commands, development), Q1 and Q3 decided. The operator called it 1.0 (1.0.0, same code as 0.16.0). |
 | v1.x | Graph view, Slack Web API backend (S-1) |
 
 ## 20. Open items
@@ -1688,6 +1688,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 1.0 | App v1.0.0: the operator called v0.16.0 done as 1.0. Same code; version, classifier (Production/Stable) and status lines only. Next: v1.x (Graph view, Slack Web API backend for S-1). |
 | 2026-10-01 | 0.36 | App v0.16.0 (7.7, 19, 20): v1.0 polish. Keyboard help panel (`?`, top-bar button, palette) from one table in `static/keys.js`, kept in step with the handlers and README by tests; Ctrl/Alt/Meta keys left to the browser (Ctrl-R used to trigger Reply on an open item); Esc closes Day. Section 7.7 rewritten as built, with the unbuilt plan keys listed. README rewritten. Q1 and Q3 decided. |
 | 2026-10-01 | 0.35 | App v0.15.0 (7.3, 14, 19): the Board. Four columns over the merged stream; Watching is a local flag that lapses on its date; Done card runs only the ticked existing actions; Wait stages a follow-up task card; Nudge makes one new-email draft to a Waiting on person listing their email threads (two approvals to send, person must be on the board). New email now opens in the center pane with no item open (Compose `c` did nothing before). Key `o`. |
 | 2026-10-01 | 0.34 | App v0.14.0 (7.12, 14, 19, 20 U-1): answers into cards. Each Ask Hermes answer has Use as reply (email/Slack; saved as an AI version in the item's draft, still two approvals), Log it and Task from it (new `POST /api/ledger/stage-answer`: normal single-use staged card, item's people as chips, task text = first line), and + Bucket. The panel itself never writes or sends. U-1 done. |

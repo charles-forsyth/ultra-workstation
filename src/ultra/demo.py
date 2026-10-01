@@ -49,6 +49,7 @@ STREAM: list[dict[str, Any]] = [
         "court": "MINE",
         "badges": [],
         "waiting_days": 1,
+        "threads": ["300"],
     },
     {
         "key": "g-400",
@@ -101,6 +102,20 @@ STREAM: list[dict[str, Any]] = [
 ]
 
 THREADS: dict[str, list[dict[str, Any]]] = {
+    "g-300": [
+        {
+            "from": "IT Service Desk <desk@service-now.example>",
+            "from_addr": "desk@service-now.example",
+            "to": "ada@example.org",
+            "cc": "eli@example.org",
+            "ts": "2026-09-28 16:40",
+            "subject": "Request Item RITM0000001 comments added -- storage access",
+            "body": "Request Item RITM0000001 comments added\n\n"
+            "Eli Fox: Any update on getting storage access for the new students?\n\n"
+            "Ref:MSG00012345",
+            "id": "demomsg0300",
+        }
+    ],
     "g-100": [
         {
             "from": "Ben Carter <ben@example.org>",
@@ -124,7 +139,7 @@ THREADS: dict[str, list[dict[str, Any]]] = {
             "ts": "2026-09-29 09:14",
             "body": "Great, when will the account be ready for my students?",
         },
-    ]
+    ],
 }
 
 CONTEXT = {
@@ -235,7 +250,15 @@ def register(api: Api) -> None:
                     }
                 ],
             }
-        out: dict[str, Any] = {"key": key, "messages": THREADS.get(key, [])}
+        msgs = THREADS.get(key, [])
+        if key.startswith("k-"):
+            row = next((s for s in STREAM if s["key"] == key), {})
+            msgs = [
+                {**x, "thread_id": tid}
+                for tid in row.get("threads", [])
+                for x in THREADS.get(f"g-{tid}", [])
+            ]
+        out: dict[str, Any] = {"key": key, "messages": msgs}
         if key.startswith("s-"):
             row = next((s for s in STREAM if s["key"] == key), {})
             out["reply_target"] = {
@@ -2414,6 +2437,9 @@ def _register_composer(api: Api) -> None:
     store = Store(tmp / "demo.db")
     cfg = Config({"mail": {"send_delay_seconds": 3}})
     me = {"ada@example.org"}
+    import re as _re
+
+    desk = _re.compile(r"@service-now\.example$")
     from ultra.mailx import (
         PREVIEW_TYPES,
         Annotations,
@@ -2427,7 +2453,14 @@ def _register_composer(api: Api) -> None:
 
     demo_sendas = ["ada@example.org", "help@example.org"]
     files = DraftFiles(store, tmp / "attachments")
-    comp = Composer(cfg, store, me, files=files, send_as=lambda: demo_sendas)
+    comp = Composer(
+        cfg,
+        store,
+        me,
+        files=files,
+        send_as=lambda: demo_sendas,
+        is_ticket=lambda a: bool(desk.search(a or "")),
+    )
     api.demo_comp = comp  # type: ignore[attr-defined]  # the Board's Nudge drafts here
     api.demo_comp_store = store  # type: ignore[attr-defined]
     notes = Annotations(store)
@@ -2604,7 +2637,8 @@ def _register_composer(api: Api) -> None:
                     "id": m.get("id") or f"{key}-{i}",
                     "message_id": f"<{key}-{i}@example.org>",
                     "references": "",
-                    "subject": next((s["subject"] for s in STREAM if s["key"] == key), ""),
+                    "subject": m.get("subject")
+                    or next((s["subject"] for s in STREAM if s["key"] == key), ""),
                     "to": m.get("to", "ada@example.org"),
                 }
                 for i, m in enumerate(msgs)
@@ -2718,6 +2752,7 @@ def _register_composer(api: Api) -> None:
 
     api.add("POST", r"/api/drafts/from-task", from_task)
     api.add("GET", r"/api/drafts/task/([0-9a-f-]{36})", for_task)
+    api.add("POST", r"/api/drafts/(\d+)/fix-ref", lambda q, b, m: wrap(comp.fix_ref, did(m)))
     api.add("POST", r"/api/drafts/(\d+)/approve", lambda q, b, m: wrap(comp.approve, did(m)))
     api.add("POST", r"/api/drafts/(\d+)/unapprove", lambda q, b, m: wrap(comp.unapprove, did(m)))
     api.add("POST", r"/api/drafts/(\d+)/review", lambda q, b, m: wrap(comp.review, did(m)))

@@ -228,7 +228,11 @@ async function openItem(i) {
     const t = await api(`/api/thread/${encodeURIComponent(it.key)}`);
     if (S.key !== it.key && S.items[S.sel]?.key !== it.key) return;  // user moved on
     const soon = (v) => `disabled title="Coming in ${v}"`;
-    const isMail = it.key.startsWith("g-");
+    // A ticket card is a group of ServiceNow notice emails: replying to the newest one
+    // (reply all keeps the desk on To and the Ref:MSG line) updates the ticket, so it
+    // works like any email thread.
+    const mailKey = it.key.startsWith("g-") ? it.key : (it.source === "ticket" && threadsOf(it).length ? `g-${newestThread(it, t)}` : "");
+    const isMail = !!mailKey;
     const mailOnly = isMail ? "" : `disabled title="Email threads only for now"`;
     th.innerHTML = `<h2>${esc(it.subject)}</h2>
       ${it.reason ? `<div class="why dim">${esc(it.court)} &middot; ${esc(it.reason)}</div>` : ""}
@@ -266,7 +270,7 @@ async function openItem(i) {
     $('[data-a="copy"]', th).onclick = () => copyText((t.messages || []).map((m) => `${m.from} (${fmtTime(m.ts)})\n${m.body}`).join("\n\n"));
     for (const k of ["reply", "reply_all", "forward"]) {
       const b = $(`[data-a="${k}"]`, th);
-      b.onclick = () => busy(b, () => openDraft(k, it.key));
+      b.onclick = () => busy(b, () => openDraft(k, mailKey));
     }
     if (it.source === "slack") {
       // Slack: Reply posts in the same conversation (thread if it is one), after both approvals
@@ -287,7 +291,7 @@ async function openItem(i) {
     $('[data-a="listen"]', th).onclick = () => readAloud(th);
     $('[data-a="aiaudio"]', th).onclick = () => audioDialog({ thread: it.key }, it.subject || "Conversation");
     setToolsThread(it.key, it.subject);
-    if (S.aiOn && isMail) studioStart(it.key); else studioStart(null);  // idle: runs only when asked
+    if (S.aiOn && isMail) studioStart(mailKey); else studioStart(null);  // idle: runs only when asked
     $('[data-a="log"]', th).onclick = () => stage("log", it.key);
     $('[data-a="task"]', th).onclick = () => stage("task", it.key);
     $('[data-a="block"]', th).onclick = () => window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));
@@ -505,6 +509,14 @@ async function openTask(i) {
 function threadsOf(it) {
   if (it.key.startsWith("g-")) return [it.key.slice(2)];
   return it.threads || [];
+}
+// The ticket's thread with the newest message (its messages carry thread_id when the
+// server knows it; otherwise the last thread the stream listed).
+function newestThread(it, t) {
+  const msgs = (t?.messages || []).filter((m) => m.thread_id);
+  if (msgs.length) return msgs.reduce((a, b) => (String(b.ts) > String(a.ts) ? b : a)).thread_id;
+  const ids = threadsOf(it);
+  return ids[ids.length - 1];
 }
 
 async function archive(it, { keepOpen = false } = {}) {

@@ -4,7 +4,7 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, ask, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger.
 
-Status: v1.2.0. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
+Status: v1.2.1. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
 delivery plan, section 21 the change log).
 
 Nothing in this repo contains credentials or personal data. Runtime config and tokens
@@ -111,8 +111,9 @@ posts the approved text, reads it back and tells you whether the posted text mat
 It never resends on its own. Slack adds a small "Sent using Claude" line under each
 post.
 
-Ticket replies (ServiceNow) go through Draft Studio, which keeps the `Ref:` line the
-ticket desk needs.
+Ticket replies (ServiceNow) are email replies: open the ticket and press Reply all (or
+use Draft Studio for a full-context draft). The desk stays on To, the requester on Cc,
+and the `Ref:MSG` line the desk needs is kept at the end; approval is blocked without it.
 
 ## The bucket and ledger cards
 

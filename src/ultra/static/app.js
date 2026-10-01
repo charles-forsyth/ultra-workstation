@@ -4,6 +4,7 @@
 import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent, openDraftById } from "./compose.js";
 import { initBoard, openBoard, closeBoard, boardOpen } from "./board.js";
 import { toggleHelp, helpOpen } from "./keys.js";
+import { initTidy, openTidy } from "./tidy.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, openPersonByAddr } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
@@ -669,6 +670,7 @@ function commands() {
   const c = [
     { t: "Compose new email", k: "c", run: () => composeNew() },
     { t: "Keyboard shortcuts", k: "?", run: () => toggleHelp() },
+    { t: "Tidy the inbox (preview a bulk archive)", k: "", run: () => openTidy() },
     { t: "Board: my court, waiting on, watching, done", k: "o", run: () => openBoard() },
     { t: "Refresh everything", k: "Shift+R", run: () => $("#btn-refresh").click() },
     { t: "Log the bucket", run: () => stage("log") },
@@ -782,6 +784,7 @@ async function boot() {
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
     openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter; switch the stream to All.", "err"); },
   });
+  initTidy({ onDone: () => loadStream(true) });
   window.addEventListener("ultra:open-draft", (ev) => { if (ev.detail?.id) openDraftById(ev.detail.id).catch((x) => toast(x.message, "err")); });
   window.addEventListener("ultra:stage-log", (ev) => { if (ev.detail?.key) stage("log", ev.detail.key); });
   initDay({

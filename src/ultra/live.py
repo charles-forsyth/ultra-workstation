@@ -58,6 +58,7 @@ from ultra.tasks import (
     task_rows,
     unsnooze_task,
 )
+from ultra.tidy import Tidy
 from ultra.today import Today
 from ultra.tools import Tools
 
@@ -208,6 +209,15 @@ class Live:
             my_addrs=set(cfg.my_addresses),
             signature_fn=lambda: str((load_style().get("signature") or {}).get("text", "")),
         )
+        # v1.1 Inbox Tidy: rule-based bulk archive, previewed, one Undo
+        self.tidy = Tidy(
+            self.store,
+            lambda: self._merged()[0],
+            self._tidy_archive,
+            self._tidy_unarchive,
+            lambda: set(self.board.watches()),
+            self.calendar.tz,
+        )
         # v0.13 Ask Hermes: read-only questions to the operator's own agent
         self.hermes = Hermes(cfg, self.store)
         self.ask = AskDesk(
@@ -277,6 +287,7 @@ class Live:
         self.ledgertab.register(api)
         self.ask.register(api)
         self.board.register(api)
+        self.tidy.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -689,6 +700,14 @@ class Live:
                 break
         self.store.journal("archive", ",".join(done), True, {"subject": subj} if subj else None)
         return {"archived": done}
+
+    def _tidy_archive(self, tids: list[str]) -> list[str]:
+        return self.mail.archive(tids)
+
+    def _tidy_unarchive(self, tids: list[str]) -> list[str]:
+        done = self.mail.unarchive(tids)
+        self._job("mail", self.mail.refresh)
+        return done
 
     def r_unarchive(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         tids = _thread_ids(body)

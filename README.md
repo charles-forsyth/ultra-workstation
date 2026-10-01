@@ -4,7 +4,7 @@ A local web workstation for email, calendar, Slack and a work ledger in one wind
 Read, triage, ask, draft with AI, revise, approve twice, send, then log and link the
 conversation in the ledger.
 
-Status: v1.0.1. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
+Status: v1.1.0. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
 delivery plan, section 21 the change log).
 
 Nothing in this repo contains credentials or personal data. Runtime config and tokens
@@ -122,6 +122,15 @@ nothing is retried automatically.
 
 The ledger adapter runs only allow-listed commands, passes entities as full UUIDs,
 and sends text on stdin.
+
+## Tidy the inbox
+
+The Tidy button next to refresh previews a bulk archive: automated mail, and anything
+older than N days (7 by default) that is not your move, VIP, ready, assigned to you,
+on your Watching list, or active today. Every row shows why; untick anything to keep
+it. Nothing happens until you press Archive. It only removes the Inbox label (nothing
+is deleted or marked read), never touches Slack or tasks, and one Undo puts it all
+back.
 
 ## Tasks and Slack in the stream
 

@@ -91,7 +91,8 @@ def test_section_14_lists_no_route_that_does_not_exist():
 
 def test_no_unbuilt_endpoints_listed():
     s14 = section("## 14. HTTP API", "## 15. CLI")
-    for ghost in ("/api/events", "/api/jobs", "/api/calendar", "/api/mail/tidy"):
+    # never built (mail tidy was on this list until it shipped in v1.1)
+    for ghost in ("/api/events", "/api/jobs", "/api/calendar"):
         assert ghost not in s14, ghost
 
 

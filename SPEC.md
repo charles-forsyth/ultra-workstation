@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.0.1 of the spec; app at v1.0.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
+Status: v1.0.2 of the spec; app at v1.0.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -1778,7 +1778,10 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 ## 16. Error handling and status
 
 - Status bar shows each source: Mail, Calendar, Slack, Ledger, AI, with last success
-  time. A failing source is amber with the error on hover; the rest keep working.
+  time (green), working (amber `...`) or failing (red `!`, the error on hover); the rest
+  keep working. Calendar (v1.0.1): a read of today every 10 minutes while a tab is
+  open, plus every Today/Week load; before v1.0.1 the page never read its status, so
+  it stayed grey even when the calendar worked.
 - Token expired or revoked: banner with the exact `ultra auth google --capability X`
   command.
 - Ledger CLI missing or failing: context rail and bucket show "Ledger unavailable";
@@ -1864,6 +1867,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 1.0.2 | App v1.0.1 (16): the status bar's Calendar light now works. The page had never read calendar status (a v0.1 placeholder said "Calendar arrives in v0.6"), so it stayed grey. The server checks today's calendar every 10 minutes while a tab is open and reports ok / error / age, including a missing-token error with the fix command. |
 | 2026-10-01 | 1.0.1 | Docs only, audited against the code. Section 5 redrawn as built (all route groups, Hermes, Board, Studio; no SSE; real runtime files; `remote.key` is a leftover). New 5.2 code map. Section 6 rebuilt from the live schema (14 tables; stream items live in `kv_cache`; staged cards in memory). Section 14 rebuilt: every route path (150), grouped by module, with a test that keeps it complete. 12.3 data-at-rest list corrected. Inbox Tidy (8.1) marked not built and moved to v1.x. S-1 note: Claude Code's Slack connector token is not on this machine; the Web API route needs a Slack app. |
 | 2026-10-01 | 1.0 | App v1.0.0: the operator called v0.16.0 done as 1.0. Same code; version, classifier (Production/Stable) and status lines only. Next: v1.x (Graph view, Slack Web API backend for S-1). |
 | 2026-10-01 | 0.36 | App v0.16.0 (7.7, 19, 20): v1.0 polish. Keyboard help panel (`?`, top-bar button, palette) from one table in `static/keys.js`, kept in step with the handlers and README by tests; Ctrl/Alt/Meta keys left to the browser (Ctrl-R used to trigger Reply on an open item); Esc closes Day. Section 7.7 rewritten as built, with the unbuilt plan keys listed. README rewritten. Q1 and Q3 decided. |

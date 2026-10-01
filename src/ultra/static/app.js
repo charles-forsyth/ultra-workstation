@@ -538,8 +538,7 @@ function loadContext(it) {
 }
 
 // ---------------------------------------------------------------- status polling
-const SRC = { mail: "sb-mail", slack: "sb-slack", ledger: "sb-ledger", ai: "sb-ai" };
-$("#sb-cal") && ($("#sb-cal").title = "Calendar arrives in v0.6");
+const SRC = { mail: "sb-mail", calendar: "sb-cal", slack: "sb-slack", ledger: "sb-ledger", ai: "sb-ai" };
 let lastBuilt = { mail: null, slack: null, tasks: null };
 async function pollStatus() {
   if (S.demo) return;

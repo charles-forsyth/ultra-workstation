@@ -64,6 +64,8 @@ from ultra.tools import Tools
 if TYPE_CHECKING:
     from ultra.server import Api
 
+CAL_CHECK_SECONDS = 600  # status-bar calendar check while a tab is open
+
 FILTERS = {
     "mine": lambda it: it["court"] == "MINE",
     # a BLOCKED ledger task is waiting on someone else (the operator files waits as
@@ -429,6 +431,23 @@ class Live:
             hit = self.store.cache_get("tasks:open")
             if hit is None or hit[1] > 300:
                 self._job("tasks", self._refresh_tasks)
+        # Calendar health for the status bar: a cheap read of today, every 10 minutes,
+        # only while a tab is open (same rule as the other sources).
+        at = self.calendar.state.get("at")
+        if at is None or time.time() - at > CAL_CHECK_SECONDS:
+            self._job("calendar", self._check_calendar)
+
+    def _check_calendar(self) -> None:
+        today = datetime.now(self.calendar.tz).date().isoformat()
+        try:
+            self.calendar.day(today, fresh=True)
+        except Exception:  # noqa: BLE001 - recorded in calendar.state for the status bar
+            if self.calendar.state.get("at") is None:
+                self.calendar.state = {
+                    "ok": False,
+                    "error": "calendar check failed",
+                    "at": time.time(),
+                }
 
     def r_stream(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         f = (q.get("filter") or ["mine"])[0]
@@ -465,7 +484,12 @@ class Live:
                 },
                 "ledger": {**self.ledger.state, "enabled": self.ledger.enabled},
                 "tasks": {"age": t_hit[1] if t_hit else None},
-                "calendar": {**self.calendar.state},
+                "calendar": {
+                    **self.calendar.state,
+                    "age": (time.time() - self.calendar.state["at"])
+                    if self.calendar.state.get("at")
+                    else None,
+                },
                 "ai": {**self.ai.state, "enabled": self.ai.enabled, "model": self.ai.model},
                 "research": {**self.research.state, "enabled": self.research.enabled},
             },

@@ -402,7 +402,9 @@ def test_live_stream_serves_cache_and_filters(tmp_path, monkeypatch):
     cfg = Config({"operator": {"addresses": [ME]}, "ledger": {"enabled": False}})
     live = Live(cfg, Store(tmp_path / "s.db"))
     started = []
-    monkeypatch.setattr(live, "_job", lambda name, fn, *a: started.append(name))
+    monkeypatch.setattr(
+        live, "_job", lambda name, fn, *a: name != "calendar" and started.append(name)
+    )  # calendar health check is covered in test_v101_calstatus
     out = live.r_stream({"filter": ["mine"]}, None, None)  # type: ignore[arg-type]
     assert out["loading"] is True and started == ["mail"]
     live.store.cache_put(
@@ -459,7 +461,9 @@ def test_status_poll_refreshes_stale_sources(tmp_path, monkeypatch):
     )
     live = Live(cfg, Store(tmp_path / "s.db"))
     started: list[str] = []
-    monkeypatch.setattr(live, "_job", lambda name, fn, *a: started.append(name))
+    monkeypatch.setattr(
+        live, "_job", lambda name, fn, *a: name != "calendar" and started.append(name)
+    )  # calendar health check is covered in test_v101_calstatus
     live.r_status({}, None, None)  # type: ignore[arg-type]
     assert started == ["mail"]  # no cache yet
     live.store.cache_put("mail:stream", {"items": []})

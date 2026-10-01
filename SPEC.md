@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.0 of the spec; app at v1.0.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
+Status: v1.0.1 of the spec; app at v1.0.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -108,42 +108,64 @@ Recurring sub-asks the UI answers without a chat turn:
 
 ## 5. Architecture
 
-    browser (127.0.0.1:7440)
-       |  JSON over HTTP, CSRF token
-    ultra server  (Python stdlib ThreadingHTTPServer)
-       |-- MailAdapter      -> Gmail API (google-api-python-client)
-       |-- CalendarAdapter  -> Google Calendar API
-       |-- SlackAdapter     -> `claude -p` with the Slack connector (read-only tool list;
-       |                        a send-only tool list at send time)
-       |-- LedgerAdapter    -> `nexus` CLI (--json reads, file-fed writes)
-       |-- TicketParser     -> rules over MailAdapter results
-       |-- AIAdapter        -> Gemini API (google-genai), on demand only
-       |-- AudioAdapter     -> Gemini TTS (same key), ffmpeg for MP3 (optional)
-       |-- ResearchAdapter  -> `deep-research` CLI (search, start, list, show, estimate)
-       |-- Store            -> SQLite in the user data dir (cache, drafts, approvals, journal)
-       `-- Jobs             -> small worker pool for slow calls (ledger, Slack, AI)
+As built (v1.0). One Python process; the page is static files plus JSON calls.
+
+    browser (127.0.0.1:7440, or LAN/tailnet with --host 0.0.0.0 and the allow-list)
+       |  JSON over HTTP; X-Ultra-Token on every write (12.1); no SSE, the page polls
+    ultra server  (stdlib ThreadingHTTPServer: server.py + guard.py + remote.py)
+       |-- Live routes (live.py)   stream, threads, drafts, send, mail extras, tasks, Slack done
+       |-- Desk (desk.py)          context rail, bucket, staged ledger cards, commit + read-back
+       |-- ItemDesk (itemdesk.py)  item People / Full context, AI briefing, Add to ledger
+       |-- Ledger tab (ledgertab.py) the whole ledger, reviewed writes
+       |-- Calendar (today.py, calendar.py, invites.py)  Today/Week, blocks, RSVP, invitations
+       |-- Day (day.py)            check-in plan, end-of-day report, exports
+       |-- Draft Studio (studio.py, sources.py)  gathered drafting, house facts
+       |-- Board (board.py)        court columns, Watching, Nudge
+       |-- Ask (ask.py, hermes.py) Ask Hermes, read-only, answers into cards
+       |-- Tools (tools.py)        research panel, web search, explain, AI audio
+       |
+       |   adapters
+       |-- mail.py, mailx.py   -> Gmail API (one token per capability, google_auth.py)
+       |-- calendar.py         -> Google Calendar API
+       |-- slack.py            -> `claude -p` with the Slack connector (read tool list;
+       |                          send-only tool list at send time, read-back after)
+       |-- ledger.py, ledger_serve.py, ledger_write.py -> `nexus serve` (warm, loopback)
+       |                          or the `nexus` CLI; writes only through allow-listed CLI commands
+       |-- hermes.py           -> `hermes chat` (read-only toolsets, --source ultra)
+       |-- research.py         -> `deep-research` CLI
+       |-- ai.py, audio.py     -> Gemini (google-genai), on demand only; ffmpeg for MP3
+       |-- rules.py            -> court, tickets, noise, done signals (no AI)
+       `-- store.py            -> SQLite state.db (section 6)
+
+Long calls (Slack refresh, Full context, Ask, audio, ledger commits) run in threads and
+return a job id; the page polls the matching `.../job/<id>` or commit route. Demo mode
+(`--demo`, demo.py) registers the same routes over synthetic data and never touches a
+real account.
 
 Runtime layout (outside the repo):
 
     ~/.config/ultra-workstation/
         config.toml              operator settings (section 13)
-        .env                     GEMINI_API_KEY and similar (mode 600)
-        oauth_client.json        Google OAuth client (mode 600), if not reusing one
-        tokens/                  per-scope OAuth tokens (mode 700 dir, 600 files)
         style.toml               outgoing-text rules (section 10)
-        vip.txt                  VIP senders (optional; can point at an existing list)
+        .env                     GEMINI_API_KEY (mode 600)
+        oauth_client.json        Google OAuth client, if minting Ultra's own tokens
+        tokens/                  per-capability tokens (mode 700 dir, 600 files);
+                                 or token paths pointing at existing files (Q3)
+        vip.txt                  VIP senders (optional)
     ~/.local/share/ultra-workstation/
-        state.db                 SQLite (mode 600)
-        journal.jsonl            append-only write journal (mode 600)
-        undo/                    archive undo files
-        audio/                   generated audio files (mode 700 dir)
-        attachments/             attachments saved on request (mode 700 dir)
-        ultra.log                server log (no bodies, no tokens; section 12)
-        ultra.pid
+        state.db                 SQLite, WAL mode (mode 600); includes the journal table
+        ultra.log                server log (no bodies, no tokens; section 12.3)
+        ultra.pid                background server PID
+        audio/                   generated audio (mode 700)
+        attachments/draft-<id>/  files attached to drafts (mode 700)
+        research-uploads/        thread text sent to a research run when ticked (mode 700)
+        hermes/                  per-Ask query files, deleted after each run (mode 700)
+
+`remote.key` may exist on installs that ran v0.5.0-v0.5.1 (the old remote access key).
+Nothing reads it since v0.5.2; it is safe to delete.
 
 Process model: `ultra start` detaches the server (PID file); `ultra open` opens the
-browser; `ultra stop` / `ultra status` / `ultra restart`. Same pattern as the
-operator's existing dashboard daemon.
+browser; `ultra stop` / `ultra status` / `ultra restart`.
 
 ### 5.1 Dependencies
 
@@ -156,30 +178,78 @@ operator's existing dashboard daemon.
 - Frontend: vanilla JS modules, vendored `marked` and `DOMPurify` (license files kept).
   No npm, no bundler.
 
+### 5.2 Code map
+
+`src/ultra/` (Python) and `src/ultra/static/` (vanilla JS modules, no build step).
+Tests live in `tests/test_v*.py`, one file per release or feature.
+
+| File | What it is |
+|---|---|
+| `cli.py`, `daemon.py` | `ultra` command; background start/stop/status (PID file) |
+| `config.py` | config and data paths, `private_dir` (mode 700) |
+| `server.py`, `guard.py`, `remote.py` | HTTP server and routing; Host/Origin/CSRF/content-type guards; remote allow-list (LAN, `tailnet:mine`) |
+| `store.py` | SQLite store: cache, bucket, journal |
+| `doctor.py` | `ultra doctor` checks (no secrets printed) |
+| `google_auth.py` | per-capability Google tokens; `ultra auth google` |
+| `mail.py`, `mailx.py` | Gmail read side; search, labels, attachments, send-as, notes |
+| `rules.py` | court, tickets, noise, done signals (deterministic) |
+| `slack.py`, `tasks.py` | Slack through Claude Code's connector; tasks and Slack as stream rows |
+| `compose.py`, `lint.py`, `drafttools.py`, `learn.py` | composer and double approval; outgoing text rules; cut/compare/Tidy; learning from edits |
+| `studio.py`, `sources.py` | Draft Studio; policy pages and house facts |
+| `live.py` | live routes: stream, threads, drafts, send, mail extras, task actions |
+| `desk.py`, `bucket.py` | context rail, bucket, staged ledger cards, commit + read-back |
+| `itemctx.py`, `itemdesk.py` | item-level People / Full context, AI briefing, Add to ledger |
+| `ledger.py`, `ledger_serve.py`, `ledger_write.py` | ledger reads (CLI or `nexus serve`); allow-listed writes |
+| `ledgertab.py` | Ledger tab routes |
+| `calendar.py`, `today.py`, `invites.py` | Calendar adapter; Today/Week routes; invitations and RSVP with approvals |
+| `day.py` | Day plan, report, exports |
+| `board.py` | Board |
+| `hermes.py`, `ask.py` | Hermes adapter; Ask routes and context builders |
+| `research.py`, `tools.py` | deep-research client; research, web search, explain, audio routes |
+| `ai.py`, `audio.py` | Gemini on demand; AI audio (TTS) |
+| `demo.py` | demo mode: the same routes over synthetic data |
+| `static/app.js` | shell: stream, thread view, keys, palette, view switching |
+| `static/compose.js`, `studio.js` | composer and approvals; Draft Studio panel |
+| `static/ledger.js`, `ltab.js` | context rail, bucket, ledger cards; Ledger tab |
+| `static/today.js`, `day.js`, `board.js` | Today/Week; Day; Board |
+| `static/ask.js`, `tools.js`, `mailx.js` | Ask panel; research/web/audio; mail search, labels, notes |
+| `static/keys.js` | keyboard table (help panel, README, tests) |
+
 ## 6. Data model (local store)
 
-SQLite tables. All ids are the source system's ids where one exists.
+SQLite `state.db` (store.py creates the core tables; the module that owns a feature
+creates its own). Stream items, threads and people are not tables: they are rebuilt
+from the sources and kept in `kv_cache`.
 
-| Table | Purpose | Key fields |
-|---|---|---|
-| `items` | One row per stream entry (email message, Slack message, calendar event, ticket notice) | `source`, `source_id`, `thread_key`, `person_key`, `ts_utc`, `subject`, `snippet`, `from_addr`, `labels`, `court` |
-| `threads` | Conversation roll-up | `thread_key`, `source`, `last_from_me`, `last_ts`, `court`, `court_reason`, `done_signal` |
-| `people` | Person resolution cache | `person_key` (email or Slack id), `display`, `ledger_id`, `ledger_kind`, `confidence`, `resolved_at` |
-| `ledger_cache` | Cached CLI JSON | `cmd_key`, `json`, `fetched_at`, `ttl_s` |
-| `drafts` | One per reply/new message | `draft_id`, `kind` (mail/slack), `thread_key`, `gmail_draft_id`, `state`, `approved_version`, `approved_hash` |
-| `draft_versions` | Every revision | `draft_id`, `version`, `to`, `cc`, `bcc`, `subject`, `body`, `author` (me/ai), `instruction`, `lint_json`, `created_at` |
-| `approvals` | Send approvals (section 9) | `token`, `draft_id`, `version`, `content_hash`, `issued_at`, `expires_at`, `used_at` |
-| `bucket` | Current linker bucket contents | `slot`, `kind`, `ref`, `added_at` |
-| `ledger_writes` | Staged and committed ledger writes | `id`, `kind` (log/task/link), `payload_json`, `state`, `result_json` |
-| `journal` | Mirror of journal.jsonl for queries | `ts`, `action`, `target`, `ok`, `detail_json` |
-| `audio_exports` | Cached audio (7.10) | `id`, `kind`, `ref`, `mode` (read/summary), `voice`, `text_hash`, `path`, `seconds`, `cost_usd`, `created_at` |
-| `research_runs` | Runs started from Ultra (7.9) | `run_id`, `question`, `started_at`, `source_ref`, `status`, `last_checked` |
-| `saved_searches` | Named mail searches | `name`, `query`, `created_at` |
-| `annotations` | Local highlights and notes (7.8) | `id`, `thread_key`, `message_id`, `start`, `end`, `quote`, `color`, `note`, `created_at` |
+| Table | Owner | Purpose | Key fields |
+|---|---|---|---|
+| `kv_cache` | store.py | Every cache and local flag, by key prefix (below) | `key`, `value` (JSON), `fetched_at` |
+| `journal` | store.py | Audit trail of every write and action (Day report, Board Done today) | `ts`, `action`, `target`, `ok`, `detail` (JSON; never message bodies) |
+| `bucket` | store.py | Current bucket contents | `kind` (email/ticket/slack/snippet/entity), `ref`, `data`, `added_at`; unique (kind, ref) |
+| `drafts` | compose.py | One per email or Slack draft | `kind` (reply/reply_all/forward/new/slack), `thread_id`, `reply_to_msg`, `in_reply_to`, `refs`, `gmail_draft_id`, `state` (DRAFT/APPROVED/QUEUED/SENT/DISCARDED), `approved_version`, `approved_hash`, `sent_message_id` |
+| `draft_versions` | compose.py | Every revision | `draft_id`, `version`, `from_addr`, `to_addrs`, `cc`, `bcc`, `subject`, `body`, `author` (me/ai), `instruction`, `lint` |
+| `approvals` | compose.py | Send approvals (section 9) | `token`, `draft_id`, `version`, `content_hash`, `issued_at`, `expires_at`, `used_at` |
+| `draft_attachments` | mailx.py | Files attached to a draft (part of the approval hash) | `draft_id`, `name`, `mime`, `size`, `sha256`, `path` |
+| `saved_searches` | mailx.py | Named mail searches | `name`, `query` |
+| `annotations` | mailx.py | Local highlights and notes (7.8) | `thread_key`, `message_id`, `quote`, `prefix`, `color`, `note` |
+| `invites` | invites.py | Meeting invitations with two approvals | `state`, `data` (JSON), `approved_hash`, `event_id`, `source` |
+| `invite_tokens` | invites.py | Single-use invitation and RSVP tokens | `token`, `invite_id`, `hash`, `expires`, `used` |
+| `house_facts` | sources.py | Draft Studio house facts (9.6) | `text`, `topics`, `source`, `enabled` |
+| `edit_log` | learn.py | What the operator changed in sent drafts (9.8) | `draft_id`, `removed`, `replaced`, `added_words`, `removed_words` |
+| `edit_suggestions` | learn.py | Suggested style rules and their state | `key`, `state` (open/accepted/dismissed) |
 
-Retention: `items` and caches older than 30 days are pruned; drafts are kept until sent
-or discarded, then 90 days; annotations until deleted; journal kept forever (it is small
-and is the audit trail).
+`kv_cache` key prefixes: `mail:` (inbox and thread cache), `slack:` (stream cache),
+`slackdone:` (Slack Mark done), `tasks:` (ledger tasks in the stream), `snooze:` (task
+snooze on this laptop), `watch:` (Board Watching flag), `draft` (Draft Studio gathers),
+`person:` / `tree:` / `lt:` / `catalog:` (ledger reads), `cal:` (calendar), `research:`,
+`audio:`, `search:`.
+
+Staged ledger cards and commit progress live in memory (desk.py), so a card that was
+not committed is gone after a restart; nothing half-written is left in the ledger.
+
+Retention: `kv_cache` rows older than 30 days are pruned; drafts, versions, journal,
+notes and house facts are kept until deleted (`ultra purge` covers audio, research
+uploads and saved attachments).
 
 ## 7. Screens
 
@@ -628,7 +698,7 @@ AI voice (Gemini TTS, costs money, cached)
 - Implementation follows deep-research: text is cleaned for speech, split into chunks
   of about 3,500 characters, each chunk synthesized and joined into one 24 kHz mono
   WAV, converted to MP3 with ffmpeg when present. Files go to the `audio/` data folder
-  and a row in `audio_exports`; the same text + mode + voice reuses the cached file.
+  and an `audio:` row in `kv_cache`; the same text + mode + voice reuses the cached file.
 - Player: an audio bar with play/pause, seek, speed and download. The server serves
   audio with HTTP Range support so seeking works.
 - Export menu entries: "Audio: read aloud (AI voice)" and "Audio: AI voice summary" on
@@ -861,12 +931,10 @@ astropost parity (so astropost is not needed alongside Ultra):
 | trash (client function) | Not offered: Ultra never deletes mail |
 
 
-Tidy (rule-based archive)
-
-- Operator states the rule; defaults: archive every inbox thread except those where
-  the operator sent a message today, VIP threads with no reply yet, and My Court items.
-- Always shows the full list (kept with reason, archived with reason) before running.
-  Writes `undo/inbox_archive_<date>_<time>.json`; "Undo last tidy" restores INBOX.
+Inbox Tidy (rule-based bulk archive): NOT BUILT. Planned as: the operator states the
+rule, the full kept / archived list is shown before running, one Undo restores INBOX.
+Archive is per thread with Undo today. (The "Tidy" that shipped in v0.9.9 is the
+draft-text tool in 9.7, a different thing.) Listed in section 19 under v1.x.
 
 ### 8.2 Calendar (Google Calendar API)
 
@@ -1396,9 +1464,10 @@ Low priority row. VIP list overrides noise.
 
 ### 12.3 Data at rest
 
-- `state.db`, `journal.jsonl`, `undo/`, `audio/` and `attachments/` hold mail
-  metadata, draft text, audio of mail and saved files; mode 600 files in mode 700
-  folders.
+- `state.db`, `audio/`, `attachments/`, `research-uploads/` and `hermes/` hold mail
+  metadata, draft text, audio of mail, attached files and per-Ask query files; mode
+  600 files in mode 700 folders. Archive undo is a token held by the page (Undo in
+  the toast), not a file.
 - `ultra.log` holds actions and errors only: no message bodies, no draft text, no
   tokens. Subjects are truncated to 40 characters in logs. A redaction filter masks
   anything that looks like a key or token.
@@ -1522,55 +1591,162 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
 
 ## 14. HTTP API (server)
 
-All JSON. Writes need `X-Ultra-Token` (the CSRF token, 12.1). Long calls return `202 {job_id}`; poll
-`GET /api/jobs/<id>` (or the page listens on a single SSE stream `/api/events`).
+All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` and
+`Content-Type: application/json` (12.1). Long calls return a job id that the page polls.
+There is no SSE stream and no generic jobs route; each feature has its own job route.
+Path parameters are shown as `<name>`; the server matches each with a strict pattern.
+150 route paths as of v1.0.0 (`tests/test_v101_spec.py` fails if one is added without a row
+here).
+
+**Core** (server.py)
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/health` | versions, adapter status |
-| GET | `/api/stream?filter=mine\|waiting\|all\|slack\|tickets&group=thread\|person` | stream rows |
-| GET | `/api/thread/<source>/<key>` | full thread |
-| GET | `/api/context/<person_key>` | context rail (cached + refresh job) |
-| POST | `/api/mail/archive` | archive thread(s); returns undo token |
-| POST | `/api/mail/unarchive` | undo |
-| POST | `/api/mail/tidy/preview` / `/api/mail/tidy/run` | rule-based archive |
-| POST | `/api/drafts` | new draft (reply/reply-all/forward/new/slack) |
-| POST | `/api/drafts/<id>/versions` | save manual edit |
-| POST | `/api/drafts/<id>/revise` | AI revision with instruction |
-| POST | `/api/drafts/<id>/approve` | approval 1; returns approval token |
-| POST | `/api/send` | approval 2; token + draft id + version |
-| POST | `/api/send/<id>/cancel` | cancel during delay |
-| GET/POST/DELETE | `/api/bucket` | bucket contents |
-| POST | `/api/ledger/stage` | build staged log/task/link card from bucket |
-| POST | `/api/ledger/commit/<staged_id>` | run the CLI write + read-back |
-| GET | `/api/calendar?day=` | events |
-| POST | `/api/calendar/freebusy` | slots |
-| POST | `/api/calendar/blocks` | create block (staged -> commit in one call from the card) |
-| POST | `/api/ai/summary` / `/api/ai/draft` | on-demand AI |
-| GET | `/api/journal?since=` | write journal |
-| GET | `/api/events` | SSE: job progress, new items, sync status |
-| GET | `/api/mail/search?q=` | Gmail query search |
-| GET | `/api/mail/drafts` | all Gmail drafts |
-| GET/POST | `/api/mail/labels` | list / create labels |
-| POST | `/api/mail/labels/apply` | add or remove labels on messages or threads |
-| GET | `/api/mail/attachment/<msg>/<att>` | preview or download one attachment |
-| POST | `/api/mail/attachment/<msg>/<att>/save` | save to the attachments folder |
-| POST | `/api/ledger/search` | Nexus search for a selection |
-| POST | `/api/research/search` | deep-research semantic search |
-| GET | `/api/research/runs` / `/api/research/runs/<id>` | list runs / one report |
-| POST | `/api/research/estimate` / `/api/research/start` | estimate / start a run |
-| POST | `/api/ai/explain` | explain a selection |
-| POST | `/api/ai/websearch` | grounded Google Search answer with sources |
-| POST | `/api/audio/estimate` / `/api/audio` | estimate / create audio (job) |
-| GET | `/api/hermes/status` | Ask Hermes availability, toolsets, web allowed |
-| POST | `/api/hermes/preview` | the exact context a target sends (7.12) |
-| POST | `/api/hermes/ask` | ask (job); follow-ups pass the session id |
-| POST | `/api/ledger/stage-answer` | staged log or task card from an Ask answer (7.12) |
-| GET | `/api/board` | Board columns and counts (7.3) |
-| POST | `/api/board/watch` / `/api/board/unwatch` | local Watching flag with optional date |
+| GET | `/api/health` | ok, version, demo |
+| GET | `/api/session` | CSRF token, operator, time zone, which sources are on |
+
+**Stream, threads, status** (live.py)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/stream` | stream rows (`filter=mine,waiting,all,slack,tasks,tickets,low`) and counts |
+| POST | `/api/refresh` | refresh mail and Slack now |
+| GET | `/api/status` | per-source status for the status bar |
+| GET | `/api/thread/g-<id>`, `/api/thread/k-<ticket>`, `/api/thread/s-<key>`, `/api/thread/t-<uuid>` | email thread, ticket, Slack conversation, ledger task |
+| GET | `/api/context/<person>` | context rail for one person |
+| POST | `/api/task/action` | task complete / start / blocked / priority / snooze (ledger write after click) |
+| POST | `/api/slack/done`, `/api/slack/undone` | local Slack Mark done |
+| POST | `/api/mail/archive`, `/api/mail/unarchive` | archive with undo |
+| POST | `/api/ai/summary` | AI summary of a thread |
+
+**Drafts and sending** (live.py, compose.py; section 9)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/drafts` | new draft (reply, reply_all, forward, new) |
+| GET | `/api/drafts/<id>` | one draft with versions |
+| GET | `/api/drafts/thread/<id>`, `/api/drafts/task/<uuid>` | drafts already open for a thread or task |
+| POST | `/api/drafts/from-task` | ticket reply draft from a ledger task |
+| POST | `/api/drafts/<id>/versions` | save a manual edit (new version) |
+| POST | `/api/drafts/<id>/ai` | AI draft or revise (new version, author ai) |
+| POST | `/api/drafts/<id>/studio` | Draft Studio version |
+| POST | `/api/drafts/<id>/fix-ascii`, `/api/drafts/<id>/fix-ref`, `/api/drafts/<id>/cut`, `/api/drafts/<id>/tidy` | text tools (9.7), each a new version |
+| POST | `/api/drafts/<id>/check` | lint and checks |
+| GET | `/api/drafts/<id>/compare` | before / after between versions |
+| POST | `/api/drafts/<id>/restore` | restore an older version as new |
+| POST | `/api/drafts/<id>/attach`, `/api/drafts/<id>/attach-from`, `/api/drafts/<id>/detach` | draft attachments |
+| POST | `/api/drafts/<id>/gmail` | sync to a Gmail draft |
+| POST | `/api/drafts/<id>/approve`, `/api/drafts/<id>/unapprove` | approval 1 (locks the text) |
+| POST | `/api/drafts/<id>/review` | the review screen for approval 2 |
+| POST | `/api/drafts/<id>/discard` | discard |
+| POST | `/api/send` | approval 2: token + draft + version; sends after the delay |
+| POST | `/api/send/<id>/cancel` | cancel during the delay |
+| POST | `/api/slack/draft`, GET `/api/slack/draft/<s-key>` | Slack reply draft (same approval path) |
+| GET | `/api/learn`, POST `/api/learn/accept`, `/api/learn/dismiss` | style suggestions from edits (9.8) |
+
+**Mail extras** (live.py, mailx.py; 8.1)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/mail/search` | Gmail query search |
+| GET/POST | `/api/mail/searches`, POST `/api/mail/searches/<id>/delete` | saved searches |
+| GET/POST | `/api/mail/labels`, POST `/api/mail/labels/apply` | user labels; apply/remove with read-back |
+| GET | `/api/mail/sendas` | send-as addresses |
+| GET | `/api/mail/attachment/<msg>/<part>` | preview or download |
+| POST | `/api/mail/attachment/<msg>/<part>/save` | save to the attachments folder |
+| GET | `/api/notes/<key>`, POST `/api/notes`, `/api/notes/<id>`, `/api/notes/<id>/delete` | local highlights and notes |
+
+**Desk: context, bucket, ledger cards** (desk.py; 7.2, 8.4)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/people/<key>` | everyone on a conversation, resolved in the ledger |
+| GET | `/api/person`, `/api/person/full` | one person; full ledger context |
+| GET | `/api/ledger/search` | ledger search for a selection |
+| GET/POST | `/api/bucket`, POST `/api/bucket/remove`, `/api/bucket/clear` | bucket |
+| POST | `/api/ledger/stage` | staged log or task card from the bucket |
+| POST | `/api/ledger/stage-task-log`, `/api/ledger/stage-briefing`, `/api/ledger/stage-meeting`, `/api/ledger/stage-answer` | staged card from a task, an AI briefing, a meeting, an Ask answer |
+| POST | `/api/ledger/ai-text` | AI rewrite of a card's text (still staged) |
+| POST | `/api/ledger/commit`, GET `/api/ledger/commit/<card>` | commit once, then poll the read-back |
+| POST | `/api/ledger/link`, `/api/ledger/unlink` | fix a link chip |
+| POST | `/api/ledger/task-status` | set a ledger task status (after a click) |
+| GET | `/api/ledger/journal` | recent ledger writes |
+
+**Item context** (itemdesk.py; 7.1)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/item/full`, GET `/api/item/full/job/<id>` | Full context for an item (job) |
+| POST | `/api/item/briefing` | cited AI briefing |
+| POST | `/api/item/suggest` | possible ledger matches |
+| POST | `/api/person/add/check`, `/api/person/add/confirm`, `/api/person/add/commit` | Add to ledger (the only `people add` path) |
+
+**Ledger tab** (ledgertab.py; 7.11)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/lt/home`, `/api/lt/status` | dashboard home; ledger reachability |
+| GET | `/api/lt/list/<kind>` | people, labs, gcp, projects, grants, assets |
+| GET | `/api/lt/search`, `/api/lt/entity` | search; one entity page |
+| POST | `/api/lt/brief` | AI brief of an entity |
+| GET | `/api/lt/tasks`, `/api/lt/interactions`, `/api/lt/interaction/<uuid>` | tasks; interactions |
+| GET | `/api/lt/org`, `/api/lt/report/<doctor,health,audit>` | org tree; ledger reports |
+| POST | `/api/lt/write/review`, `/api/lt/write/confirm`, `/api/lt/write/commit` | allow-listed writes through a review card |
+
+**Calendar and invitations** (today.py; 7.4, 7.7)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/cal/day`, `/api/cal/week`, `/api/cal/event` | day, week, one event with prep |
+| POST | `/api/cal/block`, `/api/cal/block/move`, `/api/cal/block/delete`, `/api/cal/block-text` | focus blocks (only ones Ultra made) |
+| POST | `/api/cal/series`, `/api/cal/series/delete` | weekly blocks |
+| POST | `/api/cal/slots` | find a time (free/busy) |
+| POST | `/api/cal/rsvp/ask`, `/api/cal/rsvp` | RSVP: confirm token, then answer |
+| POST | `/api/invites`, GET+POST `/api/invites/<id>` | invitation draft |
+| POST | `/api/invites/<id>/approve`, `/api/invites/<id>/unapprove`, `/api/invites/<id>/review`, `/api/invites/<id>/send`, `/api/invites/<id>/discard` | invitations through two approvals |
+
+**Day** (day.py; section 19, v0.8 row)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/now` | server time and time zone |
+| GET | `/api/day/plan`, POST `/api/day/plan/note` | check-in plan; plan note |
+| GET | `/api/day/report` | end-of-day report |
+| GET | `/api/day/agenda.ics`, `/api/day/journal.csv` | exports |
+
+**Draft Studio** (studio.py; 9.6)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/studio/start`, `/api/studio/brief`, `/api/studio/draft`, `/api/studio/check` | gather, brief, draft with sources, check |
+| GET/POST | `/api/house-facts`, POST `/api/house-facts/<id>`, `/api/house-facts/<id>/delete` | house facts |
+
+**Board** (board.py; 7.3)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/board` | columns and counts |
+| POST | `/api/board/watch`, `/api/board/unwatch` | local Watching flag with optional date |
 | POST | `/api/board/nudge` | one new-email draft to a Waiting on person (never sends) |
-| GET | `/api/hermes/job/<id>` | running / done with answer / error |
-| GET | `/api/audio/<id>` | stream audio (Range) |
+
+**Ask Hermes** (ask.py; 7.12)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/hermes/status` | available, toolsets, web allowed |
+| POST | `/api/hermes/preview` | the exact context a target sends |
+| POST | `/api/hermes/ask`, GET `/api/hermes/job/<id>` | ask (job); follow-ups pass the session id |
+
+**Research, web, audio** (tools.py; 7.8-7.10)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/research/status`, `/api/research/runs`, `/api/research/show/<id>` | research CLI status; runs; one report |
+| POST | `/api/research/search` | search past research |
+| POST | `/api/research/estimate`, `/api/research/start` | estimate, then start (spends money) |
+| POST | `/api/ai/web`, `/api/ai/explain` | grounded web answer; explain a selection |
+| POST | `/api/audio/estimate`, `/api/audio/make` | estimate; make audio (job) |
+| GET | `/api/audio/job/<id>`, `/api/audio/file/<id>` | job status; the audio file (Range) |
 
 ## 15. CLI
 
@@ -1663,7 +1839,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v0.13 Ask Hermes (shipped 0.13.0) | Section 7.12: Ask Hermes on stream rows, threads, tickets, Slack, tasks, calendar meetings, Day plan and report, Ledger entity pages, research reports, selections and the palette; context preview; follow-ups in one Hermes session tagged `ultra`; read-only toolset allow-list (no memory/skill writes); web per question; journaled without text |
 | v0.14 Answers into cards (shipped 0.14.0) | Section 7.12: Use as reply (email/Slack draft as an AI version, both approvals), Log it and Task from it (normal staged cards with the item's people as chips), + Bucket |
 | v1.0 (shipped 0.16.0, released as 1.0.0) | Keyboard help panel from one table (7.7), modifier keys left to the browser, Esc closes Day, README rewritten for a new user (features, Google tokens both routes, optional tools, keys, commands, development), Q1 and Q3 decided. The operator called it 1.0 (1.0.0, same code as 0.16.0). |
-| v1.x | Graph view, Slack Web API backend (S-1) |
+| v1.x | Graph view (7.6), Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers), inbox Tidy bulk archive (8.1) |
 
 ## 20. Open items
 
@@ -1688,6 +1864,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 1.0.1 | Docs only, audited against the code. Section 5 redrawn as built (all route groups, Hermes, Board, Studio; no SSE; real runtime files; `remote.key` is a leftover). New 5.2 code map. Section 6 rebuilt from the live schema (14 tables; stream items live in `kv_cache`; staged cards in memory). Section 14 rebuilt: every route path (150), grouped by module, with a test that keeps it complete. 12.3 data-at-rest list corrected. Inbox Tidy (8.1) marked not built and moved to v1.x. S-1 note: Claude Code's Slack connector token is not on this machine; the Web API route needs a Slack app. |
 | 2026-10-01 | 1.0 | App v1.0.0: the operator called v0.16.0 done as 1.0. Same code; version, classifier (Production/Stable) and status lines only. Next: v1.x (Graph view, Slack Web API backend for S-1). |
 | 2026-10-01 | 0.36 | App v0.16.0 (7.7, 19, 20): v1.0 polish. Keyboard help panel (`?`, top-bar button, palette) from one table in `static/keys.js`, kept in step with the handlers and README by tests; Ctrl/Alt/Meta keys left to the browser (Ctrl-R used to trigger Reply on an open item); Esc closes Day. Section 7.7 rewritten as built, with the unbuilt plan keys listed. README rewritten. Q1 and Q3 decided. |
 | 2026-10-01 | 0.35 | App v0.15.0 (7.3, 14, 19): the Board. Four columns over the merged stream; Watching is a local flag that lapses on its date; Done card runs only the ticked existing actions; Wait stages a follow-up task card; Nudge makes one new-email draft to a Waiting on person listing their email threads (two approvals to send, person must be on the board). New email now opens in the center pane with no item open (Compose `c` did nothing before). Key `o`. |

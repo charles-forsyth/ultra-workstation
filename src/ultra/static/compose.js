@@ -69,7 +69,29 @@ const STATE_LABEL = {
   DISCARDED: ["dim", "Discarded."],
 };
 
-function box() { return $("#composer"); }
+// The composer slot lives in an opened item. A new email (Compose, Board nudge) can
+// start with no item open, so give it its own view in the center pane.
+function box() {
+  let el = $("#composer");
+  if (!el) {
+    $("#thread-empty").hidden = true;
+    const th = $("#thread");
+    th.hidden = false;
+    th.innerHTML = `<div class="today-head"><h2>New message</h2><span class="grow"></span><button class="btn small ghost" id="cx-standalone-x" title="Close (the draft is kept)">Close</button></div>
+      <section class="composer" id="composer" hidden></section>`;
+    $("#cx-standalone-x").onclick = () => { th.hidden = true; th.innerHTML = ""; $("#thread-empty").hidden = false; };
+    el = $("#composer");
+  }
+  return el;
+}
+
+// Open an existing draft by id (Board nudge, or any draft made elsewhere).
+export async function openDraftById(id) {
+  D = await api(`/api/drafts/${Number(id)}`);
+  render();
+  box().scrollIntoView({ block: "nearest" });
+  $("#cx-body")?.focus();
+}
 
 export async function openDraft(kind, threadKey) {
   const tid = threadKey && threadKey.startsWith("g-") ? threadKey : null;

@@ -264,6 +264,7 @@ def register(api: Api) -> None:
     _register_today(api)
     _register_ledgertab(api)
     _register_ask(api)
+    _register_board(api, items)
 
 
 class DemoHermes:
@@ -324,6 +325,23 @@ class DemoHermes:
 
     def job(self, jid: str) -> dict[str, Any] | None:
         return self.jobs.get(jid)
+
+
+def _register_board(api: Api, items: Any) -> None:
+    from zoneinfo import ZoneInfo
+
+    from ultra.board import Board
+
+    Board(
+        api.demo_comp_store,  # type: ignore[attr-defined]
+        items,
+        ZoneInfo("America/New_York"),
+        "Ada",
+        compose=api.demo_comp,  # type: ignore[attr-defined]
+        from_addr="ada@example.org",
+        my_addrs={"ada@example.org"},
+        signature_fn=lambda: "Ada",
+    ).register(api)
 
 
 def _register_ask(api: Api) -> None:
@@ -2349,6 +2367,8 @@ def _register_composer(api: Api) -> None:
     demo_sendas = ["ada@example.org", "help@example.org"]
     files = DraftFiles(store, tmp / "attachments")
     comp = Composer(cfg, store, me, files=files, send_as=lambda: demo_sendas)
+    api.demo_comp = comp  # type: ignore[attr-defined]  # the Board's Nudge drafts here
+    api.demo_comp_store = store  # type: ignore[attr-defined]
     notes = Annotations(store)
     saved = SavedSearches(store)
     labels: list[dict[str, Any]] = [

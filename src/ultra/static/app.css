@@ -587,3 +587,25 @@ mark.hl { color: inherit; border-radius: 2px; padding: 0 1px; cursor: pointer; }
 }
 .ask-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; padding-top: 6px; border-top: 1px dashed rgba(232, 121, 249, .35); }
 @media (max-width: 800px) { .ask-acts .btn { padding: 5px 10px; } }
+
+/* v0.15 Board */
+.bd-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: start; margin-bottom: 8px; }
+.bd-col { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; min-width: 0; min-height: 160px; }
+.bd-col.over { border-color: var(--cyan); background: var(--cyan-d); }
+.bd-chead { margin-bottom: 6px; }
+.bd-body { display: flex; flex-direction: column; gap: 6px; }
+.bd-card { background: var(--panel); border: 1px solid var(--line-2); border-radius: 5px; padding: 6px 8px; cursor: grab; min-width: 0; }
+.bd-card:hover, .bd-card:focus { border-color: var(--cyan); outline: none; }
+.bd-top { display: flex; gap: 6px; align-items: center; font-size: 12px; min-width: 0; }
+.bd-from { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-top .src { font: 10px var(--mono); color: var(--dim); text-transform: uppercase; }
+.bd-subj { font-size: 13px; margin: 2px 0; overflow-wrap: anywhere; }
+.bd-acts { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; opacity: .6; }
+.bd-card:hover .bd-acts, .bd-card:focus-within .bd-acts { opacity: 1; }
+.bd-group { border: 1px dashed var(--line-2); border-radius: 5px; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+.bd-ghead { display: flex; gap: 6px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+.bd-done { font-size: 12px; padding: 3px 2px; border-bottom: 1px solid var(--line); }
+.bd-checks { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+@media (max-width: 1500px) { .bd-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .bd-cols { grid-template-columns: minmax(0, 1fr); } .bd-acts { opacity: 1; gap: 6px; } .bd-acts .btn { padding: 7px 12px; font-size: 12px; } .bd-head-counts { flex-basis: 100%; order: 3; } }
+@media (hover: none) { .bd-acts { opacity: 1; } }

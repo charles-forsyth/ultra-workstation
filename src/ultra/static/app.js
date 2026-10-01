@@ -1,7 +1,8 @@
 // Ultra client shell. Vanilla JS modules, no build step, no inline code (CSP).
 // Helpers adapted from the deep-research dashboard (MIT, same author).
 
-import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent } from "./compose.js";
+import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent, openDraftById } from "./compose.js";
+import { initBoard, openBoard, closeBoard, boardOpen } from "./board.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, openPersonByAddr } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
@@ -213,6 +214,7 @@ async function openItem(i) {
   if (todayOpen()) closeToday();
   if (dayOpen()) closeDay();
   if (ledgerTabOpen()) closeLedgerTab();
+  if (boardOpen()) closeBoard();
   if (it.source === "task") return openTask(i);
   S.sel = i; S.key = it.key; renderStream();
   $("#thread-empty").hidden = true;
@@ -627,8 +629,10 @@ function wire() {
       if (e.key === "t") { e.preventDefault(); click("task"); return; }
       if (e.key === "h") { e.preventDefault(); const hb = $("#thread [data-ask]"); if (hb && !hb.disabled) hb.click(); return; }
     }
-    if (e.key === "c") { e.preventDefault(); openDraft("new", null).catch((x) => toast(x.message, "err")); return; }
-    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, h ask Hermes, c compose, m Mine, w Waiting, g Today, d Day, n Ledger, Esc close, Ctrl+K commands"); return; }
+    if (e.key === "c") { e.preventDefault(); composeNew(); return; }
+    if (e.key === "o") { e.preventDefault(); boardOpen() ? closeBoard() : openBoard(); return; }
+    if (e.key === "Escape" && boardOpen()) { closeBoard(); return; }
+    if (e.key === "?") { toast("j/k move, Enter open, r reply, a reply all, f forward, s summary, e archive, b bucket, l log, t task, h ask Hermes, c compose, o Board, m Mine, w Waiting, g Today, d Day, n Ledger, Esc close, Ctrl+K commands"); return; }
     if (e.key === "g") { e.preventDefault(); todayOpen() ? closeToday() : openToday(); return; }
     if (e.key === "d") { e.preventDefault(); dayOpen() ? closeDay() : openDay(); return; }
     if (e.key === "n") { e.preventDefault(); ledgerTabOpen() ? closeLedgerTab() : openLedgerTab(); return; }
@@ -658,7 +662,8 @@ function wire() {
 function commands() {
   const it = S.items[S.sel];
   const c = [
-    { t: "Compose new email", k: "c", run: () => openDraft("new", null) },
+    { t: "Compose new email", k: "c", run: () => composeNew() },
+    { t: "Board: my court, waiting on, watching, done", k: "o", run: () => openBoard() },
     { t: "Refresh everything", k: "Shift+R", run: () => $("#btn-refresh").click() },
     { t: "Log the bucket", run: () => stage("log") },
     { t: "Task from the bucket", run: () => stage("task") },
@@ -715,6 +720,16 @@ function palette() {
   paint(); q.focus();
 }
 
+// A new email from anywhere: leave the Board / Day / Today / Ledger views so the
+// composer has the center pane, keep an open item's composer if one is showing.
+function composeNew() {
+  if (boardOpen()) closeBoard();
+  if (dayOpen()) closeDay();
+  if (todayOpen()) closeToday();
+  if (ledgerTabOpen()) closeLedgerTab();
+  return openDraft("new", null).catch((x) => toast(x.message, "err"));
+}
+
 async function boot() {
   wire();
   try {
@@ -749,15 +764,22 @@ async function boot() {
     onClear: () => { if (S.search) { S.search = null; loadStream(); } },
   });
   initToday(S.tz, {
-    onOpen: () => { if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
   });
   initLedgerTab({
-    onOpen: () => { if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
   });
+  initBoard({
+    onOpen: () => { if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); S.key = null; S.sel = -1; renderStream(); },
+    onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
+    openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter; switch the stream to All.", "err"); },
+  });
+  window.addEventListener("ultra:open-draft", (ev) => { if (ev.detail?.id) openDraftById(ev.detail.id).catch((x) => toast(x.message, "err")); });
+  window.addEventListener("ultra:stage-log", (ev) => { if (ev.detail?.key) stage("log", ev.detail.key); });
   initDay({
-    onOpen: () => { if (todayOpen()) closeToday(); if (ledgerTabOpen()) closeLedgerTab(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (todayOpen()) closeToday(); if (ledgerTabOpen()) closeLedgerTab(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
     openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter.", "err"); },
   });

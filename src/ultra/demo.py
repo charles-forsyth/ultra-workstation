@@ -62,6 +62,42 @@ STREAM: list[dict[str, Any]] = [
         "badges": [],
         "waiting_days": 4,
     },
+    {
+        "key": "g-500",
+        "source": "email",
+        "from": "Campus News",
+        "addr": "news@example.org",
+        "subject": "This week on campus",
+        "snippet": "Events, deadlines and a parking update.",
+        "ts": "2026-09-27T07:00:00-04:00",
+        "court": "LOW",
+        "badges": [],
+        "waiting_days": 0,
+    },
+    {
+        "key": "g-600",
+        "source": "email",
+        "from": "Vendor Updates",
+        "addr": "updates@example.com",
+        "subject": "Your monthly usage summary",
+        "snippet": "Here is your usage for September.",
+        "ts": "2026-09-20T06:30:00-04:00",
+        "court": "LOW",
+        "badges": [],
+        "waiting_days": 0,
+    },
+    {
+        "key": "g-700",
+        "source": "email",
+        "from": "Eli Fox",
+        "addr": "eli@example.org",
+        "subject": "Re: old storage quota question",
+        "snippet": "Thanks, I will look into it.",
+        "ts": "2026-09-08T10:00:00-04:00",
+        "court": "WAITING",
+        "badges": [],
+        "waiting_days": 23,
+    },
 ]
 
 THREADS: dict[str, list[dict[str, Any]]] = {
@@ -341,6 +377,19 @@ def _register_board(api: Api, items: Any) -> None:
         from_addr="ada@example.org",
         my_addrs={"ada@example.org"},
         signature_fn=lambda: "Ada",
+    ).register(api)
+    from ultra.tidy import Tidy
+
+    def _same(tids: list[str]) -> list[str]:
+        return list(tids)  # demo: nothing real is archived
+
+    Tidy(
+        api.demo_comp_store,  # type: ignore[attr-defined]
+        items,
+        _same,
+        _same,
+        set,
+        ZoneInfo("America/New_York"),
     ).register(api)
 
 

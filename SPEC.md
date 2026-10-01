@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.0.2 of the spec; app at v1.0.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
+Status: v1.1 of the spec; app at v1.1.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -204,6 +204,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `calendar.py`, `today.py`, `invites.py` | Calendar adapter; Today/Week routes; invitations and RSVP with approvals |
 | `day.py` | Day plan, report, exports |
 | `board.py` | Board |
+| `tidy.py` | Inbox Tidy (rule, preview token, run, Undo) |
 | `hermes.py`, `ask.py` | Hermes adapter; Ask routes and context builders |
 | `research.py`, `tools.py` | deep-research client; research, web search, explain, audio routes |
 | `ai.py`, `audio.py` | Gemini on demand; AI audio (TTS) |
@@ -214,6 +215,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `static/today.js`, `day.js`, `board.js` | Today/Week; Day; Board |
 | `static/ask.js`, `tools.js`, `mailx.js` | Ask panel; research/web/audio; mail search, labels, notes |
 | `static/keys.js` | keyboard table (help panel, README, tests) |
+| `static/tidy.js` | Inbox Tidy dialog |
 
 ## 6. Data model (local store)
 
@@ -931,10 +933,26 @@ astropost parity (so astropost is not needed alongside Ultra):
 | trash (client function) | Not offered: Ultra never deletes mail |
 
 
-Inbox Tidy (rule-based bulk archive): NOT BUILT. Planned as: the operator states the
-rule, the full kept / archived list is shown before running, one Undo restores INBOX.
-Archive is per thread with Undo today. (The "Tidy" that shipped in v0.9.9 is the
-draft-text tool in 9.7, a different thing.) Listed in section 19 under v1.x.
+Inbox Tidy (v1.1; `tidy.py`, `static/tidy.js`; tests `tests/test_v110_tidy.py`). The
+Tidy button next to refresh (and the palette) opens a preview; nothing is archived
+until the operator presses "Archive N".
+
+- Rule, deterministic, over the same stream the Desk shows (no AI). Keep: on the
+  Board's Watching list, VIP, READY, a ticket assigned to you, your move (court MINE),
+  any activity today, anything newer than N days (default 7, 1-365, changeable in the
+  dialog). Archive: automated or bulk mail (court LOW), and anything else older than
+  N days (Waiting threads say "waiting on them, D days old"). Only email and ticket
+  rows; Slack and ledger tasks are never touched.
+- The preview lists both sides with a reason per row; every archive row is ticked and
+  can be unticked. Run sends the preview's single-use token (15 minutes) and the
+  ticked thread ids; the server refuses ids that were not in that preview and a
+  reused or expired token (409).
+- Archive removes the INBOX label only (the same call as per-thread archive): nothing
+  is deleted, trashed or marked read. One Undo per run puts every thread back
+  (toast for 10 s, "Undo last tidy" in the dialog for 24 h while the server runs).
+- Journaled as `tidy` / `tidy_undo` with counts only.
+
+(The "Tidy" in 9.7 is a different tool: it cleans a draft's text.)
 
 ### 8.2 Calendar (Google Calendar API)
 
@@ -1595,7 +1613,7 @@ All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` an
 `Content-Type: application/json` (12.1). Long calls return a job id that the page polls.
 There is no SSE stream and no generic jobs route; each feature has its own job route.
 Path parameters are shown as `<name>`; the server matches each with a strict pattern.
-150 route paths as of v1.0.0 (`tests/test_v101_spec.py` fails if one is added without a row
+153 route paths as of v1.1.0 (`tests/test_v101_spec.py` fails if one is added without a row
 here).
 
 **Core** (server.py)
@@ -1617,6 +1635,7 @@ here).
 | POST | `/api/task/action` | task complete / start / blocked / priority / snooze (ledger write after click) |
 | POST | `/api/slack/done`, `/api/slack/undone` | local Slack Mark done |
 | POST | `/api/mail/archive`, `/api/mail/unarchive` | archive with undo |
+| POST | `/api/mail/tidy/preview`, `/api/mail/tidy/run`, `/api/mail/tidy/undo` | Inbox Tidy: preview with a single-use token, archive the ticked threads, one Undo (8.1) |
 | POST | `/api/ai/summary` | AI summary of a thread |
 
 **Drafts and sending** (live.py, compose.py; section 9)
@@ -1842,7 +1861,8 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v0.13 Ask Hermes (shipped 0.13.0) | Section 7.12: Ask Hermes on stream rows, threads, tickets, Slack, tasks, calendar meetings, Day plan and report, Ledger entity pages, research reports, selections and the palette; context preview; follow-ups in one Hermes session tagged `ultra`; read-only toolset allow-list (no memory/skill writes); web per question; journaled without text |
 | v0.14 Answers into cards (shipped 0.14.0) | Section 7.12: Use as reply (email/Slack draft as an AI version, both approvals), Log it and Task from it (normal staged cards with the item's people as chips), + Bucket |
 | v1.0 (shipped 0.16.0, released as 1.0.0) | Keyboard help panel from one table (7.7), modifier keys left to the browser, Esc closes Day, README rewritten for a new user (features, Google tokens both routes, optional tools, keys, commands, development), Q1 and Q3 decided. The operator called it 1.0 (1.0.0, same code as 0.16.0). |
-| v1.x | Graph view (7.6), Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers), inbox Tidy bulk archive (8.1) |
+| v1.1 Inbox Tidy (shipped 1.1.0) | Section 8.1: rule-based bulk archive with a preview, untick, single-use run token, one Undo |
+| v1.x | Graph view (7.6), Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) |
 
 ## 20. Open items
 
@@ -1867,6 +1887,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 1.1 | App v1.1.0 (8.1, 14, 5.2, 19): Inbox Tidy. Rule-based bulk archive over the stream (keeps Watching, VIP, READY, assigned tickets, your move, today, newer than N days; archives bulk mail and older non-actionable threads), previewed with a reason per row, untick to keep, single-use run token that refuses threads outside the preview, one Undo. Slack and tasks never touched. Demo gains three inbox rows Tidy acts on. |
 | 2026-10-01 | 1.0.2 | App v1.0.1 (16): the status bar's Calendar light now works. The page had never read calendar status (a v0.1 placeholder said "Calendar arrives in v0.6"), so it stayed grey. The server checks today's calendar every 10 minutes while a tab is open and reports ok / error / age, including a missing-token error with the fix command. |
 | 2026-10-01 | 1.0.1 | Docs only, audited against the code. Section 5 redrawn as built (all route groups, Hermes, Board, Studio; no SSE; real runtime files; `remote.key` is a leftover). New 5.2 code map. Section 6 rebuilt from the live schema (14 tables; stream items live in `kv_cache`; staged cards in memory). Section 14 rebuilt: every route path (150), grouped by module, with a test that keeps it complete. 12.3 data-at-rest list corrected. Inbox Tidy (8.1) marked not built and moved to v1.x. S-1 note: Claude Code's Slack connector token is not on this machine; the Web API route needs a Slack app. |
 | 2026-10-01 | 1.0 | App v1.0.0: the operator called v0.16.0 done as 1.0. Same code; version, classifier (Production/Stable) and status lines only. Next: v1.x (Graph view, Slack Web API backend for S-1). |

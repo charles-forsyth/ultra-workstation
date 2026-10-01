@@ -44,7 +44,10 @@ from ultra.config import Config, data_dir, private_dir
 
 # Toolsets an Ask may use. Every one is a read. `web` is added only when the operator
 # ticks Allow web for that question. Config can narrow this list, never widen it.
-ALLOWED_TOOLSETS = ("session_search", "mcp-google_workspace", "web")
+# The operator's Google Workspace MCP server is deliberately absent: `-t google_workspace`
+# loads all of its tools, including send_email, reply_email and the delete tools, and
+# none carry a read-only annotation. Ultra sends the item itself instead (SPEC H-1).
+ALLOWED_TOOLSETS = ("session_search", "web")
 DEFAULT_TOOLSETS = ("session_search",)
 SESSION_RE = re.compile(r"^\d{8}_\d{6}_[0-9a-f]{6}$")
 MAX_QUESTION = 4000
@@ -135,7 +138,9 @@ class Hermes:
         self.enabled = bool(cfg.get("hermes", "enabled", True)) and bool(shutil.which(self.binary))
         want = [str(x) for x in (cfg.get("hermes", "toolsets", None) or DEFAULT_TOOLSETS)]
         # config can only pick from the allow-list; web is per question, never a default
-        self.toolsets = [t for t in want if t in ALLOWED_TOOLSETS and t != "web"]
+        self.toolsets = [t for t in want if t in ALLOWED_TOOLSETS and t != "web"] or list(
+            DEFAULT_TOOLSETS
+        )
         self.web_ok = bool(cfg.get("hermes", "allow_web", True))
         self.source = re.sub(r"[^a-z0-9_-]", "", str(cfg.get("hermes", "source", "ultra")).lower())
         self.max_turns = max(1, min(int(cfg.get("hermes", "max_turns", 25)), 60))

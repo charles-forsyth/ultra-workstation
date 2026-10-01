@@ -130,10 +130,19 @@ def test_config_cannot_widen_the_toolsets(fake, tmp_path):
     h = _h(
         fake,
         tmp_path,
-        toolsets=["terminal", "file", "memory", "skills", "browser", "web", "mcp-google_workspace"],
+        toolsets=[
+            "terminal",
+            "file",
+            "memory",
+            "skills",
+            "browser",
+            "web",
+            "google_workspace",
+            "mcp-google_workspace",
+        ],
     )
-    # only allow-listed read toolsets survive; web is never a default
-    assert h.toolsets == ["mcp-google_workspace"]
+    # nothing write-capable survives; web is never a default; empty falls back to the default
+    assert h.toolsets == ["session_search"]
     h.ask("any?")
     a = _calls(fake[1])[-1]["argv"]
     sets = a[a.index("-t") + 1].split(",")
@@ -143,8 +152,19 @@ def test_config_cannot_widen_the_toolsets(fake, tmp_path):
 
 
 def test_allow_list_has_no_write_capable_toolsets():
-    # memory/skills would also turn on Hermes' background memory/skill review
-    for bad in ("terminal", "file", "memory", "skills", "browser", "cronjob", "delegation"):
+    # memory/skills would also turn on Hermes' background memory/skill review;
+    # google_workspace (the MCP server name) loads send_email and the delete tools
+    for bad in (
+        "terminal",
+        "file",
+        "memory",
+        "skills",
+        "browser",
+        "cronjob",
+        "delegation",
+        "google_workspace",
+        "mcp-google_workspace",
+    ):
         assert bad not in ALLOWED_TOOLSETS
 
 

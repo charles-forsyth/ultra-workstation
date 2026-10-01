@@ -92,7 +92,7 @@ chunk_chars = 3500
 # Ask Hermes: read-only questions to your own Hermes Agent about what is on screen.
 enabled = true
 binary = "hermes"
-toolsets = ["session_search"]          # pick from: session_search, mcp-google_workspace
+toolsets = ["session_search"]          # read-only; the only choice today (web is per question)
 allow_web = true                       # shows the per-question "Allow web" tick
 source = "ultra"                       # session tag in your Hermes session list
 max_turns = 25

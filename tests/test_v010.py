@@ -148,7 +148,17 @@ def test_cannot_move_or_delete_a_sent_meeting(cal):
 
 
 # ---------------------------------------------------------------- week
-def test_week_groups_by_day_and_lists_pending(cal):
+def test_week_groups_by_day_and_lists_pending(cal, monkeypatch):
+    # "pending" drops invitations that have ended, so pin the clock before the 13:00-14:00
+    # invite (the test used the real clock and started failing at 14:00 on 2026-10-01)
+    import ultra.calendar as calmod
+
+    class Frozen(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return dt.datetime(2026, 10, 1, 9, 0, tzinfo=tz)
+
+    monkeypatch.setattr(calmod.dt, "datetime", Frozen)
     invitation(cal.fake)
     cal.create_block("Focus", t(9, 0, 2), t(10, 0, 2))
     w = cal.week("2026-10-01")

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.32 of the spec; app at v0.13.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, and Ask Hermes; see the delivery plan in section 19)
+Status: v0.33 of the spec; app at v0.13.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, and Ask Hermes; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -677,8 +677,8 @@ item; each question is a full agent turn on the operator's main model.
 - **Read-only, enforced in argv.** Hermes runs one-shot:
   `hermes chat --query-file <file> --format stream-json --source ultra -t <toolsets>
   --max-turns 25 --run-budget 300 [--resume <id>]`. The toolsets come from a fixed
-  allow-list (`session_search`, `mcp-google_workspace`, and `web` only when ticked);
-  config can narrow it, never widen it. Terminal, files, browser, code execution,
+  allow-list (`session_search`, and `web` only when ticked); config can narrow it,
+  never widen it. Mail and calendar tools are not offered (H-1); Ultra sends the item. Terminal, files, browser, code execution,
   delegation, cron, messaging, and the `memory` and `skills` toolsets are never passed.
   Leaving out `memory` and `skills` also means Hermes never runs its background memory
   or skill review for an Ask, so untrusted mail text cannot write into the agent's
@@ -1612,7 +1612,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | T-1 | Ticket watermark format | DECIDED from the operator's sent mail: reply-all to the "comments added" notice, To the ticket desk, requester in Cc, subject kept (Re:), and the notice's `Ref:MSG########` line kept unquoted at the end of the body. Built in v0.10. |
 | A-1 | AI model choice | Config value; default set at build time. |
 | U-1 | Hermes / agent hand-off from the palette | DONE as text answers in v0.13 (7.12). Still open: turning an answer into staged cards (draft, log, task) in one click. |
-| H-1 | Gmail/Calendar tools in Ask Hermes | `mcp-google_workspace` is on the allow-list but the MCP server did not connect in a one-shot `hermes chat` run (tested 2026-10-01: no workspace tools in the catalog). The default is `session_search` only; Ultra already sends the item. Revisit if Hermes connects MCP servers in one-shot mode; only read tools would be wanted (an MCP `tools.include` list on the Hermes side). |
+| H-1 | Gmail/Calendar tools in Ask Hermes | DECIDED (operator, 2026-10-01): not offered. Ultra sends the item and its ledger context, which covers the questions Ask is for. Cause of the earlier "did not connect": v0.13.0 passed `-t mcp-google_workspace`, but `-t` starts MCP servers by their config key (`google_workspace`), so the server never started. Under the right name all 35 tools load, including send_email, reply_email and three delete tools, none annotated read-only, so it cannot be allowed as is. A read-only route, if wanted later: a separate Hermes profile for Ultra with that server's `tools.include` limited to the read tools, sharing the operator's memory and sessions. |
 | R-1 | deep-research `--json` | DONE: deep-research v0.36.0 adds `--json` to every command (PR #142). |
 | R-2 | Research context from mail | DECIDED: allowed when the operator ticks "Include this thread" for that run; unticked by default. |
 
@@ -1620,6 +1620,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 0.33 | App v0.13.1 (7.12, 20 H-1): the Ask allow-list drops the workspace entry. v0.13.0 listed it under a name that never started the server (`mcp-google_workspace`; `-t` matches the config key `google_workspace`), so no mail tools ever loaded. Under its real name the server brings send and delete tools, so the operator chose to leave mail and calendar tools out; H-1 decided. Config that names it falls back to `session_search`. Also: a calendar test that used the real clock (it broke after 14:00 on 2026-10-01) now pins the time. |
 | 2026-10-01 | 0.32 | App v0.13.0 (new 7.12, 8.7; 13, 14, 19, 20): Ask Hermes. Ask the operator's own agent about any stream row, thread, ticket, Slack conversation, task, meeting, Day page, ledger entity, research report or selection; read-only by toolset allow-list in argv, so no terminal/file/send and no memory or skill writes (Hermes' background review only runs with those tools); question and context in a mode-600 file; follow-ups resume one Hermes session tagged `ultra`; web per question; journaled without text. Verified live against Hermes, including a planted prompt injection that was refused. Gmail/Calendar tools did not connect in one-shot mode (H-1). |
 | 2026-10-01 | 0.31 | Docs only, no app change (still v0.12.1). Caught up sections that lagged the change log: 12.1 now describes remote mode (`--host 0.0.0.0`, address allow-list with `tailnet:mine`, no access key, remote Host rules), the real CSRF header `X-Ultra-Token` and the full CSP; 13 adds `[server] remote_networks` and `[ai] hide_ticket_prefix` and marks `fallback_model` ignored; 8.6 says there is no fallback model; 14 header name fixed; 15 adds `serve`, `remote`, `--host` and `config path`, fixes the `purge` flags and drops the never-built `journal` command; 19 marks v0.35 superseded; Q2 decided; header says the repo is public. |
 | 2026-10-01 | 0.30 | App v0.12.1 (sections 7.1, 9.6): Draft Studio no longer gathers on open (operator: wasted model calls and time on items only read or archived); it starts from its Gather context button, from Draft with AI, or from Email from this task. Archive (mail, tickets) / Done (Slack) on every stream row, always visible, so items can be cleared without opening them; Undo in the toast. BLOCKED ledger tasks also show under Waiting (the operator files waits as BLOCKED). |

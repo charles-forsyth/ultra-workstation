@@ -4,6 +4,7 @@
 
 import { api, esc, toast, busy, copyText } from "./app.js";
 import { renderMd } from "./tools.js";
+import { applyHermesDraft } from "./compose.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -106,15 +107,60 @@ function turnHtml(t, i) {
   if (t.role === "wait") return `<div class="ask-a wait"><span class="badge ai">Hermes</span> <span class="dim small-t" id="ask-wait">Thinking... 0 s</span></div>`;
   return `<div class="ask-a"><div class="aisum-head"><span class="badge ai">Hermes</span><span class="dim mono small-t">${esc(t.seconds)} s${t.tools?.length ? ` &middot; used ${esc([...new Set(t.tools)].join(", "))}` : ""}</span><span class="grow"></span>
       <button class="btn tiny" data-ta="copy" data-i="${i}">Copy</button><button class="btn tiny" data-ta="listen" data-i="${i}">Listen</button></div>
-    <div class="md">${renderMd(t.text)}</div></div>`;
+    <div class="md">${renderMd(t.text)}</div>
+    <div class="ask-acts" role="group" aria-label="Use this answer">${actsHtml(i)}</div></div>`;
 }
+
+// What an answer can become. Every one opens Ultra's normal card or composer; nothing
+// is written or sent from here.
+function replyKey() {
+  const t = A.target || {};
+  const k = t.type === "item" ? t.key : t.type === "text" ? t.key : "";
+  return /^(g|s)-/.test(k || "") ? k : "";
+}
+function sourceKey() {
+  const t = A.target || {};
+  const k = t.type === "item" || t.type === "text" ? t.key || "" : "";
+  return /^(g|k|s)-/.test(k) ? k : "";
+}
+function taskId() {
+  const k = A.target?.type === "item" ? A.target.key || "" : "";
+  return k.startsWith("t-") ? k.slice(2) : "";
+}
+function actsHtml(i) {
+  const rk = replyKey();
+  const reply = rk
+    ? `<button class="btn tiny" data-ta="reply" data-i="${i}" title="Put this answer in the ${rk.startsWith("s-") ? "Slack reply" : "reply-all"} draft as a new version. Edit it there; it still needs both approvals.">Use as ${rk.startsWith("s-") ? "Slack reply" : "reply"}</button>`
+    : "";
+  return `${reply}<button class="btn tiny" data-ta="log" data-i="${i}" title="Open a ledger log card with this answer as the text (you review and commit it)">Log it</button>
+    <button class="btn tiny" data-ta="task" data-i="${i}" title="Open a ledger task card from the answer's first line (you review and commit it)">Task from it</button>
+    <button class="btn tiny" data-ta="bucket" data-i="${i}" title="Add the answer to the bucket as a snippet">+ Bucket</button>`;
+}
+
+
 
 function wireTurns() {
   $("#ask-turns").onclick = (e) => {
     const b = e.target.closest("[data-ta]"); if (!b) return;
     const t = A.turns[Number(b.dataset.i)]; if (!t) return;
-    if (b.dataset.ta === "copy") copyText(t.text);
-    else window.dispatchEvent(new CustomEvent("ultra:listen", { detail: { text: t.text, title: "Hermes answer" } }));
+    const act = b.dataset.ta;
+    if (act === "copy") return copyText(t.text);
+    if (act === "listen") return window.dispatchEvent(new CustomEvent("ultra:listen", { detail: { text: t.text, title: "Hermes answer" } }));
+    if (act === "reply") return busy(b, async () => {
+      const k = replyKey(); if (!k) return;
+      close();
+      // the composer lives in the open thread: open the item first if it is not on screen
+      if (!document.querySelector("#thread:not([hidden]) #composer") || window.__ultraOpenKey?.() !== k) {
+        const ok = await window.__ultraOpenItem?.(k);
+        if (!ok) { toast("Open that conversation first, then use the answer again (it is still in Ask Hermes).", "err"); return; }
+      }
+      if (await applyHermesDraft(k, t.text)) toast("Answer is in the draft as a new version. Edit, then approve twice to send.", "ok");
+    });
+    if (act === "log" || act === "task") return busy(b, async () => {
+      close();
+      window.dispatchEvent(new CustomEvent("ultra:stage-answer", { detail: { action: act, text: t.text, key: sourceKey(), task: taskId(), title: A.title || "Hermes answer" } }));
+    });
+    if (act === "bucket") return window.dispatchEvent(new CustomEvent("ultra:bucket-snippet", { detail: { text: t.text.slice(0, 2000), key: sourceKey(), title: A.title ? `Hermes on ${A.title}` : "Hermes answer" } }));
   };
 }
 

@@ -87,6 +87,7 @@ class Desk:
         api.add("POST", r"/api/ledger/stage-task-log", self.r_stage_task_log)
         api.add("POST", r"/api/ledger/stage-briefing", self.r_stage_briefing)
         api.add("POST", r"/api/ledger/stage-meeting", self.r_stage_meeting)
+        api.add("POST", r"/api/ledger/stage-answer", self.r_stage_answer)
         api.add("POST", r"/api/ledger/commit", self.r_commit)
         api.add("GET", r"/api/ledger/commit/([A-Za-z0-9_-]+)", self.r_commit_status)
         api.add("POST", r"/api/ledger/link", self.r_link)
@@ -305,6 +306,53 @@ class Desk:
         card = self.stager.stage("log", items)
         card["text"] = text
         self.stager.annotate(card["id"], from_bucket=False)
+        card["from_bucket"] = False
+        card["ledger"] = self.ledger.enabled
+        return card
+
+    def r_stage_answer(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """A log or task card from an Ask Hermes answer (v0.14, SPEC 7.12).
+
+        The text is the answer (log) or its first line (task); the conversation the
+        question was about, when it is a mail/ticket/Slack item, becomes the card's
+        source so its people resolve as chips like any other card. Nothing is written
+        until the operator presses Commit on the card.
+        """
+        b = body or {}
+        action = str(b.get("action") or "")
+        if action not in ("log", "task"):
+            raise _bad("action must be log or task")
+        text = ascii_fix(str(b.get("text") or "")).strip()
+        if not text:
+            raise _bad("the answer is empty")
+        if len(text) > 20000:
+            raise _bad("the answer is over 20000 characters; trim it first")
+        key = str(b.get("key") or "")
+        title = ascii_fix(" ".join(str(b.get("title") or "Hermes answer").split()))[:120]
+        items: list[dict[str, Any]] = []
+        if KEY_RE.match(key):
+            items.append(snapshot_thread(key, self._thread(key), self.rules, _kind_of(key)))
+        tid = str(b.get("task") or "").lower()
+        if UUID.match(tid):  # a ledger task the answer is about: referenced on the card
+            items.append(snapshot_entity({"id": tid, "name": title, "type": "Task"}))
+        if not items:
+            items = [
+                {
+                    "kind": "note",
+                    "key": "",
+                    "subject": title,
+                    "people": [],
+                    "tickets": [],
+                    "gcp": [],
+                }
+            ]
+        card = self.stager.stage(action, items)
+        if action == "task":
+            first = next((ln.strip(" -*#\t") for ln in text.splitlines() if ln.strip()), "")
+            card["text"] = first[:300]
+        else:
+            card["text"] = text
+        self.stager.annotate(card["id"], from_bucket=False, source="hermes")
         card["from_bucket"] = False
         card["ledger"] = self.ledger.enabled
         return card

@@ -42,6 +42,25 @@ export async function resumeForTask(taskId) {
 }
 export function onSent(fn) { onDone = fn; }
 
+// Ask Hermes hands over a reply (v0.14): open (or resume) the reply-all draft for an
+// email thread, or the reply draft for a Slack conversation, and save the text as an AI
+// version. It is linted like any version and still needs both approvals.
+export async function applyHermesDraft(threadKey, body) {
+  const label = "Ask Hermes";
+  if (threadKey.startsWith("s-")) {
+    if (!D || D.kind !== "slack" || D.stream_key !== threadKey) await openSlackDraft(threadKey);
+  } else if (!D || D.thread_id !== threadKey.slice(2) || !["reply", "reply_all"].includes(D.kind)) {
+    await openDraft("reply_all", threadKey);
+  }
+  if (!D) return false;
+  if (D.state !== "DRAFT" && D.state !== "APPROVED") { toast(`The draft is ${D.state.toLowerCase()}; start a new one.`, "err"); return false; }
+  await saveNow();
+  D = await api(`/api/drafts/${D.id}/studio`, { method: "POST", body: { body, label } });
+  render();
+  box().scrollIntoView({ block: "nearest" });
+  return true;
+}
+
 const STATE_LABEL = {
   DRAFT: ["draft", "Draft: edit freely. Approve when it reads right."],
   APPROVED: ["approved", "Approved (1 of 2). Any edit sends it back to Draft."],

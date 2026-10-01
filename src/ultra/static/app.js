@@ -762,6 +762,15 @@ async function boot() {
     openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter.", "err"); },
   });
   window.addEventListener("ultra:person", (ev) => openPersonByAddr(ev.detail));
+  // Ask Hermes "Use as reply": which item is open, and open one by key (resolves when
+  // its thread view, and so the composer slot, is on screen)
+  window.__ultraOpenKey = () => (S.key && !$("#thread").hidden ? S.key : null);
+  window.__ultraOpenItem = async (key) => {
+    const i = S.items.findIndex((x) => x.key === key);
+    if (i < 0) return false;
+    await openItem(i);
+    return S.key === key && !!$("#thread #composer");
+  };
   window.addEventListener("ultra:listen", (ev) => listen(ev.detail.text, ev.detail.title));
   await loadStream();
   pollStatus(); setInterval(pollStatus, 5000);

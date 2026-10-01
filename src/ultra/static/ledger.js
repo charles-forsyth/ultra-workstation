@@ -643,6 +643,23 @@ window.addEventListener("ultra:stage-text", async (ev) => {
   renderCard();
 });
 
+// A log or task card from an Ask Hermes answer (v0.14): the item it was about gives
+// the chips; the answer is the text. Same review-then-commit card as every other.
+window.addEventListener("ultra:stage-answer", async (ev) => {
+  const d = ev.detail || {};
+  const dlg = $("#ledger-card");
+  dlg.hidden = false;
+  dlg.innerHTML = `<div class="lc-card"><div class="dim">Building the ${d.action === "task" ? "task" : "log entry"} from the answer: resolving people...</div></div>`;
+  try {
+    CARD = await api("/api/ledger/stage-answer", { method: "POST", body: { action: d.action, text: d.text, key: d.key || "", task: d.task || "", title: d.title || "" } });
+  } catch (e) { dlg.hidden = true; toast(e.message, "err"); return; }
+  renderCard();
+});
+window.addEventListener("ultra:bucket-snippet", (ev) => {
+  const d = ev.detail || {};
+  addSnippet(d.text || "", d.key || "", d.title || "Snippet", new Date().toISOString());
+});
+
 // A log card for a calendar meeting (Today / Week view): guests become chips.
 window.addEventListener("ultra:stage-meeting", async (ev) => {
   const dlg = $("#ledger-card");

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.33 of the spec; app at v0.13.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, and Ask Hermes; see the delivery plan in section 19)
+Status: v0.34 of the spec; app at v0.14.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, and Ask Hermes with answers into cards; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -696,6 +696,24 @@ item; each question is a full agent turn on the operator's main model.
 - **Glass wall.** Answers are text in the panel. Nothing in an answer is executed or
   staged automatically; acting on one (a reply, a task, a log) goes through Ultra's
   normal composer, staged cards and approvals.
+- **Answers into cards (v0.14).** Under every answer: Use as reply, Log it, Task from
+  it and + Bucket. Each opens the same thing the operator would open by hand, and
+  nothing is written or sent from the panel:
+  - *Use as reply* (email threads and Slack conversations only): opens the item if it
+    is not on screen, opens or resumes its reply-all (email) or reply (Slack) draft,
+    and saves the answer as a new version (author `ai`, label "Ask Hermes") through the
+    Draft Studio save route. It is ASCII-fixed and linted like any version, voids an
+    earlier approval, and needs both approvals to send. Tickets are not offered: their
+    replies go through Draft Studio, which adds the Ref line.
+  - *Log it* / *Task from it*: `POST /api/ledger/stage-answer {action, text, key, task,
+    title}` builds the normal staged card. The item the question was about (an email,
+    ticket or Slack key) is the card's source, so its people resolve as chips; a ledger
+    task the answer was about is referenced. A log's text is the answer; a task's is the
+    answer's first non-empty line (max 300 characters). Text is ASCII-fixed and capped
+    at 20,000 characters. The card is single use and commits only on Commit, with the
+    usual read-back.
+  - *+ Bucket*: the answer (first 2,000 characters, the bucket's snippet limit) as a
+    snippet tied to the item.
 - **No background use.** Nothing runs until Ask is pressed. No polling, no prefetch.
 - **Status.** `GET /api/hermes/status` (enabled, toolsets, web allowed, source, budget).
   Without the `hermes` binary the buttons are disabled with a reason.
@@ -1502,6 +1520,7 @@ All JSON. Writes need `X-Ultra-Token` (the CSRF token, 12.1). Long calls return 
 | GET | `/api/hermes/status` | Ask Hermes availability, toolsets, web allowed |
 | POST | `/api/hermes/preview` | the exact context a target sends (7.12) |
 | POST | `/api/hermes/ask` | ask (job); follow-ups pass the session id |
+| POST | `/api/ledger/stage-answer` | staged log or task card from an Ask answer (7.12) |
 | GET | `/api/hermes/job/<id>` | running / done with answer / error |
 | GET | `/api/audio/<id>` | stream audio (Range) |
 
@@ -1594,8 +1613,9 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v0.11 Email, rest (shipped 0.11.0) | Mail search with saved searches, labels (user labels only, read-back, Undo), attachments (preview/download/save/attach by partId), composer files in the approval hash with re-hash at send, send-as picker checked at lint and send, highlights and notes, thread export (Markdown/text/JSON/Print). The all-drafts list was dropped by the operator. ServiceNow replies, version diff and Tidy shipped earlier (0.9.8, 0.9.9) |
 | v0.12 Ledger tab (shipped 0.12.0) | Full dashboard for the ledger tool: home (counts, activity, tasks, overdue, going-cold people), browse/search every entity type, entity pages with links/history/tasks/cited briefing, task board, interactions (edit via `interactions edit`, link/unlink), org tree, GCP audit and cost reports, graph health (`doctor`); writes only through allow-listed commands with review cards, read-back, double confirmation for destructive or bulk changes; ledger additions each on their own reviewed PR |
 | v0.13 Ask Hermes (shipped 0.13.0) | Section 7.12: Ask Hermes on stream rows, threads, tickets, Slack, tasks, calendar meetings, Day plan and report, Ledger entity pages, research reports, selections and the palette; context preview; follow-ups in one Hermes session tagged `ultra`; read-only toolset allow-list (no memory/skill writes); web per question; journaled without text |
+| v0.14 Answers into cards (shipped 0.14.0) | Section 7.12: Use as reply (email/Slack draft as an AI version, both approvals), Log it and Task from it (normal staged cards with the item's people as chips), + Bucket |
 | v1.0 | Polish, keyboard help, docs, public release |
-| v1.x | Graph view, palette Ask with staged cards (beyond 7.12's text answers), Slack Web API backend (S-1) |
+| v1.x | Graph view, Slack Web API backend (S-1) |
 
 ## 20. Open items
 
@@ -1611,7 +1631,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | L-3 | ~~Task id not printed reliably by `tasks add`~~ Done: `tasks add --json` (ledger 0.1.206). Also 0.1.207: `tasks update/delete` by UUID never fuzzy-match another task and exit 1 when nothing matches; `people add` refuses NetIDs starting with '-'. | - |
 | T-1 | Ticket watermark format | DECIDED from the operator's sent mail: reply-all to the "comments added" notice, To the ticket desk, requester in Cc, subject kept (Re:), and the notice's `Ref:MSG########` line kept unquoted at the end of the body. Built in v0.10. |
 | A-1 | AI model choice | Config value; default set at build time. |
-| U-1 | Hermes / agent hand-off from the palette | DONE as text answers in v0.13 (7.12). Still open: turning an answer into staged cards (draft, log, task) in one click. |
+| U-1 | Hermes / agent hand-off from the palette | DONE: text answers in v0.13, answers into a reply draft, log card, task card or bucket snippet in v0.14 (7.12). |
 | H-1 | Gmail/Calendar tools in Ask Hermes | DECIDED (operator, 2026-10-01): not offered. Ultra sends the item and its ledger context, which covers the questions Ask is for. Cause of the earlier "did not connect": v0.13.0 passed `-t mcp-google_workspace`, but `-t` starts MCP servers by their config key (`google_workspace`), so the server never started. Under the right name all 35 tools load, including send_email, reply_email and three delete tools, none annotated read-only, so it cannot be allowed as is. A read-only route, if wanted later: a separate Hermes profile for Ultra with that server's `tools.include` limited to the read tools, sharing the operator's memory and sessions. |
 | R-1 | deep-research `--json` | DONE: deep-research v0.36.0 adds `--json` to every command (PR #142). |
 | R-2 | Research context from mail | DECIDED: allowed when the operator ticks "Include this thread" for that run; unticked by default. |
@@ -1620,6 +1640,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 0.34 | App v0.14.0 (7.12, 14, 19, 20 U-1): answers into cards. Each Ask Hermes answer has Use as reply (email/Slack; saved as an AI version in the item's draft, still two approvals), Log it and Task from it (new `POST /api/ledger/stage-answer`: normal single-use staged card, item's people as chips, task text = first line), and + Bucket. The panel itself never writes or sends. U-1 done. |
 | 2026-10-01 | 0.33 | App v0.13.1 (7.12, 20 H-1): the Ask allow-list drops the workspace entry. v0.13.0 listed it under a name that never started the server (`mcp-google_workspace`; `-t` matches the config key `google_workspace`), so no mail tools ever loaded. Under its real name the server brings send and delete tools, so the operator chose to leave mail and calendar tools out; H-1 decided. Config that names it falls back to `session_search`. Also: a calendar test that used the real clock (it broke after 14:00 on 2026-10-01) now pins the time. |
 | 2026-10-01 | 0.32 | App v0.13.0 (new 7.12, 8.7; 13, 14, 19, 20): Ask Hermes. Ask the operator's own agent about any stream row, thread, ticket, Slack conversation, task, meeting, Day page, ledger entity, research report or selection; read-only by toolset allow-list in argv, so no terminal/file/send and no memory or skill writes (Hermes' background review only runs with those tools); question and context in a mode-600 file; follow-ups resume one Hermes session tagged `ultra`; web per question; journaled without text. Verified live against Hermes, including a planted prompt injection that was refused. Gmail/Calendar tools did not connect in one-shot mode (H-1). |
 | 2026-10-01 | 0.31 | Docs only, no app change (still v0.12.1). Caught up sections that lagged the change log: 12.1 now describes remote mode (`--host 0.0.0.0`, address allow-list with `tailnet:mine`, no access key, remote Host rules), the real CSRF header `X-Ultra-Token` and the full CSP; 13 adds `[server] remote_networks` and `[ai] hide_ticket_prefix` and marks `fallback_model` ignored; 8.6 says there is no fallback model; 14 header name fixed; 15 adds `serve`, `remote`, `--host` and `config path`, fixes the `purge` flags and drops the never-built `journal` command; 19 marks v0.35 superseded; Q2 decided; header says the repo is public. |

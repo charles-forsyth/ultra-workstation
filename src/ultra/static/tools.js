@@ -4,6 +4,7 @@
 
 import { api, esc, toast, busy, copyText } from "./app.js";
 import { addSnippet } from "./ledger.js";
+import { askButton, openAsk } from "./ask.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -122,7 +123,7 @@ async function openReport(id) {
   dlg.innerHTML = `<div class="lc-card rep" role="dialog" aria-modal="true">
     <div class="lc-head"><h3>Research #${esc(r.id)}</h3><span class="dim small-t ell">${esc(r.prompt)}</span><span class="grow"></span>
       <button class="btn tiny" id="rp-copy">Copy</button><button class="btn tiny" id="rp-bucket">Add to bucket</button>
-      <button class="btn tiny" id="rp-read">Read aloud</button><button class="btn tiny ai" id="rp-ai">AI audio...</button>
+      <button class="btn tiny" id="rp-read">Read aloud</button><button class="btn tiny ai" id="rp-ai">AI audio...</button>${askButton("btn tiny ai")}
       ${T.status?.dashboard_url ? `<a class="btn tiny ghost" href="${esc(T.status.dashboard_url)}" target="_blank" rel="noopener noreferrer">deep-research</a>` : ""}
       <button class="btn tiny ghost" id="rp-x">Close</button></div>
     <div class="md" id="rp-body">${renderMd(r.report || "(no report text)")}</div></div>`;
@@ -135,6 +136,7 @@ async function openReport(id) {
   $("#rp-bucket").onclick = () => addSnippet(`Research #${r.id}: ${r.prompt}\n\n${(r.report || "").slice(0, 1500)}`, T.thread || "", `Research #${r.id}`, r.created_at || "");
   $("#rp-read").onclick = () => readAloud($("#rp-body"));
   $("#rp-ai").onclick = () => audioDialog({ run: r.id }, `Research #${r.id}`);
+  dlg.querySelector("[data-ask]").onclick = () => { close(); openAsk({ type: "report", id: r.id }, `Research #${r.id}`); };
 }
 
 // Minimal, safe Markdown: escape first, then add a few inline/blocks. No raw HTML.

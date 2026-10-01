@@ -6,6 +6,7 @@
 // invite (two approvals, like email).
 
 import { api, esc, toast, busy } from "./app.js";
+import { askButton, openAsk } from "./ask.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const PX = 1.1;                 // pixels per minute
@@ -322,7 +323,8 @@ async function meetingPanel(e0) {
       <button class="btn tiny ${e.my_response === "accepted" ? "on" : ""}" data-rsvp="accepted">Yes</button><button class="btn tiny ${e.my_response === "tentative" ? "on" : ""}" data-rsvp="tentative">Maybe</button><button class="btn tiny ${e.my_response === "declined" ? "on" : ""}" data-rsvp="declined">No</button></div>` : ""}
     <div class="row-g"><button class="btn small ai" id="mp-brief" title="What you should know before this meeting, from the ledger and past mail, with citations">Prep briefing</button>
       <button class="btn small" id="mp-log" title="Log this meeting in the ledger (review card)">Log this meeting</button>
-      <button class="btn small ghost" id="mp-ctx" title="Everyone on the invite in the right panel">People &amp; context</button></div>
+      <button class="btn small ghost" id="mp-ctx" title="Everyone on the invite in the right panel">People &amp; context</button>
+      ${askButton("btn small ai")}</div>
     <div id="mp-out"></div>
     ${e.description ? `<details class="quoted" open><summary>Invite notes</summary><div class="body">${esc(e.description)}</div></details>` : `<div class="dim small-t">No invite notes.</div>`}
     <div class="sect"><div class="label">People (${e.attendee_count}${people.length && people.length < e.attendee_count ? `, ${people.length} besides you` : ""})</div>
@@ -333,6 +335,7 @@ async function meetingPanel(e0) {
   $("#mp-x").onclick = () => { panel.innerHTML = ""; };
   panel.querySelectorAll("[data-rsvp]").forEach((b) => b.onclick = () => busy(b, () => rsvp(e, b.dataset.rsvp)));
   const key = `c-${e.cal}~${e.id}`;
+  panel.querySelector("[data-ask]").onclick = () => openAsk({ type: "item", key }, e.summary || "Meeting");
   $("#mp-ctx").onclick = () => window.dispatchEvent(new CustomEvent("ultra:item-context", { detail: { key, subject: e.summary, source: "calendar" } }));
   $("#mp-brief").onclick = (ev) => busy(ev.target, async () => {
     const out = $("#mp-out"); out.innerHTML = `<div class="dim small-t">Reading the ledger and past mail for everyone on the invite...</div>`;

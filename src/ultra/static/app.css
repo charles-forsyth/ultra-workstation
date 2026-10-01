@@ -558,3 +558,30 @@ mark.hl { color: inherit; border-radius: 2px; padding: 0 1px; cursor: pointer; }
   .lt-q { width: 100%; order: 9; }
   .lt-cols { grid-template-columns: 1fr; }
 }
+
+/* v0.13 Ask Hermes */
+.item .ra.ra-ask { color: var(--magenta); border-color: rgba(232, 121, 249, .45); }
+.item .ra.ra-ask:hover { color: var(--magenta); border-color: var(--magenta); }
+.ask-card { width: min(820px, 96vw); display: flex; flex-direction: column; gap: 8px; }
+.ask-ctx details summary { cursor: pointer; font-size: 12px; color: var(--dim); }
+.ask-pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; font: 12px/1.45 var(--mono); margin: 6px 0 0; }
+.ask-turns { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.ask-turns:empty { display: none; }
+.ask-q .body { white-space: pre-wrap; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; padding: 6px 10px; margin-top: 2px; }
+.ask-a { border: 1px solid var(--magenta); background: var(--magenta-d); border-radius: var(--radius); padding: 8px 12px; min-width: 0; }
+.ask-a .md { overflow-wrap: anywhere; }
+.ask-a .aisum-head .btn { margin-left: 0; }
+.ask-a.wait { padding: 6px 12px; }
+#ask-q { width: 100%; box-sizing: border-box; resize: vertical; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; color: var(--text); padding: 6px 8px; font: inherit; line-height: 1.5; }
+#ask-q:focus { outline: none; border-color: var(--magenta); }
+.ask-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.ask-note { line-height: 1.5; }
+.nowrap { white-space: nowrap; }
+@media (max-width: 800px) {
+  .ask-card { max-height: 92vh; }
+  .ask-turns { max-height: 46vh; }
+  .ask-opts { gap: 6px 14px; }
+  .ask-opts .cx-chk { padding: 6px 0; }
+  .ask-opts #ask-go { padding: 8px 22px; font-size: 14px; }
+  .ask-a .aisum-head .btn { padding: 5px 10px; }
+}

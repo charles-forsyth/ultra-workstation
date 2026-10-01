@@ -263,6 +263,115 @@ def register(api: Api) -> None:
     _register_tools(api)
     _register_today(api)
     _register_ledgertab(api)
+    _register_ask(api)
+
+
+class DemoHermes:
+    """Ask Hermes in demo mode: a canned answer; no agent runs."""
+
+    enabled = True
+    toolsets: ClassVar[list[str]] = ["session_search"]
+    web_ok = True
+    source = "ultra"
+    budget = 300
+
+    def __init__(self) -> None:
+        import secrets as _s
+
+        self._s = _s
+        self.jobs: dict[str, dict[str, Any]] = {}
+        self.asked: list[dict[str, Any]] = []
+
+    def ask(
+        self,
+        question: str,
+        context: str = "",
+        title: str = "",
+        kind: str = "item",
+        session: str | None = None,
+        web: bool = False,
+    ) -> dict[str, Any]:
+        self.asked.append(
+            {
+                "question": question,
+                "context": context,
+                "title": title,
+                "kind": kind,
+                "session": session,
+                "web": web,
+            }
+        )
+        sid = session or "20260930_100000_abc123"
+        return {
+            "session_id": sid,
+            "text": f'Demo answer about the {kind} "{title}": {question[:80]}',
+            "tools": [],
+            "tokens": {"total": 0},
+            "seconds": 0.1,
+        }
+
+    def start(self, fn: Any = None, **kw: Any) -> str:
+        jid = self._s.token_hex(12)
+        try:
+            self.jobs[jid] = {
+                "state": "done",
+                "started": 0,
+                "result": fn() if fn else self.ask(**kw),
+            }
+        except Exception as e:  # noqa: BLE001
+            self.jobs[jid] = {"state": "error", "started": 0, "error": str(e)}
+        return jid
+
+    def job(self, jid: str) -> dict[str, Any] | None:
+        return self.jobs.get(jid)
+
+
+def _register_ask(api: Api) -> None:
+    from ultra.ask import AskDesk
+
+    h = DemoHermes()
+    api.demo_hermes = h  # type: ignore[attr-defined]
+
+    def item(key: str) -> tuple[str, list[dict[str, Any]], Any]:
+        if key.startswith("t-"):
+            t = next((x for x in DEMO_TASKS if x["id"] == key[2:]), None) or {}
+            return (
+                str(t.get("summary", key)),
+                [{"from": "ledger task", "body": str(t.get("summary", ""))}],
+                t,
+            )
+        if key.startswith("c-"):
+            cal, _, eid = key[2:].partition("~")
+            e = api.demo_calendar.event(cal, eid)  # type: ignore[attr-defined]
+            return (
+                str(e.get("summary", "")),
+                [
+                    {
+                        "from": e.get("organizer", ""),
+                        "subject": e.get("summary", ""),
+                        "body": e.get("description") or "(no invite notes)",
+                    }
+                ],
+                None,
+            )
+        msgs = THREADS.get(key, [])
+        row = next((s for s in STREAM if s["key"] == key), {})
+        return str(row.get("subject") or key), msgs, None
+
+    def full(key: str, msgs: list[dict[str, Any]], task: Any) -> str:
+        return "People in this item:\n- Ben Example (benex)"
+
+    def day(view: str, d: str) -> str:
+        return f"Demo {view} for {d}: 2 meetings, 3 items are your move."
+
+    def entity(kind: str, key: str) -> tuple[str, str]:
+        return key, f"[E:00000000] Record ({kind}): demo record for {key}"
+
+    def report(rid: int) -> tuple[str, str]:
+        r = api.demo_research.show(rid)  # type: ignore[attr-defined]
+        return f"Research #{rid}", str(r.get("result") or r.get("report") or "")
+
+    AskDesk(h, item, full, day, entity, report).register(api)  # type: ignore[arg-type]
 
 
 class DemoResearch:

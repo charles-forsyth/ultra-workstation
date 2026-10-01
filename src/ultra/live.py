@@ -26,6 +26,7 @@ from ultra.config import Config, data_dir, expand, private_dir
 from ultra.day import Day
 from ultra.desk import Desk
 from ultra.drafttools import compare, cut_sentences, tidy
+from ultra.graph import Graph
 from ultra.hermes import Hermes
 from ultra.itemctx import ItemContext
 from ultra.itemdesk import ItemDesk
@@ -209,6 +210,8 @@ class Live:
             my_addrs=set(cfg.my_addresses),
             signature_fn=lambda: str((load_style().get("signature") or {}).get("text", "")),
         )
+        # v1.2 Graph: ledger neighborhood, read only
+        self.graph = Graph(self.ledger, self.store, str(cfg.get("ledger", "my_id", "") or ""))
         # v1.1 Inbox Tidy: rule-based bulk archive, previewed, one Undo
         self.tidy = Tidy(
             self.store,
@@ -288,6 +291,7 @@ class Live:
         self.ask.register(api)
         self.board.register(api)
         self.tidy.register(api)
+        self.graph.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)

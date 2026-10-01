@@ -1608,6 +1608,13 @@ class DemoLedgerCLI:  # demo double: loose types on purpose (records are plain J
             (P + "41", P + "31", "FUNDS"),
             (P + "31", P + "51", "USES_ASSET"),
             (P + "62", P + "51", "LINKS_TO"),
+            # a little more shape for the Graph view (invented)
+            (P + "01", P + "04", "COLLABORATES_WITH"),
+            (P + "01", P + "02", "COLLABORATES_WITH"),
+            (P + "01", P + "21", "OVERSIGHT_BY"),
+            (P + "01", P + "31", "LEADS"),
+            (P + "03", P + "12", "MEMBER_OF"),
+            (P + "02", P + "12", "MEMBER_OF"),
         ]
         self.n = 0
 
@@ -1725,6 +1732,8 @@ class DemoLedgerCLI:  # demo double: loose types on purpose (records are plain J
             ]
             return {**self.ix[arg], "links": links}
         if a0 == "tree":  # `nexus tree ID`: the id is the second word
+            if a1 in self.people:  # a NetID, like the real `nexus tree <netid>`
+                a1 = self.people[a1]["id"]
             return self._tree(a1) if a1 in self._all() else {}
         if a0 == "search":
             term = a1.lower()
@@ -1985,6 +1994,9 @@ def _register_ledgertab(api: Api) -> None:
     )
     api.demo_ledgertab = led  # type: ignore[attr-defined]
     tab.register(api)
+    from ultra.graph import Graph
+
+    Graph(led, store, "bcarter").register(api)  # demo: centered on Ben Carter
 
 
 def _register_desk(api: Api) -> None:

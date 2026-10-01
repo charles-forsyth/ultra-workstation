@@ -5,6 +5,7 @@ import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent, open
 import { initBoard, openBoard, closeBoard, boardOpen } from "./board.js";
 import { toggleHelp, helpOpen } from "./keys.js";
 import { initTidy, openTidy } from "./tidy.js";
+import { initGraph, openGraph, closeGraph, graphOpen } from "./graph.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, openPersonByAddr } from "./ledger.js";
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
@@ -217,6 +218,7 @@ async function openItem(i) {
   if (dayOpen()) closeDay();
   if (ledgerTabOpen()) closeLedgerTab();
   if (boardOpen()) closeBoard();
+  if (graphOpen()) closeGraph();
   if (it.source === "task") return openTask(i);
   S.sel = i; S.key = it.key; renderStream();
   $("#thread-empty").hidden = true;
@@ -635,6 +637,8 @@ function wire() {
     }
     if (e.key === "c") { e.preventDefault(); composeNew(); return; }
     if (e.key === "o") { e.preventDefault(); boardOpen() ? closeBoard() : openBoard(); return; }
+    if (e.key === "v") { e.preventDefault(); graphOpen() ? closeGraph() : openGraph(); return; }
+    if (e.key === "Escape" && graphOpen()) { closeGraph(); return; }
     if (e.key === "Escape" && boardOpen()) { closeBoard(); return; }
     if (e.key === "?") { e.preventDefault(); toggleHelp(); return; }
     if (e.key === "g") { e.preventDefault(); todayOpen() ? closeToday() : openToday(); return; }
@@ -671,6 +675,7 @@ function commands() {
     { t: "Compose new email", k: "c", run: () => composeNew() },
     { t: "Keyboard shortcuts", k: "?", run: () => toggleHelp() },
     { t: "Tidy the inbox (preview a bulk archive)", k: "", run: () => openTidy() },
+    { t: "Graph: your ledger neighborhood", k: "v", run: () => openGraph() },
     { t: "Board: my court, waiting on, watching, done", k: "o", run: () => openBoard() },
     { t: "Refresh everything", k: "Shift+R", run: () => $("#btn-refresh").click() },
     { t: "Log the bucket", run: () => stage("log") },
@@ -732,6 +737,7 @@ function palette() {
 // composer has the center pane, keep an open item's composer if one is showing.
 function composeNew() {
   if (boardOpen()) closeBoard();
+  if (graphOpen()) closeGraph();
   if (dayOpen()) closeDay();
   if (todayOpen()) closeToday();
   if (ledgerTabOpen()) closeLedgerTab();
@@ -772,23 +778,30 @@ async function boot() {
     onClear: () => { if (S.search) { S.search = null; loadStream(); } },
   });
   initToday(S.tz, {
-    onOpen: () => { if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (graphOpen()) closeGraph(); if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
   });
   initLedgerTab({
-    onOpen: () => { if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (graphOpen()) closeGraph(); if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
   });
   initBoard({
-    onOpen: () => { if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (graphOpen()) closeGraph(); if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
     openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter; switch the stream to All.", "err"); },
   });
   initTidy({ onDone: () => loadStream(true) });
+  initGraph({
+    onOpen: () => { if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); $("#btn-graph").classList.add("on"); },
+    onClose: () => { $("#btn-graph").classList.remove("on"); $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
+    openEntity: (kind, key) => { closeGraph(); openLedgerTab("entity", { kind, key }); },
+  });
+  $("#btn-graph").onclick = () => (graphOpen() ? closeGraph() : openGraph());
+  window.addEventListener("ultra:graph", (ev) => openGraph(ev.detail?.id || ""));
   window.addEventListener("ultra:open-draft", (ev) => { if (ev.detail?.id) openDraftById(ev.detail.id).catch((x) => toast(x.message, "err")); });
   window.addEventListener("ultra:stage-log", (ev) => { if (ev.detail?.key) stage("log", ev.detail.key); });
   initDay({
-    onOpen: () => { if (todayOpen()) closeToday(); if (ledgerTabOpen()) closeLedgerTab(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
+    onOpen: () => { if (graphOpen()) closeGraph(); if (todayOpen()) closeToday(); if (ledgerTabOpen()) closeLedgerTab(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
     openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter.", "err"); },
   });

@@ -89,11 +89,17 @@ function wireEnts(root) {
 }
 // A connection row only carries an id + type; tasks and interactions open by id,
 // others need their key, so resolve through search when needed.
-function connLink(c) {
+// The key an entity page is opened by: NetID for people, name for other records
+// (the ledger's `show` commands take those, not UUIDs), the UUID for tasks/interactions.
+export function entityKey(c) {
   const kind = c.kind || TYPE_KIND[c.entity_type] || "";
-  if (kind === "tasks" || kind === "interactions") return ent(kind, c.id, c.name);
-  if (kind === "people") { const m = /\(([a-z][a-z0-9]{1,15})\)\s*$/.exec(c.name || ""); if (m) return ent("people", m[1], c.name); }
-  return ent(kind, (c.name || "").replace(/\s*\([a-z0-9]+\)\s*$/, ""), c.name);
+  if (kind === "tasks" || kind === "interactions") return { kind, key: c.id };
+  if (kind === "people") { const m = /\(([a-z][a-z0-9]{1,15})\)\s*$/.exec(c.name || ""); if (m) return { kind, key: m[1] }; }
+  return { kind, key: (c.name || "").replace(/\s*\([a-z0-9]+\)\s*$/, "") };
+}
+function connLink(c) {
+  const k = entityKey(c);
+  return ent(k.kind, k.key, c.name);
 }
 
 // ---------------------------------------------------------------- home
@@ -181,7 +187,7 @@ async function openEntity(kind, key, fresh = false) {
       <section class="card"><div class="label">Actions</div>
         <div class="lt-acts">${p.write_actions.map((a) => `<button class="btn small ${a.destructive ? "danger" : ""}" data-act="${esc(a.action)}">${esc(a.label)}</button>`).join("")}</div>
         <div class="label lt-gap">AI briefing <span class="dim small-t">(cited; nothing is saved unless you log it)</span></div>
-        <div id="lt-brief"><button class="btn small ai" id="lt-brief-go">Write briefing</button> ${askButton("btn small ai")}</div>
+        <div id="lt-brief"><button class="btn small ai" id="lt-brief-go">Write briefing</button> ${askButton("btn small ai")} <button class="btn small" id="lt-graph" title="See this record's neighborhood">Graph</button></div>
       </section>
     </div>
     ${groups.length ? `<section class="card"><div class="label">Connections</div><div class="lt-groups">${groups.map(([g, xs]) => `<div><div class="dim small-t">${esc(g)} (${xs.length})</div><ul class="day-list">${xs.slice(0, 60).map((x) => `<li class="day-item" data-cid="${esc(x.id)}">${connLink(x)} <span class="dim small-t">${esc(x.type || "")}${x.role ? ` &middot; ${esc(x.role)}` : ""}</span> <button class="btn tiny lt-unlink" data-id="${esc(x.id)}" data-name="${esc(x.name)}" title="Remove the link">unlink</button></li>`).join("")}</ul></div>`).join("")}</div></section>` : ""}
@@ -192,6 +198,7 @@ async function openEntity(kind, key, fresh = false) {
   body.querySelectorAll("[data-act]").forEach((b) => (b.onclick = () => actionForm(b.dataset.act, p)));
   body.querySelectorAll(".lt-unlink").forEach((b) => (b.onclick = () => review({ action: "unlink", source: r.id, target: b.dataset.id, source_name: title, target_name: b.dataset.name })));
   $("#lt-brief-go").onclick = (e) => busy(e.currentTarget, () => loadBrief(kind, key, false));
+  $("#lt-graph").onclick = () => window.dispatchEvent(new CustomEvent("ultra:graph", { detail: { id: r.id } }));
   body.querySelector("#lt-brief [data-ask]").onclick = () => openAsk({ type: "entity", kind, key }, title);
 }
 

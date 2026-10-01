@@ -19,6 +19,7 @@ from ultra import google_auth
 from ultra.ai import AI, AIError
 from ultra.ask import AskDesk
 from ultra.audio import Audio
+from ultra.board import Board
 from ultra.calendar import Calendar
 from ultra.compose import ComposeError, Composer, gmail_send
 from ultra.config import Config, data_dir, expand, private_dir
@@ -194,6 +195,17 @@ class Live:
             self.operator,
             now=lambda: datetime.now(self.calendar.tz).replace(tzinfo=None),
         )
+        # v0.15 Board: court columns over the same merged stream
+        self.board = Board(
+            self.store,
+            lambda: self._merged()[0],
+            self.calendar.tz,
+            self.operator,
+            compose=self.compose,
+            from_addr=self.from_default,
+            my_addrs=set(cfg.my_addresses),
+            signature_fn=lambda: str((load_style().get("signature") or {}).get("text", "")),
+        )
         # v0.13 Ask Hermes: read-only questions to the operator's own agent
         self.hermes = Hermes(cfg, self.store)
         self.ask = AskDesk(
@@ -262,6 +274,7 @@ class Live:
         self.studio.register(api)
         self.ledgertab.register(api)
         self.ask.register(api)
+        self.board.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)

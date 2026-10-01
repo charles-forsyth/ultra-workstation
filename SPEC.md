@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v0.34 of the spec; app at v0.14.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, and Ask Hermes with answers into cards; see the delivery plan in section 19)
+Status: v0.35 of the spec; app at v0.15.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, and the Board; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -332,23 +332,54 @@ them into one ledger write.
   and read back from the ledger before success is shown. Stream rows carry
   OVERDUE / DUE TODAY / DUE SOON badges and overdue sorts above its priority band.
 
-### 7.3 Board (court view)
+### 7.3 Board (court view, v0.15)
 
-Toggle on the Desk stream: the same threads as columns.
+A view (top-bar Board, key `o`, palette) of the same merged stream the Desk shows, as
+four columns. Code: `board.py`, `static/board.js`; tests `tests/test_v015_board.py`.
 
-    MY COURT (5)       | WAITING ON (8)          | WATCHING (4)   | DONE TODAY (6)
-    Ada: account?      | Cy: 4 open items      | Cy copy, 10/2  | Lab VM resize
-      1d, VIP, READY   |   4d, last ask 9/25     |                |   logged 1a2b3c4d
+    MY COURT (3)       | WAITING ON (2)          | WATCHING (1)   | DONE TODAY (4)
+    Ben: handover      | Dee Evans  [Nudge]      | Cy, until 10/3 | 09:12 Archived: ...
+      1d, VIP, READY   |   Security review, 6d   |                | 10:40 Task completed
 
-- Court is computed by rules (section 11.3).
-- Waiting On groups by the person being waited on. "Nudge" drafts one follow-up
-  listing all their items (goes through the normal draft and approval flow).
-- Drag between columns:
-  - to Done: opens a combined card: archive the thread, log it, close a linked task.
-    Each part has its own checkbox; nothing runs until Commit.
-  - to Waiting: asks for a follow-up date, stages a task and optional calendar block.
-  - to Watching: local-only flag (no external write).
-- Watching items with a date (from task text) move back to My Court on that date.
+- **Columns.** My court = court MINE (email, tickets, Slack that needs the operator),
+  READY first, then VIP/ASSIGNED, then oldest. Waiting on = court WAITING grouped by
+  the person waited on (most overdue person first, oldest item first), plus a "Blocked
+  tasks" group for ledger tasks filed as BLOCKED. Watching = items the operator flagged.
+  Done today = today's journal: archived, Slack marked done, tasks set DONE, logs saved,
+  mail sent, Slack posted (successful actions only, newest first). LOW and FYI items
+  are not on the Board. Court is computed by rules (section 11.3), not by the Board.
+- **Cards** show source, who, age (amber 3+ days, red 5+), subject and badges, with
+  Watch / Unwatch, Wait (My court only), Done and Ask. Clicking a card opens the item.
+- **Moves (drag or card buttons).** Nothing external is written without a card:
+  - to Watching: a dialog with an optional date (Tomorrow, 3 days, 1 week, none) and
+    note. The flag is local (Ultra's store, `watch:<key>`), journaled
+    (`board_watch` / `board_unwatch`), and lapses on its date: the item goes back to
+    its rule column. Dates must be after today.
+  - to Done: a card with checkboxes, all off until shown: archive (mail, tickets;
+    Undo in the toast), mark done (Slack; nothing sent to Slack), mark the task DONE
+    (ledger, with a confirm), log it (opens the normal log card to review), stop
+    watching. Nothing runs until "Do it"; each part uses the existing route
+    (`/api/mail/archive`, `/api/slack/done`, `/api/task/action`, the log card).
+  - to Waiting (Wait): a task card "Follow up: <subject> (<who>)" through the normal
+    staged card, where the operator picks the due date and commits.
+  - to My court: only from Watching (clears the flag). Court itself moves when the
+    other person replies.
+- **Nudge.** On a Waiting on group whose person has an email address and at least one
+  email thread: `POST /api/board/nudge {addr}` builds ONE new-email draft to that
+  person listing every email thread waiting on them (subject "Following up: <subject>"
+  or "Following up on N open items", a line per thread with how long ago the
+  operator's last note was, the operator's signature). The person and the threads come
+  from the current board, not the page: an address that is not a Waiting on person,
+  or the operator's own, is refused. The draft opens in the composer (author `ai`,
+  label "Board nudge") and needs both approvals to send. Slack and task items are not
+  listed. Journaled as `board_nudge_draft` (address and count, not the text).
+- **Compose with nothing open.** A new email (Compose `c`, Nudge) now gets its own
+  center-pane view when no item is open (before v0.15 the composer slot existed only
+  inside an opened item, so `c` did nothing from an empty Desk).
+- Layout: four columns from 1500 px wide, two below, one on phones; touch-sized card
+  buttons on phones (drag is mouse only; the buttons do the same moves).
+- AI brief builder and Board export (deferred here from v0.8): not built; the Day
+  report and Ask Hermes cover the same need for now.
 
 ### 7.4 Today (calendar view)
 
@@ -1521,6 +1552,9 @@ All JSON. Writes need `X-Ultra-Token` (the CSRF token, 12.1). Long calls return 
 | POST | `/api/hermes/preview` | the exact context a target sends (7.12) |
 | POST | `/api/hermes/ask` | ask (job); follow-ups pass the session id |
 | POST | `/api/ledger/stage-answer` | staged log or task card from an Ask answer (7.12) |
+| GET | `/api/board` | Board columns and counts (7.3) |
+| POST | `/api/board/watch` / `/api/board/unwatch` | local Watching flag with optional date |
+| POST | `/api/board/nudge` | one new-email draft to a Waiting on person (never sends) |
 | GET | `/api/hermes/job/<id>` | running / done with answer / error |
 | GET | `/api/audio/<id>` | stream audio (Range) |
 
@@ -1606,7 +1640,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v0.45 Listen + Research (shipped 0.5.0) | Read aloud (browser voice, block highlight, rate/voice, prev/next); AI audio (spoken summary or full read, Gemini TTS, cached by text+mode+voice, MP3 via ffmpeg, mode 600, served with HTTP Range, player with speed/download/script, `ultra purge --audio`); Research tab (web search with Google grounding and sources, past-research search, recent runs, report viewer, launcher with estimate, confirm flag, opt-in thread upload); selection bar Copy / Quote in reply / Search ledger / Web search / Add to bucket / More: Explain, Search research, Research this, Read aloud. Highlights with notes and export menus move to v0.46 |
 | v0.5 Slack reply (shipped 0.7.0) | Reply on a Slack conversation opens a Slack composer (target channel and thread fixed from the cached stream row, part of the approval hash); versions, AI draft/revise in chat style (no signature), Fix ASCII, Slack lint (4000 chars, @channel warning); approval 1, review dialog with the model-in-path notice and a 2 s disabled Post button, approval 2 with a single-use token; delay and cancel; send run allowed only slack_send_message, verify run allowed only read tools; the connector's "Sent using Claude" line is ignored when comparing; mismatch or unclear result is shown, never retried; send-then-log card for the conversation |
 | v0.6 Calendar (shipped 0.6.0) | Today view (day timeline, prev/next day, now line, work hours band, overlapping events in columns, all-day row, response and privacy marks); drag a stream item onto a time to stage a block (title Focus: subject, notes from the last message, open draft and link, 15-120 min, personal = private); Block time buttons on threads, tasks and the bucket open a block card at the next free slot; move and delete only Ultra-tagged blocks (server-enforced), re-read after every write; meeting prep (invite notes, attendees with responses, click one for ledger context); Find a time (free/busy over work hours, others you cannot see are listed, Copy as text, Hold); `g` toggles Today. Check-in and end-of-day move to v0.8 |
-| v0.7 Board (later, operator's call) | Court board, nudge-all, drag between columns |
+| v0.7 Board (shipped 0.15.0) | Section 7.3: My court / Waiting on (by person, Nudge draft) / Watching (local flag with date) / Done today (journal); drag or buttons; Done card with checkboxes; Wait opens a follow-up task card; compose works with nothing open |
 | v0.8 Day (shipped 0.9.0) | Day view (`d` key, top-bar Day): check-in plan (meetings minus declined, free windows in work hours from now, your-move items READY/VIP first, waiting 3+ days, overdue / due today / high-priority tasks, suggested focus blocks fitted into free windows that open the normal block card), AI read of the day (draft only); end-of-day report from the journal (sent, Slack posted, archived with subjects, logged, task changes, calendar block writes, research, audio; repeats collapsed; still open), editable, Copy / Listen / Save to ledger via a staged log card; exports agenda .ics (no attendee emails) and journal .csv. AI brief builder and Board export move with the Board |
 | v0.9.5 Draft Studio (shipped 0.9.5) | Section 9.6: gather on open (thread, 120-day history per participant, Full context, 2-3 precedents from Sent, work notes, policy pages), private policy sources with 24 h cache (site sitemaps, fixed pages, public ServiceNow KB via the portal page API), house facts, brief with asks / constraints / audience / known / unknown / risks, question cards before drafting, draft with claim map, claim check (cut by default) plus rule checks, source-side review, send-then-log with follow-up task, suggestions from edits |
 | v0.10 Calendar (shipped 0.10.0) | Week view with "Needs your answer"; RSVP with one confirm and a bound single-use token; meetings with guests through two approvals (hash-locked invite, review with busy/unknown/external guests, 10-minute single-use token, read-back); meeting prep from item context (`c-` item keys: People, Full, cited briefing); log a meeting through the staged card; weekly repeating Ultra blocks (RRULE with UNTIL, 26-week cap) and Delete series; sent meetings are never movable |
@@ -1640,6 +1674,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 0.35 | App v0.15.0 (7.3, 14, 19): the Board. Four columns over the merged stream; Watching is a local flag that lapses on its date; Done card runs only the ticked existing actions; Wait stages a follow-up task card; Nudge makes one new-email draft to a Waiting on person listing their email threads (two approvals to send, person must be on the board). New email now opens in the center pane with no item open (Compose `c` did nothing before). Key `o`. |
 | 2026-10-01 | 0.34 | App v0.14.0 (7.12, 14, 19, 20 U-1): answers into cards. Each Ask Hermes answer has Use as reply (email/Slack; saved as an AI version in the item's draft, still two approvals), Log it and Task from it (new `POST /api/ledger/stage-answer`: normal single-use staged card, item's people as chips, task text = first line), and + Bucket. The panel itself never writes or sends. U-1 done. |
 | 2026-10-01 | 0.33 | App v0.13.1 (7.12, 20 H-1): the Ask allow-list drops the workspace entry. v0.13.0 listed it under a name that never started the server (`mcp-google_workspace`; `-t` matches the config key `google_workspace`), so no mail tools ever loaded. Under its real name the server brings send and delete tools, so the operator chose to leave mail and calendar tools out; H-1 decided. Config that names it falls back to `session_search`. Also: a calendar test that used the real clock (it broke after 14:00 on 2026-10-01) now pins the time. |
 | 2026-10-01 | 0.32 | App v0.13.0 (new 7.12, 8.7; 13, 14, 19, 20): Ask Hermes. Ask the operator's own agent about any stream row, thread, ticket, Slack conversation, task, meeting, Day page, ledger entity, research report or selection; read-only by toolset allow-list in argv, so no terminal/file/send and no memory or skill writes (Hermes' background review only runs with those tools); question and context in a mode-600 file; follow-ups resume one Hermes session tagged `ultra`; web per question; journaled without text. Verified live against Hermes, including a planted prompt injection that was refused. Gmail/Calendar tools did not connect in one-shot mode (H-1). |

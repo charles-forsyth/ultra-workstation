@@ -655,7 +655,7 @@ class Live:
             return {"key": f"k-{num}", "messages": [], "events": []}
         msgs: list[dict[str, Any]] = []
         for tid in tk.get("threads", [])[:10]:
-            msgs += self.mail.thread(tid)["messages"]
+            msgs += [{**x, "thread_id": tid} for x in self.mail.thread(tid)["messages"]]
         msgs.sort(key=lambda x: x["ts"])
         return {"key": f"k-{num}", "messages": msgs, "events": tk.get("events", [])}
 

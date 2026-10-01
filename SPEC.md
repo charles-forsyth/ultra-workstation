@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.2 of the spec; app at v1.2.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
+Status: v1.2.1 of the spec; app at v1.2.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (working name; see open question Q1)
 Last updated: 2026-10-01
@@ -1097,6 +1097,11 @@ Writes (only after a staged card is committed):
 - Reply to ticket = an email reply to the latest notice that keeps the original subject
   (with the ticket number) and the notice's watermark line, so the ticketing system
   attaches it to the ticket. Goes through the normal composer and double approval.
+  On a ticket card (v1.2.1), Reply / Reply all / Forward and Draft Studio act on the
+  card's newest notice thread exactly as on an email thread (before v1.2.1 they were
+  disabled there and a ticket reply needed a ledger task). Reply all puts the desk on
+  To and the requester and others on Cc, keeps the subject, and the Ref line is
+  carried (AI text) or one click away (operator text); approval is blocked without it.
 - The composer offers two templates for ticket text: "customer visible comment" and
   "internal work note" (the latter is copy-to-clipboard only, since email replies post
   as comments).
@@ -1916,6 +1921,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-01 | 1.2.1 | App v1.2.1 (8.5): ticket cards reply like email threads. Reply / Reply all / Forward and Draft Studio (full context) now work on a ticket card, on its newest notice thread, with the desk on To, the requester on Cc and the Ref:MSG line carried; the ticket thread read returns each message's thread id. Demo gains a ServiceNow notice with a Ref line and the fix-ref route. |
 | 2026-10-01 | 1.2 | App v1.2.0 (7.6, 7.7, 14, 5.2, 19): Graph view (key `v`, top bar, Graph button on Ledger records). Also fixes a phone layout bug present since the Board button was added: the top-bar buttons were wider than a 390 px screen, which widened the whole page (505 px); they now scroll sideways inside the bar. Ledger tab: one `entityKey` helper decides how a record is opened (NetID / name / UUID), shared with the graph. |
 | 2026-10-01 | 1.1 | App v1.1.0 (8.1, 14, 5.2, 19): Inbox Tidy. Rule-based bulk archive over the stream (keeps Watching, VIP, READY, assigned tickets, your move, today, newer than N days; archives bulk mail and older non-actionable threads), previewed with a reason per row, untick to keep, single-use run token that refuses threads outside the preview, one Undo. Slack and tasks never touched. Demo gains three inbox rows Tidy acts on. |
 | 2026-10-01 | 1.0.2 | App v1.0.1 (16): the status bar's Calendar light now works. The page had never read calendar status (a v0.1 placeholder said "Calendar arrives in v0.6"), so it stayed grey. The server checks today's calendar every 10 minutes while a tab is open and reports ok / error / age, including a missing-token error with the fix command. |

@@ -1,9 +1,9 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.2.1 of the spec; app at v1.2.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
+Status: v1.2.2 of the spec; app at v1.2.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
-CLI: `ultra` (working name; see open question Q1)
-Last updated: 2026-10-01
+CLI: `ultra` (name decided, Q1)
+Last updated: 2026-10-02
 
 This document is public. It must never contain real names, email addresses, NetIDs,
 Slack IDs, billing or project IDs, ticket numbers, or anything else specific to one
@@ -57,8 +57,11 @@ Non-goals (v1)
 - No automatic sending, archiving, logging or Slack posting, ever.
 - No direct database access to the ledger.
 - No ServiceNow web/API writes; tickets are handled through email only.
-- No mobile layout in v1 (laptop screen, 1440 px and up; must still work at 1280).
-- No multi-user or remote access. Loopback only.
+- Laptop first (1440 px and up; must still work at 1280). Phones are supported for
+  reading and the card buttons (Board, row actions) since remote mode; no separate
+  mobile design.
+- No multi-user access. Loopback by default; remote mode (`--host 0.0.0.0`, 12.1)
+  admits only this machine, the LAN and the operator's own tailnet devices, by address.
 
 ## 3. Principles
 
@@ -97,7 +100,8 @@ Taken from about a month of real usage (counts are the operator's own requests o
 
 Recurring sub-asks the UI answers without a chat turn:
 
-- "Did we already reply to X?" -> Replied badge (Sent + ledger), days waiting.
+- "Did we already reply to X?" -> court WAITING with days since the operator's last
+  message (the separate Replied badge in 11.4 is not built).
 - "What is he actually asking me?" -> Ask summary button on the thread.
 - "Send it as reply-all and log and link it to his project, GCP, org" -> Send, then
   a log card prefilled with those links.
@@ -175,8 +179,10 @@ browser; `ultra stop` / `ultra status` / `ultra restart`.
   (Slack connector), `deep-research` (research panel), `ffmpeg` (MP3 audio; WAV
   without it). The app runs without any of them; the matching panels show "not
   configured".
-- Frontend: vanilla JS modules, vendored `marked` and `DOMPurify` (license files kept).
-  No npm, no bundler.
+- Frontend: vanilla JS modules, no vendored libraries. Markdown (AI answers, reports)
+  goes through a small built-in renderer (`renderMd` in `static/tools.js`) that escapes
+  all HTML first and adds only headings, lists, bold and http(s) links. No npm, no
+  bundler. (The plan named vendored `marked` and `DOMPurify`; they were never needed.)
 
 ### 5.2 Code map
 
@@ -325,31 +331,35 @@ Design tokens (CSS custom properties, one `theme.css`):
 Stream
 
 - Merges email threads, Slack conversations and ticket cards, sorted by last activity.
-- Grouping toggle: by thread (default) or by person (all of Ada's email and Slack
-  together).
-- Filters: Mine, Waiting, All, Slack, Tickets, VIP. Counts on each.
+- Grouped by thread. (Planned grouping toggle by person: not built.)
+- Filters (as built): Mine, Waiting, All, Slack, Tasks, Tickets, Low, with counts. The
+  server also accepts `filter=vip`, but there is no VIP button; VIP items carry a VIP
+  badge and sort first.
 - Row markers: `!` VIP, `#` Slack, `T` ticket, a READY badge for a done-signal (7.3).
-- Noise (newsletters, alerts, automated notices from configured senders) is collapsed
-  into one "Low priority (N)" row at the bottom.
+- Noise (newsletters, alerts, automated notices from configured senders) is court LOW:
+  left out of Mine and All and shown under the Low filter (planned as one collapsed
+  "Low priority (N)" row; built as a filter).
 
 Thread
 
-- Email: plain-text body by default, quoted text folded. "Show original" renders HTML
-  in a sandboxed iframe (section 12.4). Attachments listed with name, type and size;
+- Email: plain-text body, quoted text folded. HTML-only messages are converted to text
+  on the server (`mail.html_to_text`). "Show original" (HTML in a sandboxed iframe) is
+  not built (12.4). Attachments listed with name, type and size;
   Save (to the attachments folder, or browser download) and Preview for text, images
   and PDF, on click only (8.1).
 - Slack: messages in the conversation or thread, with a link to open it in Slack.
 - Ticket: every notice for that ticket number in time order, with state changes pulled
   out (assigned, comment added, resolved). Own-comment echoes are dimmed.
-- Actions: Ask summary, Reply, Reply all, Forward, Draft with AI, Archive, Labels,
-  Add to bucket, Snooze to Waiting, Listen (read aloud / AI voice summary, 7.10),
-  Export (7.8).
+- Actions (as built): Summarize, Reply, Reply all, Forward, Draft Studio, Archive,
+  Labels, + Bucket, Log, Task, Block, Listen and AI audio (7.10), Copy, Export (7.8),
+  Ask Hermes. Snooze exists for ledger tasks only (local, 1/3/7 days); there is no
+  "Snooze to Waiting" for mail.
 
 Context rail (ledger)
 
 - Resolved person: name, title, department, lab(s), linked projects.
 - Open tasks that reference them; last 5 interactions (date + one-line summary).
-- Replied badge: YES (date) / NO (days waiting), from Sent mail plus ledger entries.
+- Replied badge: not built (11.4).
 - Loads asynchronously. Shows cached data with its age immediately, refreshes behind.
 - Unresolved sender: "Not in ledger" with Search and "Add person" (the latter opens a
   staged `people add` card; nothing is created without Commit).
@@ -466,10 +476,10 @@ four columns. Code: `board.py`, `static/board.js`; tests `tests/test_v015_board.
   default visibility; items marked personal use private visibility.
 - Meeting card: prep panel with the context rail for each attendee who resolves to
   the ledger, plus the invite's own description. Never modifies someone else's event.
-- Slot finder: pick attendees, get mutual free windows (free/busy API), click one to
-  insert it into the current draft as text.
-- Check-in button (v0.4): builds a proposed plan (fixed meetings, then My Court oldest
-  first, quick unblocks, a logging slot at the end) as ghost blocks; accept one by one.
+- Slot finder ("Find a time"): pick attendees, get mutual free windows (free/busy API);
+  Copy as text or Hold (stages a block). Calendars Google won't show are listed.
+- Check-in: built as the Day view's plan (v0.9, key `d`), not a Today button; its
+  suggested focus blocks open the normal block card one at a time.
 - *Week view (v0.10).* Day / Week switch (remembered). Monday-to-Sunday grid from one
   read, all-day row, now line, work-hours band; events the operator has not answered are
   striped; a "Needs your answer" list sits on top with Yes / Maybe / No / Open. Click a
@@ -507,15 +517,21 @@ four columns. Code: `board.py`, `static/board.js`; tests `tests/test_v015_board.
   guest list. A sent meeting is read-only in Ultra (it has guests, so moving or
   deleting it would notify people): `is_ultra_block` is false for anything with
   another guest or `ultra_kind=meeting`.
-- End-of-day button (v0.4): compiles the day from the journal, Sent mail and today's
-  ledger entries into a staged report (DONE / NOT DONE / WAITING ON / UPCOMING /
-  TOMORROW FIRST), which is logged through the normal staged interaction card.
+- End-of-day: built as the Day view's report (v0.9): compiled from the journal (sent,
+  Slack posted, archived, logged, task and block changes, research, audio) plus what is
+  still open; editable, and saved to the ledger through the normal staged log card.
 
 ### 7.5 Command palette (Ctrl-K)
 
-- Fuzzy commands (every action in the app), people and entity search through the
-  ledger, and "Ask" (free-text request to the AI adapter, answered as cards: a draft,
-  a staged log, a staged task). Ask never executes anything by itself.
+- As built: word-match over commands (views, compose, Tidy, refresh, bucket Log/Task,
+  ledger tab pages, mail search, web and research search, new research, stream
+  filters), the open item's actions (reply, reply all, forward, summarize, archive,
+  copy, bucket, log, task, Ask Hermes about it) and "Open:" for every stream row.
+  "Search the ledger" opens the rail's Ledger tab; people are not listed in the palette
+  itself.
+- "Ask" is Ask Hermes (7.12): "Ask Hermes about: <item>" or with no item. Answers come
+  back as text with buttons that open a draft, staged log, staged task or bucket
+  snippet. Ask never executes anything by itself.
 
 ### 7.6 Graph (v1.2)
 
@@ -579,7 +595,16 @@ Ctrl-Enter to approve (approval stays a click by design).
 
 Modeled on the deep-research dashboard's Export menu and selection bar. Every export is
 generated locally and downloaded by the browser (or copied); nothing is uploaded or
-written anywhere else. Exports are available on these objects:
+written anywhere else.
+
+As built (v1.2.1): the thread Export menu (Markdown with highlights, plain text, JSON,
+Copy as Markdown, Print / PDF; email, Slack and ticket items), Copy on threads, the Day
+view's Copy plan, Agenda `.ics` and Journal `.csv`, research report Copy and AI audio
+(7.10). The rest of the table below is the plan and is NOT built: `.eml`, standalone
+HTML, stream selection exports, Board export, Today/date-range agenda Markdown,
+context-rail exports, ledger-card command export, draft exports (the composer's
+before/after comparison is on screen only), and journal JSON. `docs/EXPORT.md` does
+not exist; JSON export shapes are not yet documented. The planned objects:
 
 | Object | Formats |
 |---|---|
@@ -657,7 +682,8 @@ search, Add to bucket) and puts the rest under "More", with keyboard shortcuts s
 also carry a function: clicking an existing highlight reopens the bar for it, so a
 highlighted name can be searched again later or turned into a link chip.
 
-AI brief builder (on threads, the context rail, a Board column, or a date range):
+AI brief builder (on threads, the context rail, a Board column, or a date range). Not
+built; the cited item briefing (7.1 Full tab), the Day report and Ask Hermes cover it:
 
 - Styles: executive brief, meeting prep sheet, status email, slide outline. Output is
   Markdown in a magenta-edged card with Copy / Export / "Open as draft" (which starts
@@ -668,7 +694,8 @@ AI brief builder (on threads, the context rail, a Board column, or a date range)
 
 ### 7.9 Research panel (deep-research)
 
-A right-side panel (toggle `g r`, or opened by a selection action). Ultra is a client
+As built, the Research tab of the right rail (no `g r` key; palette entries "Web
+search", "Search past research", "New deep research", and the selection bar). Ultra is a client
 of the `deep-research` CLI here: it runs the CLI's commands and reads their output. It
 does not read deep-research's database or files directly, and it does not embed or
 proxy the deep-research dashboard.
@@ -690,8 +717,8 @@ proxy the deep-research dashboard.
   deliberate button in a dialog showing the estimate; no keyboard shortcut starts it.
 - A finished run posts a toast with Open. Ultra checks run status only while the panel
   or a started run is open (no background polling otherwise).
-- Research context in a draft: "Insert summary" from a report puts a short, cited
-  summary (AI, magenta) into the composer, as a normal draft edit.
+- Research context in a draft: "Insert summary" (a short cited summary into the
+  composer) is not built. Copy, + Bucket and Ask Hermes on the report cover it today.
 - Every call uses the CLI's `--json` output (deep-research v0.36.0+): one JSON document
   on stdout, logs on stderr, non-zero exit with `{"error": ...}` on failure. `ultra
   doctor` checks the installed version supports it.
@@ -868,8 +895,9 @@ Reads
 
 - List inbox threads (paged) and the Sent folder for the last N days (default 14) with
   `format=metadata`; fetch `format=full` on open. Poll only while the app is open,
-  every 2 minutes (configurable), plus a Refresh button. Use `history.list` from the
-  last `historyId` when available to fetch only changes.
+  every 2 minutes (configurable), plus a Refresh button. As built, each thread's metadata
+  is cached by its `historyId` and re-fetched only when that changes (batched);
+  `history.list` is not used.
 - Body: prefer `text/plain`; else convert HTML to text for the default view.
 - Header dates are converted to the configured time zone for display and for logging.
 - Search: a search box that takes Gmail query syntax (`from:`, `to:`, `subject:`,
@@ -888,17 +916,17 @@ Reads
 Writes (each needs its own scope; section 12.2)
 
 - Archive: `threads.modify(removeLabelIds=[INBOX])`. Undo toast for 10 s; bulk archive
-  (Tidy) writes an undo file of thread ids first.
+  (Inbox Tidy, below) keeps one Undo token per run in memory, not a file.
 - Labels: add/remove labels on a message or thread; create a new label (name checked
   against existing ones). No label delete or rename in v1.
 - Drafts: create and update a Gmail draft for every composer version, so the draft is
   visible in Gmail on other devices. Reply drafts carry `threadId`, `In-Reply-To` and
   `References` so they stay in the thread.
 - Send: only through section 9. Sends the approved version as a new message in the
-  thread (or `drafts.send` on the synced draft after verifying it matches the approved
-  hash). Then re-reads Sent to confirm the message id and thread id.
+  thread (`messages.send`; `drafts.send` is not used). Then re-reads Sent to confirm
+  the message id and thread id.
 - Composer covers what astropost's `send` does: To, Cc, Bcc, Subject, body (plain text
-  or a Markdown body sent as plain text plus simple HTML), attachments (file picker or
+  only; the planned Markdown-to-HTML body is not built), attachments (file picker or
   drag a file in; also "attach from this thread" to forward an attachment), send-as
   address (any alias configured in Gmail "Send mail as", chosen per message), reply,
   reply all, and forward (original message and attachments included, editable). Files
@@ -944,12 +972,12 @@ astropost parity (so astropost is not needed alongside Ultra):
 |---|---|
 | `list` / `ls` | Stream (inbox) |
 | `search` | Mail search box, saved filters |
-| `summarize` (unread) | "Summarize unread" on the stream (AI, magenta card) and AI voice summary |
+| `summarize` (unread) | Per-thread Summarize and AI voice summary (a stream-wide "Summarize unread" is not built) |
 | `scan` (interactive) | Desk keyboard triage (j/k, e, r, l, b) |
 | `show` | Thread view |
 | `thread show` | Thread view by thread id |
 | `send` (to, cc, bcc, subject, body, file, from, attach, reply-to, forward) | Composer + two approvals |
-| `drafts list / create / send` | Drafts list, composer versions synced to Gmail, send after approvals |
+| `drafts list / create / send` | Composer versions synced to Gmail, send after approvals (the all-drafts list was dropped, 19) |
 | `labels list / create / add / remove` | Labels list, create, add, remove |
 | `attachments download` | Attachment Save / Preview |
 | trash (client function) | Not offered: Ultra never deletes mail |
@@ -1102,20 +1130,9 @@ Writes (only after a staged card is committed):
   disabled there and a ticket reply needed a ledger task). Reply all puts the desk on
   To and the requester and others on Cc, keeps the subject, and the Ref line is
   carried (AI text) or one click away (operator text); approval is blocked without it.
-- The composer offers two templates for ticket text: "customer visible comment" and
-  "internal work note" (the latter is copy-to-clipboard only, since email replies post
-  as comments).
-
-### 8.7 Hermes (`hermes` CLI, v0.13)
-
-- One-shot `hermes chat` per question, argv list, no shell, `--format stream-json`
-  parsed for session id, answer text, tool calls and errors. Section 7.12 has the
-  rules (allow-listed read-only toolsets, query file, journaling).
-- Runs at most two questions at once (thread pool), each with `--run-budget 300` and a
-  hard subprocess timeout 60 s above it. Failures (agent init, empty answer, timeout)
-  are shown in the panel and journaled as failed; nothing is retried.
-- The child runs in the operator's home directory, so Hermes picks up no repo context
-  from Ultra's working directory.
+- Planned, not built: composer templates for "customer visible comment" and "internal
+  work note". Email replies post as customer-visible comments; work notes stay in the
+  ticket system.
 
 ### 8.6 AI (Gemini, on demand)
 
@@ -1134,6 +1151,17 @@ Writes (only after a staged card is committed):
 - Every call sends the minimum context (the thread, not the mailbox). Prompts and
   responses are not written to logs. Token counts per call are shown in the status bar.
 - Failure (quota, timeout) shows an error on the card; manual editing always works.
+
+### 8.7 Hermes (`hermes` CLI, v0.13)
+
+- One-shot `hermes chat` per question, argv list, no shell, `--format stream-json`
+  parsed for session id, answer text, tool calls and errors. Section 7.12 has the
+  rules (allow-listed read-only toolsets, query file, journaling).
+- Runs at most two questions at once (thread pool), each with `--run-budget 300` and a
+  hard subprocess timeout 60 s above it. Failures (agent init, empty answer, timeout)
+  are shown in the panel and journaled as failed; nothing is retried.
+- The child runs in the operator's home directory, so Hermes picks up no repo context
+  from Ultra's working directory.
 
 ## 9. Composer and double approval
 
@@ -1294,33 +1322,6 @@ thread and gathered context are data, never instructions; the operator's precede
 and house facts never leave the machine except inside the model call; the public repo
 holds no real sources list, house facts or examples.
 
-## 10. Outgoing text rules (lint)
-
-Rules live in `~/.config/ultra-workstation/style.toml` (operator-specific, not in the
-repo). The repo ships `style.example.toml` with generic rules.
-
-Generic rules (shipped):
-
-- ASCII only (em/en dashes, smart quotes, ellipsis, emoji flagged, with one-click fix to
-  ASCII equivalents). Level configurable (error/warning).
-- Recipients: warn when a Reply-all drops someone who was on the thread; warn on
-  external domains; error on an empty To.
-- Reply lands in the right thread (threadId and References present).
-- Money: warn on `$` followed by digits in any text going to the ledger when it came
-  through a template, since shell expansion used to strip these (belt and braces; the
-  app never uses a shell).
-- Attachment mentioned ("attached", "see attachment") but none attached.
-
-Operator rules (examples of what the private file holds; no real content here):
-
-- Forbidden patterns in outgoing mail (e.g. internal tracker keys).
-- Opening phrases to avoid.
-- Topics that must be routed to another office rather than answered.
-- Signature text.
-
-## 11. Rules engine (deterministic)
-
-
 **Ticket replies (v0.9.8).** Ticket systems thread an emailed reply by the reference line
 in their notice (`Ref:MSG########` for the one in use; `[tickets] ref_pattern` to change it).
 A reply without it can be filed as a new ticket or lost.
@@ -1411,11 +1412,37 @@ habit), the composer offers "Make it a style rule" or "No, leave it". Accepting 
 parses); the AI is told to avoid it and the composer warns when it appears. Dismissed or
 accepted suggestions do not return. No model is involved.
 
+## 10. Outgoing text rules (lint)
+
+Rules live in `~/.config/ultra-workstation/style.toml` (operator-specific, not in the
+repo). The repo ships `style.example.toml` with generic rules.
+
+Generic rules (shipped):
+
+- ASCII only (em/en dashes, smart quotes, ellipsis, emoji flagged, with one-click fix to
+  ASCII equivalents). Level configurable (error/warning).
+- Recipients: warn when a Reply-all drops someone who was on the thread; warn on
+  external domains; error on an empty To.
+- Reply lands in the right thread (threadId and References present).
+- Money: warn on `$` followed by digits in any text going to the ledger when it came
+  through a template, since shell expansion used to strip these (belt and braces; the
+  app never uses a shell).
+- Attachment mentioned ("attached", "see attachment") but none attached.
+
+Operator rules (examples of what the private file holds; no real content here):
+
+- Forbidden patterns in outgoing mail (e.g. internal tracker keys).
+- Opening phrases to avoid.
+- Topics that must be routed to another office rather than answered.
+- Signature text.
+
+## 11. Rules engine (deterministic)
+
 ### 11.1 Person resolution
 
 In order, stopping at the first confident hit:
 
-1. Cache hit in `people` (unless older than 1 day).
+1. Cache hit in `kv_cache` (`person:` keys; unless older than 1 day).
 2. Address in the configured org domain and `netid_from_local_part = true`: take the
    local part as the id and confirm with `nexus people show <id> --json`.
 3. Address or alias match against `email_alias` in cached people records.
@@ -1456,7 +1483,8 @@ chain.
 
 ### 11.4 Replied badge
 
-YES if Sent has a message to any of the person's addresses in the thread after their
+Not built (planned). Court WAITING with its day count answers "did I reply" for
+threads in the inbox. The plan: YES if Sent has a message to any of the person's addresses in the thread after their
 last message, or a ledger interaction linking that person is dated after it. Otherwise
 NO with days waiting. The badge tooltip says which source answered.
 
@@ -1516,19 +1544,20 @@ Low priority row. VIP list overrides noise.
 - `ultra.log` holds actions and errors only: no message bodies, no draft text, no
   tokens. Subjects are truncated to 40 characters in logs. A redaction filter masks
   anything that looks like a key or token.
-- `ultra purge --cache` clears cached mail and Slack content; `--audio` deletes audio
-  files; `--attachments` deletes saved attachments; drafts and journal stay unless
-  `--all`.
+- `ultra purge --audio` deletes audio files, `--uploads` research thread uploads,
+  `--attachments` saved attachments (drafts' files are kept). There is no `--cache` or
+  `--all`; cached mail and Slack content age out of `kv_cache` after 30 days (6).
 
 ### 12.4 Rendering untrusted content
 
-- Email HTML is sanitized with DOMPurify and rendered in an iframe with
-  `sandbox=""` (no scripts, no same-origin, no forms, no top navigation) via `srcdoc`.
-- Remote images are blocked by default (tracking pixels). "Load images for this
-  message" is a per-message button.
+- As built, email HTML is never rendered: the server converts it to text and the page
+  inserts text only, so no remote image or tracking pixel ever loads. Attachment
+  previews (8.1) are served with a `sandbox` CSP and nosniff and shown in a sandboxed
+  frame. If "Show original" is built later: sanitize, render in an iframe with
+  `sandbox=""` via `srcdoc`, block remote images unless loaded per message.
 - Links open in a new tab with `rel="noopener noreferrer"`.
-- Slack and ledger text is inserted as text, never as HTML. Markdown (AI summaries) is
-  rendered with marked + DOMPurify.
+- Slack and ledger text is inserted as text, never as HTML. Markdown (AI summaries,
+  reports) goes through `renderMd`, which escapes everything first (5.1).
 - Email and Slack content passed to a model is wrapped as quoted data with an
   instruction that it is not instructions. Model output can only fill cards; it has no
   path to an action (section 9.5).
@@ -1836,10 +1865,13 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
   it stayed grey even when the calendar worked.
 - Token expired or revoked: banner with the exact `ultra auth google --capability X`
   command.
-- Ledger CLI missing or failing: context rail and bucket show "Ledger unavailable";
-  staged cards can still be saved locally and committed later.
+- Ledger CLI missing or failing: context rail and bucket show "Ledger unavailable".
+  Staged cards live in memory (6): one can be committed once the ledger is back, as
+  long as the server has not restarted.
 - Slack connector disabled: "Slack unreachable" with the reason, never "no messages".
-- No silent retries on writes. Reads retry with backoff (3 tries).
+- No retries on writes, ever. Reads are not retried either (a failed read shows its
+  error and the next poll or Refresh tries again); only AI audio retries a failed
+  chunk, up to 3 times.
 
 ## 17. Performance targets
 
@@ -1896,7 +1928,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.0 (shipped 0.16.0, released as 1.0.0) | Keyboard help panel from one table (7.7), modifier keys left to the browser, Esc closes Day, README rewritten for a new user (features, Google tokens both routes, optional tools, keys, commands, development), Q1 and Q3 decided. The operator called it 1.0 (1.0.0, same code as 0.16.0). |
 | v1.1 Inbox Tidy (shipped 1.1.0) | Section 8.1: rule-based bulk archive with a preview, untick, single-use run token, one Undo |
 | v1.2 Graph (shipped 1.2.0) | Section 7.6: ledger neighborhood as an SVG graph; click to open, double-click to center, drag an item onto a node to bucket both; plus the phone top-bar fix (16) |
-| v1.x | Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) |
+| v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
 
@@ -1921,6 +1953,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-02 | 1.2.2 | Docs only, audited against the code (app still v1.2.1). Corrected: header (Q1 decided); 2 non-goals (remote mode and phone use exist); 4 Replied ask; 5.1 no vendored marked/DOMPurify (built-in `renderMd`); 7.1 filters as built (Tasks, Low; no VIP button, no person grouping), noise is the Low filter, no Show original, thread actions as built, no Replied badge; 7.8 marks which exports exist and which are plan only, no `docs/EXPORT.md`, AI brief builder not built; 7.9 Research is a rail tab (no `g r`), Insert summary not built; 8.1 historyId caching (no `history.list`), Tidy Undo is a token not a file, `messages.send` only, plain-text body only, astropost rows for Summarize unread and drafts list; 7.4 slot finder, check-in and end-of-day as built (Day view); 7.5 palette as built; 8.5 ticket templates not built; 11.1 person cache is `kv_cache`; 11.4 Replied badge not built; 12.3 real `purge` flags; 12.4 email HTML is converted to text, never rendered; 16 staged cards are in memory and reads are not retried; 19 v1.x parked. Moved: ticket replies, task mode, 9.7 and 9.8 from the top of section 11 into section 9; 8.6 back before 8.7. |
 | 2026-10-01 | 1.2.1 | App v1.2.1 (8.5): ticket cards reply like email threads. Reply / Reply all / Forward and Draft Studio (full context) now work on a ticket card, on its newest notice thread, with the desk on To, the requester on Cc and the Ref:MSG line carried; the ticket thread read returns each message's thread id. Demo gains a ServiceNow notice with a Ref line and the fix-ref route. |
 | 2026-10-01 | 1.2 | App v1.2.0 (7.6, 7.7, 14, 5.2, 19): Graph view (key `v`, top bar, Graph button on Ledger records). Also fixes a phone layout bug present since the Board button was added: the top-bar buttons were wider than a 390 px screen, which widened the whole page (505 px); they now scroll sideways inside the bar. Ledger tab: one `entityKey` helper decides how a record is opened (NetID / name / UUID), shared with the graph. |
 | 2026-10-01 | 1.1 | App v1.1.0 (8.1, 14, 5.2, 19): Inbox Tidy. Rule-based bulk archive over the stream (keeps Watching, VIP, READY, assigned tickets, your move, today, newer than N days; archives bulk mail and older non-actionable threads), previewed with a reason per row, untick to keep, single-use run token that refuses threads outside the preview, one Undo. Slack and tasks never touched. Demo gains three inbox rows Tidy acts on. |

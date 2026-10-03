@@ -7,6 +7,7 @@
 import { api, esc, toast, busy, copyText } from "./app.js";
 import { renderMd } from "./tools.js";
 import { askButton, openAsk } from "./ask.js";
+import { popMenu } from "./actions.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const L = { open: false, view: "home", page: null, onOpen: null, onClose: null, brief: null, listKind: "people" };
@@ -36,7 +37,7 @@ function head(title, extra = "") {
   const tabs = [["home", "Home"], ["browse", "Browse"], ["tasks", "Tasks"], ["interactions", "Interactions"], ["org", "Org"], ["reports", "Health and audit"]];
   return `<div class="today-head lt-head">
     <h2>Ledger</h2><span class="dim small-t" id="lt-src"></span>
-    <div class="seg" id="lt-seg">${tabs.map(([k, t]) => `<button data-v="${k}" class="${L.view === k ? "on" : ""}">${t}</button>`).join("")}</div>
+    <div class="seg" id="lt-seg">${tabs.map(([k, t]) => `<button data-v="${k}" class="${L.view === k ? "on" : ""} ${(k === "org" || k === "reports") && L.view !== k ? "lt-rare" : ""}">${t}</button>`).join("")}<button class="lt-more calm-only" id="lt-more" title="Org tree, health and audit reports" aria-haspopup="menu">&#8943;</button></div>
     <button class="btn small ghost calm-only" data-goto="graph" title="Map: your ledger neighborhood (v)">Map</button>
     <span class="grow"></span>
     <input id="lt-q" class="rinput lt-q" placeholder="Search the ledger..." autocomplete="off" aria-label="Search the ledger">
@@ -47,7 +48,13 @@ function head(title, extra = "") {
 }
 
 function wireHead() {
-  $("#lt-seg").onclick = (e) => { const b = e.target.closest("[data-v]"); if (b) show(b.dataset.v); };
+  $("#lt-seg").onclick = (e) => {
+    if (e.target.closest("#lt-more")) {
+      popMenu($("#lt-more"), [{ label: "Org tree", run: () => show("org") }, { label: "Health and audit reports", run: () => show("reports") }], { label: "More ledger pages" });
+      return;
+    }
+    const b = e.target.closest("[data-v]"); if (b) show(b.dataset.v);
+  };
   $("#lt-close").onclick = closeLedgerTab;
   $("#lt-fresh").onclick = () => (L.view === "entity" && L.page ? openEntity(L.page.kind, L.page.key, true) : show(L.view, true));
   $("#lt-new").onclick = newMenu;
@@ -108,9 +115,18 @@ function renderHome(body, h) {
   const s = h.stats || {}, c = s.counts || {};
   const tile = (n, t, v) => `<div class="lt-tile" ${v ? `data-go="${v}"` : ""}><b>${esc(n ?? "-")}</b><span>${esc(t)}</span></div>`;
   const tl = (xs, empty) => xs.length ? `<ul class="day-list">${xs.map((t) => `<li class="day-item">${pri(t.priority)} ${ent("tasks", t.id, t.summary)} <span class="dim small-t lt-nowrap">${esc(t.status)}${t.due_date ? ` &middot; due ${esc(fmtDay(t.due_date))}` : ""}</span></li>`).join("")}</ul>` : `<div class="dim small-t">${empty}</div>`;
-  body.innerHTML = `
-    <div class="dim small-t">As of ${esc(h.now)} (server clock)</div>
-    <div class="lt-tiles">
+  // calm layout: one summary line, the urgent counts first; the tiles stay for classic
+  const n = (v) => Number(v || 0);
+  const part = (v, t, go, cls = "") => `<a href="#" class="lt-sumlink ${cls}" data-go="${go}">${esc(String(n(v)))} ${esc(t)}</a>`;
+  const summary = `<div class="lt-summary calm-only" title="As of ${esc(h.now)} (server clock)">
+      ${n(s.tasks_overdue) ? part(s.tasks_overdue, "overdue", "tasks", "bad") : ""}${(h.blocked || []).length ? part(h.blocked.length, "blocked", "tasks", "warn") : ""}
+      ${part(h.open_tasks, "open tasks", "tasks")}${part((s.interactions_recent || {}).last_7d, "logs this week", "interactions")}
+      <span class="dim">&middot;</span>
+      ${part(c.researchers, "people", "browse:people")}${part(c.labs, "labs", "browse:labs")}${part(c.projects, "projects", "browse:projects")}${part(c.gcp_projects, "GCP", "browse:gcp")}${part(c.grants, "grants", "browse:grants")}${part(c.assets, "assets", "browse:assets")}
+    </div>`;
+  body.innerHTML = `${summary}
+    <div class="dim small-t classic-only">As of ${esc(h.now)} (server clock)</div>
+    <div class="lt-tiles classic-only">
       ${tile(c.researchers, "people", "browse:people")}${tile(c.labs, "labs and units", "browse:labs")}${tile(c.gcp_projects, "GCP projects", "browse:gcp")}
       ${tile(c.projects, "projects", "browse:projects")}${tile(c.grants, "grants", "browse:grants")}${tile(c.assets, "assets", "browse:assets")}
       ${tile(h.open_tasks, "open tasks", "tasks")}${tile(s.tasks_overdue, "overdue", "tasks")}${tile((s.interactions_recent || {}).last_7d, "logs this week", "interactions")}
@@ -122,7 +138,8 @@ function renderHome(body, h) {
       <section class="card"><div class="label">Recent interactions</div>
         <ul class="day-list">${(h.recent || []).map((i) => `<li class="day-item"><span class="dim small-t">${esc(fmtDay(i.date))}</span> ${ent("interactions", i.id, (i.summary || "").slice(0, 140))}</li>`).join("")}</ul></section>
     </div>`;
-  body.querySelectorAll("[data-go]").forEach((t) => (t.onclick = () => {
+  body.querySelectorAll("[data-go]").forEach((t) => (t.onclick = (e) => {
+    e.preventDefault();
     const [v, k] = t.dataset.go.split(":"); if (k) L.listKind = k; show(v);
   }));
   wireEnts(body);

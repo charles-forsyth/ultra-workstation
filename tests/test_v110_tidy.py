@@ -190,3 +190,14 @@ def test_expired_preview_is_refused(tidy, monkeypatch):
     monkeypatch.setattr(mod.time, "time", lambda: real() + mod.TOKEN_TTL + 1)
     with pytest.raises(ApiError, match="expired"):
         tidy.r_run({}, {"token": p["token"], "threads": ["low0002"]}, M)
+
+
+def test_count_is_read_only_and_matches_the_preview(tidy):
+    """v1.7: GET /api/mail/tidy/count feeds the calm stream's one-line suggestion."""
+    from ultra.tidy import SUGGEST_AT
+
+    c = tidy.r_count({}, None, M)
+    assert c["suggest_at"] == SUGGEST_AT == 10
+    assert not tidy.previews  # no token: count can never authorise a run
+    assert c["count"] == tidy.r_preview({}, {}, M)["thread_count"]
+    assert tidy.fake.archived == []

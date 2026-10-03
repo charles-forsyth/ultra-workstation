@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.6 of the spec; app at v1.6.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, and the calm layout driven by one action table; see the delivery plan in section 19)
+Status: v1.7 of the spec; app at v1.7.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, and the calm layout driven by one action table; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -967,7 +967,23 @@ status, so a menu entry built from the id would have set the task BLOCKED.
 | Thread toolbar | 15 | 5 (Reply all, its menu, Archive, AI, ...) |
 | Phone (390 px), nothing open | - | 7, no sideways scroll |
 
-The Board's own cards and columns are unchanged in this release (U2 in the plan).
+**v1.7 (U2).**
+
+- **Board** takes the full width in calm (the stream hides; "List" or Esc returns). Card
+  actions show on hover (always on touch); empty columns shrink to a dashed outline; the
+  how-to line moved to the Board title's tooltip.
+- **Today** carries a Plan strip above the timeline (today only): your move, overdue,
+  due today, waiting 3+ days, free minutes, and up to five lines (overdue and due-today
+  tasks first, then your-move items). A line opens its item; "Full plan" opens the Day
+  view, which keeps the AI read, focus blocks and the end-of-day report.
+- **Ledger** home in calm is one summary line (overdue and blocked first, in red and
+  amber, then open tasks, logs this week and the record counts, each a link). The tiles
+  stay in classic. Sub-tabs: Home, Browse, Tasks, Interactions; Org and Health and audit
+  are in the tab strip's "..." menu.
+- **Show it when it matters:** Tidy comes forward as one line at the top of the stream
+  ("N old threads can be tidied", Preview, Not today) when the default rule finds 10 or
+  more threads (`GET /api/mail/tidy/count`, read only, no token); archiving a READY
+  thread offers "Log it" (the staged card, as always).
 
 ## 8. Adapters
 
@@ -1863,7 +1879,7 @@ All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` an
 `Content-Type: application/json` (12.1). Long calls return a job id that the page polls.
 There is no SSE stream and no generic jobs route; each feature has its own job route.
 Path parameters are shown as `<name>`; the server matches each with a strict pattern.
-154 route paths as of v1.2.0 (`tests/test_v101_spec.py` fails if one is added without a row
+155 route paths as of v1.7 (`tests/test_v101_spec.py` fails if one is added without a row
 here).
 
 **Core** (server.py)
@@ -1885,6 +1901,7 @@ here).
 | POST | `/api/task/action` | task complete / start / blocked / priority / snooze (ledger write after click) |
 | POST | `/api/slack/done`, `/api/slack/undone` | local Slack Mark done |
 | POST | `/api/mail/archive`, `/api/mail/unarchive` | archive with undo |
+| GET | `/api/mail/tidy/count` | how many threads the default Tidy rule would archive (read only; feeds the calm suggestion) |
 | POST | `/api/mail/tidy/preview`, `/api/mail/tidy/run`, `/api/mail/tidy/undo` | Inbox Tidy: preview with a single-use token, archive the ticked threads, one Undo (8.1) |
 | POST | `/api/ai/summary` | AI summary of a thread |
 
@@ -2133,6 +2150,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.4 Ledger reads on MCP (shipped 1.4.0) | Section 8.4: every ledger read through the hosted MCP server, CLI shapes kept, serve/CLI fallback for reads; Graph second hop 8 wide; parity script |
 | v1.5 Calm layout (shipped 1.5.0) | Section 7.13: three places, filter menu, status dot, row hover actions, Reply/Archive/AI/... toolbar from one action table, rail and Bucket only when needed, `[ui] layout` switch; palette searches mail, ledger and research |
 | v1.6 Ledger writes on MCP (shipped 1.6.0) | Section 8.4: desk and Ledger-tab writes through the hosted server, deletes on the CLI, refusal falls back, unknown outcomes never re-sent; one live log verified |
+| v1.7 Calm, part 2 (shipped 1.7.0) | Section 7.13: Board full width, Today plan strip, Ledger summary line and a shorter tab strip, Tidy suggestion, Log offer after archiving READY |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
@@ -2158,6 +2176,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.7 | App v1.7.0 (7.13, 14, 19): calm layout part 2. Board full width with hover actions and compact empty columns; Today plan strip; Ledger summary line, Org and Health under "..."; Tidy suggestion at 10+ threads (`GET /api/mail/tidy/count`); Log offer after archiving a READY thread. |
 | 2026-10-03 | 1.6 | App v1.6.0 (8.4, 5.2, 19): ledger writes through the hosted ledger MCP server when `[ledger] backend = "mcp"`. `ledger_mcp_write.py` maps each argv the two writers build to one write tool; deletes and `projects docs rm` stay on the CLI; a refusal before anything ran falls back to serve/CLI; an unknown outcome is never re-sent. One live log verified (provenance source mcp, client Ultra). |
 | 2026-10-03 | 1.5 | App v1.5.0 (new 7.13; 5.2, 7.5, 13, 19): calm layout, default. Three places (Inbox, Today, Ledger) with links between neighbouring views, filter menu, one status dot with a source menu, rows with Archive and "..." on hover, thread toolbar Reply all (split) / Archive / AI / ..., task toolbar Complete / Log update / AI / ..., rail only while an item is open, possible matches on one line, Bucket hidden when empty, tray while dragging. `static/actions.js` drives the groups and the palette; `[ui] layout = "classic"` or the dot menu brings back every button. Task Block time gets its own action id. Measured on demo data: desk with an email open 69 -> 31 visible controls, thread toolbar 15 -> 5. |
 | 2026-10-03 | 1.4 | App v1.4.0 (8.4, 7.6, 8.8, 5.2, 13, 19): ledger reads through the hosted ledger MCP server with `[ledger] backend = "mcp"`. `ledger_mcp.py` answers every allow-listed read in the CLI's JSON shapes; `doctor` and `gcp audit-report` stay on serve/CLI; unreachable, auth or tool errors fall back to serve/CLI for reads. Graph fills its second hop 8 wide over MCP (about 6 s for 40 heavy neighbors, was 75 s). Ledger tab header says "live via the ledger MCP server". Client fix: a `{"error": ...}` answer inside structured content is now a tool error (it was returned as data). `scripts/ledger_parity.py` (live, read-only): 20 reads matched; dossier 20.1 s -> 1.9 s. |

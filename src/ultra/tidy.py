@@ -30,6 +30,7 @@ MAX_DAYS = 365
 TOKEN_TTL = 15 * 60
 UNDO_TTL = 24 * 3600
 MAX_ARCHIVE = 500
+SUGGEST_AT = 10  # calm stream: offer Tidy as a one-line suggestion at this many threads
 TID_RE = re.compile(r"^[A-Za-z0-9]{1,40}$")
 
 
@@ -138,6 +139,7 @@ class Tidy:
         self.undo: dict[str, dict[str, Any]] = {}  # token -> {threads, expires}
 
     def register(self, api: Any) -> None:
+        api.add("GET", r"/api/mail/tidy/count", self.r_count)
         api.add("POST", r"/api/mail/tidy/preview", self.r_preview)
         api.add("POST", r"/api/mail/tidy/run", self.r_run)
         api.add("POST", r"/api/mail/tidy/undo", self.r_undo)
@@ -157,6 +159,21 @@ class Tidy:
         for d in (self.previews, self.undo):
             for k in [k for k, v in d.items() if v["expires"] < t]:
                 del d[k]
+
+    def r_count(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        """How many threads the default rule would tidy (read only, no token). The
+        calm stream shows a one-line suggestion when this reaches SUGGEST_AT."""
+        now = self.now()
+        start = dt.datetime.combine(now.date(), dt.time(0, 0), self.tz)
+        p = plan(
+            self.items_fn(),
+            DEFAULT_DAYS,
+            now.timestamp() * 1000,
+            self.watched_fn(),
+            start.timestamp() * 1000,
+        )
+        threads = {t for r in p["archive"] for t in r["threads"]}
+        return {"count": len(threads), "days": DEFAULT_DAYS, "suggest_at": SUGGEST_AT}
 
     def r_preview(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         days = self._days(body)

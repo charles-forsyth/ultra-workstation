@@ -112,6 +112,7 @@ function render() {
       <button class="btn small ghost" data-nav="1" title="Next day">&rarr;</button>
       ${T.day !== now.day ? `<button class="btn small ghost" data-nav="0">Today</button>` : ""}
       ${viewSeg()}
+      <button class="btn small ghost calm-only" data-goto="day" title="Check-in plan and end-of-day report (d)">Plan and report</button>
       <span class="grow"></span>
       <button class="btn small" id="cal-new-meeting" title="Invite people (two approvals before anyone is emailed)">New meeting</button>
       <button class="btn small" id="cal-slots">Find a time</button>
@@ -410,6 +411,7 @@ function renderWeek() {
       <button class="btn small ghost" data-wnav="7" title="Next week">&rarr;</button>
       ${days.includes(now.day) ? "" : `<button class="btn small ghost" data-wnav="0">This week</button>`}
       ${viewSeg()}
+      <button class="btn small ghost calm-only" data-goto="day" title="Check-in plan and end-of-day report (d)">Plan and report</button>
       <span class="grow"></span>
       <button class="btn small" id="cal-new-meeting">New meeting</button>
       <button class="btn small" id="cal-slots">Find a time</button>

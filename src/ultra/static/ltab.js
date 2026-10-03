@@ -37,6 +37,7 @@ function head(title, extra = "") {
   return `<div class="today-head lt-head">
     <h2>Ledger</h2><span class="dim small-t" id="lt-src"></span>
     <div class="seg" id="lt-seg">${tabs.map(([k, t]) => `<button data-v="${k}" class="${L.view === k ? "on" : ""}">${t}</button>`).join("")}</div>
+    <button class="btn small ghost calm-only" data-goto="graph" title="Map: your ledger neighborhood (v)">Map</button>
     <span class="grow"></span>
     <input id="lt-q" class="rinput lt-q" placeholder="Search the ledger..." autocomplete="off" aria-label="Search the ledger">
     <button class="btn small" id="lt-new" title="Add a record or a task">+ New</button>

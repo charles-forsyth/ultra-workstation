@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.4 of the spec; app at v1.4.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, and ledger reads through the hosted ledger MCP server; see the delivery plan in section 19)
+Status: v1.5 of the spec; app at v1.5.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads through the hosted ledger MCP server, and the calm layout driven by one action table; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -226,6 +226,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `static/keys.js` | keyboard table (help panel, README, tests) |
 | `static/tidy.js` | Inbox Tidy dialog |
 | `static/graph.js` | Graph view (SVG force layout) |
+| `static/actions.js` | action table (7.13): calm toolbar groups, Reply/AI/"..." menus, row menus, palette entries |
 
 ## 6. Data model (local store)
 
@@ -531,6 +532,10 @@ four columns. Code: `board.py`, `static/board.js`; tests `tests/test_v015_board.
   copy, bucket, log, task, Ask Hermes about it) and "Open:" for every stream row.
   "Search the ledger" opens the rail's Ledger tab; people are not listed in the palette
   itself.
+- v1.5: the open item's actions come from the action table (7.13), so every action a
+  calm menu holds is also here, with its key. Typing any text adds "Search mail for",
+  "Search the ledger for" and "Search past research for" it, so the search box is the
+  one place to start. The layout switch (calm/classic) is a palette command too.
 - "Ask" is Ask Hermes (7.12): "Ask Hermes about: <item>" or with no item. Answers come
   back as text with buttons that open a draft, staged log, staged task or bucket
   snippet. Ask never executes anything by itself.
@@ -892,6 +897,76 @@ item; each question is a full agent turn on the operator's main model.
 - **Code.** `hermes.py` (adapter), `ask.py` (targets and routes), `static/ask.js`
   (panel). Tests: `tests/test_v013_ask.py` (fake `hermes` binary records argv, query
   file mode and environment).
+
+### 7.13 Calm layout and the action table (v1.5)
+
+The default layout since v1.5. It moves controls, it does not remove them: the classic
+layout (every button on screen, as before) is `[ui] layout = "classic"` in config, or
+per browser from the status dot menu or the palette ("Use the classic layout"). Classic
+stays for two releases, then goes (operator decision, 2026-10-02).
+
+- **Top bar.** Three places: Inbox, Today, Ledger. Inbox is the stream (Board is its
+  `o` toggle and the filter menu entry); Today is the calendar, with "Plan and report"
+  in its header for the Day view (`d`); Ledger is the Ledger tab, with "Map" for the
+  Graph (`v`). The Board, Day and Graph headers link back the same way. Search (the
+  palette) and one status dot follow. The dot is green, amber or red from the same
+  source checks the classic status bar shows; its menu lists each source with its error
+  and fix, Refresh, Keyboard shortcuts, the layout switch and the version. The bottom
+  status bar is hidden.
+- **Stream.** Three filters (Mine, Waiting, All). The menu next to them holds Slack,
+  Tasks, Tickets and Low priority (with counts; the active one stays on the bar), Board
+  view, Refresh and Tidy. Mail search shows its scope and saved-search controls only
+  while it is in use. Rows show source, who, when, subject and status badges; on hover
+  or focus they show Archive (or Done) and "...", whose menu holds Add to bucket, Log,
+  Task, Block time and Ask Hermes. On touch screens both are always shown.
+- **Thread toolbar.** Reply all (split button; Reply and Forward in its menu), Archive,
+  AI (Draft reply = Draft Studio, Summarize, Ask Hermes, Read aloud, AI audio) and "..."
+  (Labels, Copy, Export, Add to bucket, Log, Task, Block time, Open in Slack). Slack
+  threads show Reply and Mark done in the same places. The idle Draft Studio strip is
+  hidden; AI > Draft reply starts it. Attachment Download, Save and Attach appear on
+  hover (always on touch); Preview stays.
+- **Task view.** Complete and Log update stay; Start, Blocked, Reopen, Add to bucket,
+  Block time and Copy go in "..."; Ask Hermes and Draft email in AI. Priority, due date
+  and snooze stay as fields.
+- **Right rail.** Shown only while an item is open (or while Ledger search or Research
+  is showing in it). People, Person and Full stay as tabs; Ledger search and Research
+  moved to the palette, the selection bar and the AI menu. Possible matches collapse to
+  one line ("2 possible matches"), opened with a click.
+- **Bucket.** Hidden when empty. While something is being dragged it appears as the drop
+  tray; while it holds items it is a small panel with Log, Task and Block (click
+  "Bucket" to list the items). On full-width views it floats bottom right.
+- **Full-width views.** Today, Ledger, Board, Day and Graph use the rail's width.
+
+**The action table (`static/actions.js`).** One row per action with its place:
+`primary` (stays on the toolbar), `reply` (the split button, first row = the button),
+`ai`, or `more`. Three tables: thread (`ACTIONS`), task (`TASK_ACTIONS`) and stream row
+(`ROW_ACTIONS`). The views still render their full toolbars with the same handlers;
+`arrange()` keeps the primary ones on the bar and holds the rest out of sight, and each
+menu is built from the held buttons when it opens, so labels, disabled states and
+hidden ones (Forward on Slack) match what the classic bar would show, and the keys keep
+working by clicking the same buttons. Menus use `textContent` only, close on Escape, a
+second click or a click outside, and move focus with the arrow keys.
+
+**Tests** (`tests/test_v150_calm.py`): every thread, task and row button has a table row
+with a known place; every item key clicks the action the table gives that key; Reply
+all leads the reply group; the calm thread toolbar is at most 6 controls; the palette
+lists item actions from the table; menus are built from the real buttons and never use
+`innerHTML`; the session reports the layout and the example config documents it;
+classic keeps every top-bar and stream-head button; hover controls show on touch.
+Task "Block time" got its own id (`blocktime`): it shared `block` with the Blocked
+status, so a menu entry built from the id would have set the task BLOCKED.
+
+**Measured** (Playwright, demo data, 1440x900, visible controls in the viewport):
+
+| View | Classic | Calm |
+|---|---|---|
+| Desk, nothing open | 47 | 20 |
+| Desk, email open | 69 | 31 |
+| Board | 74 | 46 |
+| Thread toolbar | 15 | 5 (Reply all, its menu, Archive, AI, ...) |
+| Phone (390 px), nothing open | - | 7, no sideways scroll |
+
+The Board's own cards and columns are unchanged in this release (U2 in the plan).
 
 ## 8. Adapters
 
@@ -1698,6 +1773,9 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
     sender_patterns = ["@service-now\\.com$"]
     number_patterns = ["RITM\\d{7}", "INC\\d{7}", "SCTASK\\d{7}", "REQ\\d{7}"]
 
+    [ui]
+    layout = "calm"               # v1.5: or "classic" (every button on screen); per browser too
+
     [mail]
     vip_file = "~/.config/ultra-workstation/vip.txt"
     noise_patterns = ["noreply", "no-reply", "newsletter", "notification"]
@@ -2025,6 +2103,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.2 Graph (shipped 1.2.0) | Section 7.6: ledger neighborhood as an SVG graph; click to open, double-click to center, drag an item onto a node to bucket both; plus the phone top-bar fix (16) |
 | v1.3 MCP client (shipped 1.3.0) | Section 8.8: client for the hosted ledger and cluster MCP servers, sign-in, doctor, status lights. First step of the plan to move ledger reads (v1.4) and writes onto MCP and declutter the UI (calm layout) |
 | v1.4 Ledger reads on MCP (shipped 1.4.0) | Section 8.4: every ledger read through the hosted MCP server, CLI shapes kept, serve/CLI fallback for reads; Graph second hop 8 wide; parity script |
+| v1.5 Calm layout (shipped 1.5.0) | Section 7.13: three places, filter menu, status dot, row hover actions, Reply/Archive/AI/... toolbar from one action table, rail and Bucket only when needed, `[ui] layout` switch; palette searches mail, ledger and research |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
@@ -2050,6 +2129,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.5 | App v1.5.0 (new 7.13; 5.2, 7.5, 13, 19): calm layout, default. Three places (Inbox, Today, Ledger) with links between neighbouring views, filter menu, one status dot with a source menu, rows with Archive and "..." on hover, thread toolbar Reply all (split) / Archive / AI / ..., task toolbar Complete / Log update / AI / ..., rail only while an item is open, possible matches on one line, Bucket hidden when empty, tray while dragging. `static/actions.js` drives the groups and the palette; `[ui] layout = "classic"` or the dot menu brings back every button. Task Block time gets its own action id. Measured on demo data: desk with an email open 69 -> 31 visible controls, thread toolbar 15 -> 5. |
 | 2026-10-03 | 1.4 | App v1.4.0 (8.4, 7.6, 8.8, 5.2, 13, 19): ledger reads through the hosted ledger MCP server with `[ledger] backend = "mcp"`. `ledger_mcp.py` answers every allow-listed read in the CLI's JSON shapes; `doctor` and `gcp audit-report` stay on serve/CLI; unreachable, auth or tool errors fall back to serve/CLI for reads. Graph fills its second hop 8 wide over MCP (about 6 s for 40 heavy neighbors, was 75 s). Ledger tab header says "live via the ledger MCP server". Client fix: a `{"error": ...}` answer inside structured content is now a tool error (it was returned as data). `scripts/ledger_parity.py` (live, read-only): 20 reads matched; dossier 20.1 s -> 1.9 s. |
 | 2026-10-03 | 1.3 | App v1.3.0 (new 8.8; 5.2, 13, 15, 16, 19): client for the hosted ledger and cluster MCP servers. `mcpclient.py` (stdlib): pre-registered program-client sign-in with PKCE, refresh tokens rotated under one lock per server and saved atomically before use, JSON or SSE answers, parallel cap and per-minute budget, unreachable vs unknown failures (writes never re-sent). `ultra auth nexus|ursa [--status|--sign-out]`, doctor lines, one status-bar light per configured server. No reads or writes move yet. |
 | 2026-10-02 | 1.2.2 | Docs only, audited against the code (app still v1.2.1). Corrected: header (Q1 decided); 2 non-goals (remote mode and phone use exist); 4 Replied ask; 5.1 no vendored marked/DOMPurify (built-in `renderMd`); 7.1 filters as built (Tasks, Low; no VIP button, no person grouping), noise is the Low filter, no Show original, thread actions as built, no Replied badge; 7.8 marks which exports exist and which are plan only, no `docs/EXPORT.md`, AI brief builder not built; 7.9 Research is a rail tab (no `g r`), Insert summary not built; 8.1 historyId caching (no `history.list`), Tidy Undo is a token not a file, `messages.send` only, plain-text body only, astropost rows for Summarize unread and drafts list; 7.4 slot finder, check-in and end-of-day as built (Day view); 7.5 palette as built; 8.5 ticket templates not built; 11.1 person cache is `kv_cache`; 11.4 Replied badge not built; 12.3 real `purge` flags; 12.4 email HTML is converted to text, never rendered; 16 staged cards are in memory and reads are not retried; 19 v1.x parked. Moved: ticket replies, task mode, 9.7 and 9.8 from the top of section 11 into section 9; 8.6 back before 8.7. |

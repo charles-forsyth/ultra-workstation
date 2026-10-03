@@ -13,7 +13,7 @@ export function initSearch({ onResults, onClear }) {
   const head = $("#left .panel-head");
   const bar = document.createElement("div");
   bar.className = "msearch";
-  bar.innerHTML = `<input id="ms-q" type="search" placeholder="Search mail (Gmail syntax: from: subject: has:attachment)" autocomplete="off" maxlength="300">
+  bar.innerHTML = `<input id="ms-q" type="search" placeholder="Search mail" title="Gmail syntax works: from: subject: has:attachment" autocomplete="off" maxlength="300">
     <select id="ms-scope" title="Where to search"><option value="inbox">Inbox</option><option value="all">All mail</option></select>
     <button class="btn tiny ghost" id="ms-saved" title="Saved searches">&#9733;</button>`;
   head.after(bar);
@@ -22,15 +22,16 @@ export function initSearch({ onResults, onClear }) {
   bar.after(menu);
   const run = async () => {
     const q = $("#ms-q").value.trim();
-    if (!q) { onClear(); return; }
+    if (!q) { bar.classList.remove("active"); onClear(); return; }
     try {
       const r = await api(`/api/mail/search?q=${encodeURIComponent(q)}&scope=${$("#ms-scope").value}`);
+      bar.classList.add("active");
       onResults(r);
     } catch (e) { toast(e.message, "err"); }
   };
   $("#ms-q").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); run(); }
-    if (e.key === "Escape") { $("#ms-q").value = ""; onClear(); $("#ms-q").blur(); }
+    if (e.key === "Escape") { $("#ms-q").value = ""; bar.classList.remove("active"); onClear(); $("#ms-q").blur(); }
   });
   $("#ms-q").addEventListener("search", () => { if (!$("#ms-q").value) onClear(); });
   $("#ms-scope").onchange = () => { if ($("#ms-q").value.trim()) run(); };

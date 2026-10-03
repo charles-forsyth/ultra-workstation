@@ -103,6 +103,8 @@ class Api:
             "timezone": self.cfg.timezone,
             "slack": bool(self.live and self.live.slack.enabled) or self.demo,
             "ai": bool(self.live and self.live.ai.enabled) or self.demo,
+            # v1.6: "calm" (default) or "classic"; a browser can override it (dot menu)
+            "layout": "classic" if self.cfg.get("ui", "layout", "calm") == "classic" else "calm",
         }
 
 

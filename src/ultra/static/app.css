@@ -665,3 +665,112 @@ mark.hl { color: inherit; border-radius: 2px; padding: 0 1px; cursor: pointer; }
 .gr-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line-2); border-radius: 4px; padding: 3px 7px; font-size: 12px; max-width: 320px; z-index: 2; }
 .gr-head .seg button { font-size: 11px; }
 @media (max-width: 800px) { .gr-wrap { height: calc(100vh - 290px); } .gr-head { flex-wrap: wrap; } #gr-sum { flex-basis: 100%; order: 3; } #gr-types { flex-wrap: wrap; } }
+
+/* ---- v1.6 calm layout (SPEC 7.13). body.calm is the default; [ui] layout = "classic"
+   or the dot menu turns it off. Nothing is removed: menus hold what the bar used to. ---- */
+body:not(.calm) .calm-only, body:not(.calm) .ra-more { display: none !important; }
+body.calm .classic-only { display: none !important; }
+body.calm #app { grid-template-rows: 44px 1fr; }
+body.calm .statusbar { display: none; }
+body.calm .brand-sub { display: none; }
+body.calm .topbar { gap: 20px; background: var(--bg-2); }
+.places { display: flex; gap: 2px; }
+.places button { background: none; border: 0; border-radius: 6px; padding: 5px 12px; color: var(--dim); font-size: 13px; cursor: pointer; }
+.places button:hover { color: var(--text); }
+.places button.on { color: var(--text); background: var(--panel-2); }
+body.calm .telemetry { justify-content: flex-end; }
+.sdot { padding: 5px 8px; }
+.sdot .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--faint); vertical-align: middle; }
+.sdot.ok .dot { background: var(--green); }
+.sdot.warn .dot { background: var(--amber); }
+.sdot.err .dot { background: var(--red); box-shadow: 0 0 0 3px var(--red-d); }
+
+/* stream: three filters (the rest in the menu, the active one stays visible) */
+body.calm #filter-seg { border: 0; background: none; }
+body.calm #filter-seg button[data-f="slack"]:not(.on),
+body.calm #filter-seg button[data-f="tasks"]:not(.on),
+body.calm #filter-seg button[data-f="tickets"]:not(.on),
+body.calm #filter-seg button[data-f="low"]:not(.on) { display: none; }
+body.calm .panel-head { border-bottom-color: transparent; }
+
+/* rows: who, when, subject, status; Archive/Done and ... on hover (always on touch) */
+body.calm .item .snip { display: none; }
+body.calm .item .ract { display: none; }
+body.calm .item .row1 .age { margin-right: 0; }
+body.calm .item .rq { position: absolute; top: 5px; right: 6px; display: flex; gap: 4px; padding-left: 8px; background: linear-gradient(90deg, transparent, var(--bg) 14px); opacity: 0; transition: opacity .12s; }
+body.calm .item.sel .rq { background: linear-gradient(90deg, transparent, var(--panel-2) 14px); }
+body.calm .item:hover .rq, body.calm .item.sel .rq, body.calm .item:focus-within .rq { opacity: 1; }
+body.calm .item .rq .ra-quick { position: static; opacity: 1; }
+@media (hover: none) { body.calm .item .rq { opacity: 1; } }
+
+/* thread toolbar: Reply (split), Archive, AI, ... */
+.calm-acts { gap: 8px; }
+.calm-acts .split { display: inline-flex; }
+.calm-acts .split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.calm-acts .split .split-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; padding: 3px 7px; }
+.calm-acts .more-btn { min-width: 32px; }
+body.calm .studio.idle { display: none; }
+
+/* pop-up menus */
+.pop { position: fixed; z-index: 60; min-width: 200px; max-width: min(420px, 94vw); max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; padding: 4px; box-shadow: 0 8px 28px rgba(0, 0, 0, .45); }
+.pop-item { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; background: none; border: 0; border-radius: 5px; padding: 6px 10px; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; }
+.pop-item:hover:not(:disabled), .pop-item:focus { background: var(--cyan-d); color: var(--cyan); outline: none; }
+.pop-item:disabled { opacity: .45; cursor: default; }
+.pop-item.ai { color: var(--magenta); }
+.pop-item.ai:hover:not(:disabled), .pop-item.ai:focus { background: var(--magenta-d); color: var(--magenta); }
+.pop-item .kbd { opacity: .8; }
+.pop-info { padding: 5px 10px; font: 11.5px var(--mono); color: var(--dim); white-space: normal; }
+.pop-info.ok { color: var(--green); } .pop-info.warn { color: var(--amber); } .pop-info.err { color: var(--red); }
+.pop-sep { height: 1px; background: var(--line); margin: 4px 2px; }
+
+/* right rail: only when an item is open (or the bucket holds something, or a drag is on);
+   Ledger search and Research live in the search box, the palette and the AI menu */
+body.calm #rail-tabs button[data-tab="search"], body.calm #rail-tabs button[data-tab="tools"] { display: none; }
+body.calm #rail-tabs { border: 0; background: none; }
+
+/* bucket: hidden when empty, a tray while dragging, a pill while it holds items */
+body.calm .bucket:not(.has) { display: none; }
+body.calm.dragging .bucket { display: block; }
+body.calm .bucket.has:not(.expanded) .bucket-items, body.calm .bucket.has:not(.expanded) .bucket-drop { display: none; }
+body.calm.dragging .bucket .bucket-drop { display: block; }
+body.calm .bucket.has { padding: 8px 12px; }
+body.calm .bucket .bucket-acts { margin-top: 6px; }
+.bucket-toggle { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit; }
+body:not(.calm) .bucket-toggle { cursor: default; pointer-events: none; }
+body.calm .bucket-toggle::after { content: " \25B8"; color: var(--faint); }
+body.calm .bucket.expanded .bucket-toggle::after { content: " \25BE"; }
+
+@media (max-width: 1200px) {
+  body.calm .panel.right { bottom: 0; }
+  body.calm .scrim { inset: 44px 0 0 0; }
+}
+@media (max-width: 800px) {
+  body.calm .panel.left { bottom: 0; }
+  body.calm .places button { padding: 5px 8px; }
+  body.calm .brand-name { display: none; }
+}
+body.calm .toasts { bottom: 16px; }
+
+/* v1.6 calm, round 2: mail search options only while searching; attachment actions on
+   hover (always on touch); possible matches as one line; Bucket floats over full-width
+   views instead of bringing the rail back */
+body.calm .msearch:not(:focus-within):not(.active) #ms-scope,
+body.calm .msearch:not(:focus-within):not(.active) #ms-saved { display: none; }
+body.calm .att .btn:not([data-att="preview"]) { display: none; }
+body.calm .att:hover .btn, body.calm .att:focus-within .btn { display: inline-block; }
+@media (hover: none) { body.calm .att .btn { display: inline-block; } }
+.sugg-wrap > summary { cursor: pointer; list-style: none; }
+.sugg-wrap > summary::before { content: "\25B8 "; color: var(--faint); }
+.sugg-wrap[open] > summary::before { content: "\25BE "; }
+.sugg-wrap:not([open]) > .sugg { display: none; }
+@media (min-width: 1201px) {
+  body.calm.idle:not(.railpin) .layout, body.calm.wide:not(.railpin) .layout { grid-template-columns: 320px minmax(0, 1fr); }
+  body.calm.idle:not(.railpin) .panel.right, body.calm.wide:not(.railpin) .panel.right { display: none; }
+  body.calm.idle:not(.railpin):has(.bucket.has) .panel.right, body.calm.wide:not(.railpin):has(.bucket.has) .panel.right,
+  body.calm.idle.dragging:not(.railpin) .panel.right, body.calm.wide.dragging:not(.railpin) .panel.right {
+    display: block; position: fixed; right: 16px; bottom: 16px; width: 300px; z-index: 35;
+    border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); box-shadow: 0 8px 28px rgba(0, 0, 0, .45); }
+  body.calm.idle:not(.railpin) .panel.right > :not(.bucket), body.calm.wide:not(.railpin) .panel.right > :not(.bucket) { display: none; }
+  body.calm.idle:not(.railpin) .bucket, body.calm.wide:not(.railpin) .bucket { border-top: 0; }
+  body.calm.wide:has(.bucket.has) .toasts, body.calm.idle:has(.bucket.has) .toasts { bottom: 96px; }
+}

@@ -29,7 +29,7 @@ personal_block_visibility = "private"
 
 [ui]
 # Layout (v1.6): "calm" (three places, menus, one status dot) or "classic" (every
-# button on screen, the pre-1.6 layout; kept for two releases). Each browser can switch
+# button on screen, the pre-1.5 layout; both stay). Each browser can switch
 # for itself from the status dot menu or the palette.
 layout = "calm"
 

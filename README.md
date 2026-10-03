@@ -38,8 +38,10 @@ Ultra opens in the calm layout: three places at the top (Inbox, Today, Ledger), 
 search box (Ctrl+K, which also runs every command) and one status dot. Rows show
 Archive and `...` when you point at them; an open email shows Reply all, Archive, AI
 and `...`. Everything else is in those menus, in the palette and on its key, so
-nothing is gone. Prefer every button on screen? Pick "Use the classic layout" in the
-status dot menu (this browser), or set `[ui] layout = "classic"` in `config.toml`.
+nothing is gone. Prefer every button on screen? Press `L` (or "Use the classic layout" in
+the status dot menu); press `L` again, or the "Calm layout" button, to come back. Both
+layouts stay. The choice is per browser; `[ui] layout = "classic"` in `config.toml` sets
+the default.
 
 ## Install
 
@@ -217,6 +219,7 @@ keys need an item open. Browser shortcuts (Ctrl+R, Ctrl+F, ...) are left alone.
 | `a` | reply all | `w` | stream: Waiting |
 | `f` | forward | `T` | stream: Tasks |
 | `s` | AI summary | `R` | refresh mail and Slack |
+| `L` | switch layout: calm / classic | | |
 | `h` | Ask Hermes | `?` | keyboard help |
 | `e` | archive / complete task / mark Slack done | `Ctrl+Enter` | Ask (in the Ask box) |
 | `b` | add to bucket | | |

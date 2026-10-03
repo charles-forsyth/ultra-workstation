@@ -104,6 +104,62 @@ def run(cfg: Config) -> list[Check]:
     if cfg.get("hermes", "enabled", True):
         ok, d = _tool_version(str(cfg.get("hermes", "binary", "hermes")), ["--version"])
         out.append(Check("hermes (Ask Hermes)", ok, d))
+    out += mcp_checks(cfg)
     ff = shutil.which("ffmpeg")
     out.append(Check("ffmpeg", bool(ff), "found (MP3 audio)" if ff else "missing (WAV only)"))
+    return out
+
+
+# Oldest server releases whose tool shapes Ultra reads (SPEC 8.8)
+MIN_NEXUS_TOOLS_VERSION = 7
+MIN_URSA_VERSION = (0, 9, 0)
+
+
+def _ver(v: str) -> tuple[int, ...]:
+    import re
+
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+
+
+def mcp_checks(cfg: Config) -> list[Check]:
+    """One line per configured MCP server: reachable, version, signed in, as whom."""
+    from ultra import mcpclient
+
+    out: list[Check] = []
+    for name in mcpclient.SERVERS:
+        if not mcpclient.configured(cfg, name):
+            continue
+        client = mcpclient.client_from_config(cfg, name)
+        if client is None:
+            out.append(Check(f"mcp {name}", True, "disabled in config"))
+            continue
+        try:
+            h = client.health()
+        except mcpclient.McpError as e:
+            out.append(Check(f"mcp {name}", False, str(e)))
+            continue
+        if name == "nexus":
+            tv = int(str(h.get("tools_version") or 0) or 0)
+            vok, vtxt = tv >= MIN_NEXUS_TOOLS_VERSION, f"tools_version {tv}"
+        else:
+            vv = str(h.get("version") or "")
+            vok, vtxt = _ver(vv) >= MIN_URSA_VERSION, vv or "unknown version"
+        if not client.signed_in():
+            out.append(Check(f"mcp {name}", False, f"{vtxt}; not signed in (ultra auth {name})"))
+            continue
+        try:
+            who = client.whoami()
+        except mcpclient.McpError as e:
+            out.append(Check(f"mcp {name}", False, f"{vtxt}; {e}"))
+            continue
+        role = who.get("role") or ",".join(who.get("tiers") or [])
+        detail = f"{vtxt}; {who.get('email', '?')} ({role})"
+        if who.get("calls_per_min"):
+            detail += f", {who['calls_per_min']}/min"
+        if not vok:
+            detail += "; server too old for Ultra"
+        if not insecure(client.tokens.path):
+            out.append(Check(f"mcp {name}", vok, detail))
+        else:
+            out.append(Check(f"mcp {name}", False, detail + "; token file readable by others"))
     return out

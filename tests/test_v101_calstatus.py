@@ -85,6 +85,7 @@ def test_status_poll_checks_the_calendar_and_reports_age(tmp_path, monkeypatch):
             self.poll_mail = 999
             self.poll_slack = 999
             self.show_tasks = False
+            self.mcp: dict[str, Any] = {}  # v1.3: no MCP servers configured
 
         def _job(self, name: str, fn: Any, *a: Any) -> None:
             self.ran.append(name)

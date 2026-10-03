@@ -38,6 +38,23 @@ max_parallel = 3
 use_serve = true                   # use `nexus serve` (warm, fast) when it is running
 # serve_url = "http://127.0.0.1:7450"          # loopback only
 # serve_token_file = "~/.config/nexus/serve.token"
+# backend = "cli"                  # "mcp" (hosted ledger MCP server, [mcp.nexus]),
+#                                    "serve" or "cli". mcp falls back to serve/CLI for
+#                                    reads only when the server cannot be reached.
+
+# Hosted MCP servers (v1.3). Each is a pre-registered program client on that server:
+# set the URL and client id the server's admin gave you, then run `ultra auth nexus`
+# / `ultra auth ursa` once. Tokens go to tokens/mcp-<name>.json (mode 600).
+# [mcp.nexus]
+# url = "https://ledger-mcp.example.org/mcp"
+# client_id = "ledger-ultra"
+# parallel = 8                     # calls in flight (server cap is 16)
+# per_min = 500                    # client-side budget, below the server's limit
+# [mcp.ursa]
+# url = "https://cluster-mcp.example.org/mcp"
+# client_id = "cluster-ultra"
+# parallel = 2
+# per_min = 100
 
 [slack]
 enabled = false

@@ -45,6 +45,8 @@ from ultra.mailx import (
     decode_upload,
     safe_name,
 )
+from ultra.mcpclient import SERVERS as MCP_SERVERS
+from ultra.mcpclient import McpClient, McpError, client_from_config
 from ultra.research import Research
 from ultra.rules import Rules
 from ultra.slack import Slack, SlackError, SlackSender, slack_reply_target
@@ -104,6 +106,13 @@ class Live:
         self.rules = Rules.from_config(cfg, load_vips(cfg))
         self.mail = Mail(cfg, self.store, self.rules)
         self.ledger = Ledger(cfg, self.store)
+        # Hosted MCP servers (SPEC 8.8): only those configured in [mcp.<name>]
+        self.mcp: dict[str, McpClient] = {}
+        for _name in MCP_SERVERS:
+            _c = client_from_config(cfg, _name)
+            if _c is not None:
+                self.mcp[_name] = _c
+        self.mcp_health: dict[str, dict[str, Any]] = {}
         self.slack = Slack(cfg, self.store)
         self.ai = AI(cfg)
         self.draft_files = DraftFiles(self.store, private_dir(data_dir()) / "attachments")
@@ -451,6 +460,38 @@ class Live:
         at = self.calendar.state.get("at")
         if at is None or time.time() - at > CAL_CHECK_SECONDS:
             self._job("calendar", self._check_calendar)
+        # MCP servers: a token-free /health read every 10 minutes while a tab is open
+        for name in self.mcp:
+            h_at = self.mcp_health.get(name, {}).get("at")
+            if h_at is None or time.time() - h_at > CAL_CHECK_SECONDS:
+                self._job(f"mcp-{name}", self._check_mcp, name)
+
+    def _check_mcp(self, name: str) -> None:
+        c = self.mcp[name]
+        try:
+            h = c.health()
+            self.mcp_health[name] = {"ok": True, "error": "", "at": time.time(), "health": h}
+        except McpError as e:
+            self.mcp_health[name] = {"ok": False, "error": str(e), "at": time.time()}
+
+    def mcp_status(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for name, c in self.mcp.items():
+            h = self.mcp_health.get(name, {})
+            calls = c.state
+            # the last tool call wins over the health probe when it is newer
+            newer = calls.get("at") and calls["at"] >= (h.get("at") or 0)
+            ok = calls.get("ok") if newer else h.get("ok")
+            out[name] = {
+                "signed_in": c.signed_in(),
+                "ok": ok,
+                "error": (calls.get("error") if newer else h.get("error")) or "",
+                "age": (time.time() - h["at"]) if h.get("at") else None,
+                "version": (h.get("health") or {}).get("version")
+                or (h.get("health") or {}).get("tools_version"),
+                "ms": calls.get("ms"),
+            }
+        return out
 
     def _check_calendar(self) -> None:
         today = datetime.now(self.calendar.tz).date().isoformat()
@@ -507,6 +548,7 @@ class Live:
                 },
                 "ai": {**self.ai.state, "enabled": self.ai.enabled, "model": self.ai.model},
                 "research": {**self.research.state, "enabled": self.research.enabled},
+                "mcp": self.mcp_status(),
             },
         }
 

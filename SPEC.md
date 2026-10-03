@@ -1,9 +1,9 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.2.2 of the spec; app at v1.2.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help and the v1.0 docs; see the delivery plan in section 19)
+Status: v1.3 of the spec; app at v1.3.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, and the client for the hosted ledger and cluster MCP servers; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 
 This document is public. It must never contain real names, email addresses, NetIDs,
 Slack IDs, billing or project IDs, ticket numbers, or anything else specific to one
@@ -196,6 +196,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `server.py`, `guard.py`, `remote.py` | HTTP server and routing; Host/Origin/CSRF/content-type guards; remote allow-list (LAN, `tailnet:mine`) |
 | `store.py` | SQLite store: cache, bucket, journal |
 | `doctor.py` | `ultra doctor` checks (no secrets printed) |
+| `mcpclient.py` | client for the hosted MCP servers (8.8): OAuth sign-in, single-flight token refresh, JSON-RPC calls, parallel cap and budget |
 | `google_auth.py` | per-capability Google tokens; `ultra auth google` |
 | `mail.py`, `mailx.py` | Gmail read side; search, labels, attachments, send-as, notes |
 | `rules.py` | court, tickets, noise, done signals (deterministic) |
@@ -1152,6 +1153,54 @@ Writes (only after a staged card is committed):
   responses are not written to logs. Token counts per call are shown in the status bar.
 - Failure (quota, timeout) shows an error on the card; manual editing always works.
 
+### 8.8 Hosted MCP servers (v1.3)
+
+Two hosted servers speak MCP (Streamable HTTP, stateless) with their own OAuth 2.1
+sign-in: the ledger's MCP server and the cluster MCP server. Ultra signs in to each as a
+*pre-registered program client* (a fixed client id in that server's users file, a
+loopback redirect, no dynamic registration). The server caps a program client below the
+person: the ledger client at the person's role, the cluster client at read tiers only, so
+Ultra's cluster token never carries submit, cancel, hold or release. Each program client
+has its own calls-per-minute budget per person, separate from the person's chat clients.
+
+- **Code.** `mcpclient.py`, standard library only, adapted from the MIT stdlib client the
+  cluster server ships (`examples/mcp_client.py`). Tests: `tests/test_v130_mcpclient.py`
+  against a fake server on loopback.
+- **Config.** `[mcp.nexus]` and `[mcp.ursa]` with `url` and `client_id` (private config
+  only; the repo never holds them), optional `parallel`, `per_min`, `timeout`,
+  `token_file`, `enabled`. URLs must be https (loopback http is allowed for tests).
+- **Sign-in.** `ultra auth nexus` / `ultra auth ursa` opens the browser (PKCE S256,
+  random state, a one-shot listener on 127.0.0.1 with a random port, which both servers
+  accept for loopback redirects). `--status` prints who the saved token is (`/whoami`:
+  email, role or tiers, program, budget); `--sign-out` deletes it. Tokens live in
+  `tokens/mcp-<name>.json` (mode 600, directory 700).
+- **Token refresh.** Refresh tokens rotate on every use and a reused one is refused. The
+  refresh runs under one lock per server, re-reads the token file inside the lock (another
+  thread may already have refreshed), and saves the new pair atomically (temp file,
+  fsync, rename) before the new access token is used. A test runs six threads against an
+  expired token and requires exactly one refresh.
+- **Calls.** One POST per JSON-RPC call to `<url>`; the answer may be plain JSON or an
+  SSE stream (the last `data:` line is the reply). Tool results are decoded from the text
+  content as JSON; a result that is `{"error": ...}` (the ledger server's error shape) or
+  `isError` raises a tool error. At most `parallel` calls in flight per server (defaults:
+  ledger 8, cluster 2; both servers refuse a caller's 17th concurrent call) and a sliding
+  one-minute budget below the server's limit (defaults 500 and 100).
+- **Failure kinds.** *Unreachable*: the request never reached the server (DNS, refused,
+  TLS, a 403/404/429 at the door); nothing ran, so a read may fall back. *Unknown*: a
+  timeout or lost connection after sending, a 5xx or an unreadable reply; the call may
+  have run, and a write is never re-sent. *Auth needed*: not signed in, or the refresh
+  token is dead; the fix is `ultra auth <name>`. A 401 on a call refreshes once and
+  retries (the server refused before running anything); a second 401 asks for sign-in.
+- **Status.** `ultra doctor` reads `/health` (the ledger server's `tools_version` must be
+  7 or later; the cluster server v0.9.0 or later) and `/whoami`. `GET /api/status` adds
+  `sources.mcp.<name>` (signed in, ok, error, server version, last call ms); a token-free
+  `/health` read runs every 10 minutes while a tab is open. The status bar shows one
+  light per configured server ("Ledger MCP", "Cluster"); unconfigured servers show
+  nothing.
+- **Not yet.** v1.3.0 adds the client, sign-in and status only. Ledger reads move to it in
+  v1.4 (`[ledger] backend = mcp`), writes in a later release; cluster facts in mail and
+  the Day view after that. Deletes stay on the local ledger CLI.
+
 ### 8.7 Hermes (`hermes` CLI, v0.13)
 
 - One-shot `hermes chat` per question, argv list, no shell, `--format stream-json`
@@ -1663,6 +1712,16 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
     default_depth = 1
     default_breadth = 3
 
+    [mcp.nexus]                           # hosted ledger MCP server (8.8, v1.3)
+    url = "https://ledger-mcp.example.org/mcp"
+    client_id = "ledger-ultra"            # the program client in that server's users file
+    # parallel = 8, per_min = 500, timeout = 60, token_file, enabled = true
+
+    [mcp.ursa]                            # hosted cluster MCP server (8.8, v1.3)
+    url = "https://cluster-mcp.example.org/mcp"
+    client_id = "cluster-ultra"
+    # parallel = 2, per_min = 100, timeout = 120
+
 ## 14. HTTP API (server)
 
 All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` and
@@ -1843,8 +1902,12 @@ here).
     ultra remote                        print the addresses other devices can use
     ultra doctor                        check config, token perms, scopes, nexus, claude,
                                         Slack connector (and ANTHROPIC_API_KEY), Gemini key,
-                                        deep-research, ffmpeg
+                                        deep-research, ffmpeg, each configured MCP
+                                        server (reachable, version, signed in as whom)
     ultra auth google [--capability read|modify|send|calendar]
+    ultra auth nexus | ursa [--status | --sign-out | --no-browser]
+                                        sign in to a hosted MCP server (8.8) as the
+                                        program client; --status shows who and the budget
     ultra config init                   write example config.toml and style.toml
                                         (never overwrites)
     ultra config path                   print the config and data folders
@@ -1869,6 +1932,9 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
   Staged cards live in memory (6): one can be committed once the ledger is back, as
   long as the server has not restarted.
 - Slack connector disabled: "Slack unreachable" with the reason, never "no messages".
+- MCP servers (8.8, v1.3): one light per configured server; "sign in" (amber) with the
+  `ultra auth <name>` command on hover when no token is saved, red with the error when a
+  call or the 10-minute health read failed.
 - No retries on writes, ever. Reads are not retried either (a failed read shows its
   error and the next poll or Refresh tries again); only AI audio retries a failed
   chunk, up to 3 times.
@@ -1928,6 +1994,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.0 (shipped 0.16.0, released as 1.0.0) | Keyboard help panel from one table (7.7), modifier keys left to the browser, Esc closes Day, README rewritten for a new user (features, Google tokens both routes, optional tools, keys, commands, development), Q1 and Q3 decided. The operator called it 1.0 (1.0.0, same code as 0.16.0). |
 | v1.1 Inbox Tidy (shipped 1.1.0) | Section 8.1: rule-based bulk archive with a preview, untick, single-use run token, one Undo |
 | v1.2 Graph (shipped 1.2.0) | Section 7.6: ledger neighborhood as an SVG graph; click to open, double-click to center, drag an item onto a node to bucket both; plus the phone top-bar fix (16) |
+| v1.3 MCP client (shipped 1.3.0) | Section 8.8: client for the hosted ledger and cluster MCP servers, sign-in, doctor, status lights. First step of the plan to move ledger reads (v1.4) and writes onto MCP and declutter the UI (calm layout) |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
@@ -1953,6 +2020,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.3 | App v1.3.0 (new 8.8; 5.2, 13, 15, 16, 19): client for the hosted ledger and cluster MCP servers. `mcpclient.py` (stdlib): pre-registered program-client sign-in with PKCE, refresh tokens rotated under one lock per server and saved atomically before use, JSON or SSE answers, parallel cap and per-minute budget, unreachable vs unknown failures (writes never re-sent). `ultra auth nexus|ursa [--status|--sign-out]`, doctor lines, one status-bar light per configured server. No reads or writes move yet. |
 | 2026-10-02 | 1.2.2 | Docs only, audited against the code (app still v1.2.1). Corrected: header (Q1 decided); 2 non-goals (remote mode and phone use exist); 4 Replied ask; 5.1 no vendored marked/DOMPurify (built-in `renderMd`); 7.1 filters as built (Tasks, Low; no VIP button, no person grouping), noise is the Low filter, no Show original, thread actions as built, no Replied badge; 7.8 marks which exports exist and which are plan only, no `docs/EXPORT.md`, AI brief builder not built; 7.9 Research is a rail tab (no `g r`), Insert summary not built; 8.1 historyId caching (no `history.list`), Tidy Undo is a token not a file, `messages.send` only, plain-text body only, astropost rows for Summarize unread and drafts list; 7.4 slot finder, check-in and end-of-day as built (Day view); 7.5 palette as built; 8.5 ticket templates not built; 11.1 person cache is `kv_cache`; 11.4 Replied badge not built; 12.3 real `purge` flags; 12.4 email HTML is converted to text, never rendered; 16 staged cards are in memory and reads are not retried; 19 v1.x parked. Moved: ticket replies, task mode, 9.7 and 9.8 from the top of section 11 into section 9; 8.6 back before 8.7. |
 | 2026-10-01 | 1.2.1 | App v1.2.1 (8.5): ticket cards reply like email threads. Reply / Reply all / Forward and Draft Studio (full context) now work on a ticket card, on its newest notice thread, with the desk on To, the requester on Cc and the Ref:MSG line carried; the ticket thread read returns each message's thread id. Demo gains a ServiceNow notice with a Ref line and the fix-ref route. |
 | 2026-10-01 | 1.2 | App v1.2.0 (7.6, 7.7, 14, 5.2, 19): Graph view (key `v`, top bar, Graph button on Ledger records). Also fixes a phone layout bug present since the Board button was added: the top-bar buttons were wider than a 390 px screen, which widened the whole page (505 px); they now scroll sideways inside the bar. Ledger tab: one `entityKey` helper decides how a record is opened (NetID / name / UUID), shared with the graph. |

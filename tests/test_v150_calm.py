@@ -257,3 +257,13 @@ def test_board_takes_the_full_width_in_calm():
     assert "body.calm.boardview .panel.left { display: none; }" in css
     board = src("board.js")
     assert 'data-goto="inbox"' in board  # List gets back to the stream
+
+
+def test_both_layouts_have_a_visible_way_to_the_other():
+    """v1.9.1: classic had no visible way back to calm (only the palette)."""
+    html = src("index.html")
+    assert 'class="btn ghost classic-only" id="btn-layout"' in html
+    app = src("app.js")
+    assert '$("#btn-layout").onclick = () => setLayout("calm");' in app
+    assert 'run: () => setLayout("classic")' in app  # dot menu, calm side
+    assert 'e.key === "L") setLayout(isCalm() ? "classic" : "calm")' in app

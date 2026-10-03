@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.9 of the spec; app at v1.9.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, and Ask Hermes that can look things up; see the delivery plan in section 19)
+Status: v1.9.1 of the spec; app at v1.9.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, and Ask Hermes that can look things up; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -931,8 +931,12 @@ reads as write-capable); the include lists are what keep it read-only.
 
 The default layout since v1.5. It moves controls, it does not remove them: the classic
 layout (every button on screen, as before) is `[ui] layout = "classic"` in config, or
-per browser from the status dot menu or the palette ("Use the classic layout"). Classic
-stays for two releases, then goes (operator decision, 2026-10-02).
+per browser from the status dot menu or the palette ("Use the classic layout"). Both
+layouts stay; switch back and forth any time (operator decision, 2026-10-03, replacing
+the earlier "two releases, then remove"). Calm to classic: the status dot menu, the
+palette or `L`. Classic to calm: the "Calm layout" button in the classic top bar, the
+palette or `L`. The choice is per browser (`localStorage ultra.layout`); `[ui] layout`
+sets the default for browsers that have not chosen.
 
 - **Top bar.** Three places: Inbox, Today, Ledger. Inbox is the stream (Board is its
   `o` toggle and the filter menu entry); Today is the calendar, with "Plan and report"
@@ -2246,6 +2250,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.9.1 | App v1.9.1 (7.7, 7.13): both layouts stay for good, switchable both ways: "Calm layout" button in the classic top bar (there was no visible way back from classic, only the palette), `L` toggles, the dot-menu and palette entries show the key. |
 | 2026-10-03 | 1.9 | App v1.9.0 (7.12, 13, 19): Ask Hermes can look things up in the ledger and on the cluster through a read-only Hermes profile (`[hermes] profile`), whose MCP servers are limited to read tools; Ultra re-checks the include lists and enabled servers before each use and falls back to the plain Ask. |
 | 2026-10-03 | 1.8 | App v1.8.0 (new 8.9; 5.2, 14, 19): cluster facts in the mail loop. Job ids and batch scripts in email and ticket threads show a Cluster chip; the card reads `job_show_any`, `job_explain_any` and `ticket_draft` from bifrost (read tiers, allow-listed), with "Use as reply" into the reply-all draft; Check the script (`script_check`); Today shows a cluster chip only for issues, unknown, or 10%+ failures. Demo has a support email for job 315. |
 | 2026-10-03 | 1.7 | App v1.7.0 (7.13, 14, 19): calm layout part 2. Board full width with hover actions and compact empty columns; Today plan strip; Ledger summary line, Org and Health under "..."; Tidy suggestion at 10+ threads (`GET /api/mail/tidy/count`); Log offer after archiving a READY thread. |

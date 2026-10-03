@@ -26,6 +26,7 @@ export const KEYS = [
   ["w", "Stream: Waiting", "Stream", "any"],
   ["T", "Stream: Tasks", "Stream", "any"],
   ["R", "Refresh mail and Slack", "Stream", "any"],
+  ["L", "Switch layout: calm / classic (this browser)", "Views", "any"],
   ["?", "This help", "Stream", "any"],
   ["Ctrl+Enter", "Ask (in the Ask Hermes box)", "Write", "any"],
 ];

@@ -774,6 +774,7 @@ function wire() {
     else if (e.key === "m") $('#filter-seg button[data-f="mine"]').click();
     else if (e.key === "w") $('#filter-seg button[data-f="waiting"]').click();
     else if (e.key === "T") $('#filter-seg button[data-f="tasks"]').click();
+    else if (e.key === "L") setLayout(isCalm() ? "classic" : "calm");
   });
   const drawer = (sel) => { $(sel).classList.toggle("open"); $("#scrim").hidden = !$$(".panel.open").length; };
   $("#btn-left").onclick = () => drawer("#left");
@@ -781,6 +782,7 @@ function wire() {
   $("#scrim").onclick = closeDrawers;
   $("#btn-palette").onclick = () => palette();
   $("#btn-help").onclick = () => toggleHelp();
+  $("#btn-layout").onclick = () => setLayout("calm");
   $("#btn-refresh").onclick = (e) => busy(e.currentTarget, async () => {
     await api("/api/refresh", { method: "POST", body: { what: "all" } });
     toast("Refreshing mail" + (S.slackOn ? " and Slack" : "") + "...");
@@ -869,7 +871,7 @@ function dotMenu(btn) {
   items.push({ sep: true },
     { label: "Refresh mail and Slack", key: "R", run: () => $("#btn-refresh").click() },
     { label: "Keyboard shortcuts", key: "?", run: () => toggleHelp() },
-    { label: "Use the classic layout", title: "This browser only; [ui] layout in config sets the default", run: () => setLayout("classic") },
+    { label: "Use the classic layout", key: "L", title: "This browser only; [ui] layout in config sets the default. Switch back with L or the Calm layout button.", run: () => setLayout("classic") },
     { info: `ultra ${S.version || ""}`, cls: "dim mono" });
   popMenu(btn, items, { label: "Sources" });
 }
@@ -909,7 +911,7 @@ function commands() {
   const c = [
     { t: "Compose new email", k: "c", run: () => composeNew() },
     { t: "Keyboard shortcuts", k: "?", run: () => toggleHelp() },
-    { t: isCalm() ? "Use the classic layout (this browser)" : "Use the calm layout (this browser)", run: () => setLayout(isCalm() ? "classic" : "calm") },
+    { t: isCalm() ? "Use the classic layout (this browser)" : "Use the calm layout (this browser)", k: "L", run: () => setLayout(isCalm() ? "classic" : "calm") },
     { t: "Day: check-in plan and end-of-day report", k: "d", run: () => openDay() },
     { t: "Tidy the inbox (preview a bulk archive)", k: "", run: () => openTidy() },
     { t: "Graph: your ledger neighborhood", k: "v", run: () => openGraph() },

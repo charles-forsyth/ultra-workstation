@@ -578,6 +578,7 @@ async function pollStatus() {
       else if (s.ok === false) { cls = "err"; txt = `${label} !`; }
       el.className = `src ${cls}`; el.textContent = txt; el.title = s.error || "";
     }
+    renderMcpStatus(st.sources.mcp || {});
     const mailAge = st.sources.mail?.age, slackAge = st.sources.slack?.age, taskAge = st.sources.tasks?.age;
     const newer = (a, b) => a != null && b != null && a < b;  // age went down = fresh data
     const changed = newer(mailAge, lastBuilt.mail) || newer(slackAge, lastBuilt.slack) || newer(taskAge, lastBuilt.tasks) || (S.loading && mailAge != null);
@@ -586,6 +587,23 @@ async function pollStatus() {
     const err = st.sources.mail?.error;
     if (err && st.sources.mail?.auth && !S.authWarned) { S.authWarned = true; toast(err, "err"); }
   } catch { /* server restarting */ }
+}
+
+// Hosted MCP servers (SPEC 8.8): one light each, only for configured servers
+function renderMcpStatus(mcp) {
+  const box = document.getElementById("sb-mcp");
+  if (!box) return;
+  box.replaceChildren();
+  const label = { nexus: "Ledger MCP", ursa: "Cluster" };
+  for (const [name, s] of Object.entries(mcp)) {
+    const el = document.createElement("span");
+    let cls = "", txt = `${label[name] || name} --`, tip = s.error || "";
+    if (!s.signed_in) { cls = "warn"; txt = `${label[name] || name} sign in`; tip = `Run: ultra auth ${name}`; }
+    else if (s.ok === true) { cls = "ok"; txt = `${label[name] || name} ok`; tip = `${s.version ? String(s.version).replace(/^(\d+)$/, "tools v$1") : ""}${s.ms != null ? ` - last call ${s.ms} ms` : ""}`; }
+    else if (s.ok === false) { cls = "err"; txt = `${label[name] || name} !`; }
+    el.className = `src ${cls}`; el.textContent = txt; el.title = tip;
+    box.appendChild(el);
+  }
 }
 
 function setSource(id, cls, label) {

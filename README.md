@@ -78,6 +78,7 @@ paths are set in `[google]` of `config.toml`.
 | Ledger, link chips, tasks | the `nexus` CLI (`nexus serve` makes it fast) |
 | Ask Hermes | the `hermes` CLI |
 | Research | the `deep-research` CLI |
+| Hosted ledger / cluster MCP servers (v1.3) | `[mcp.nexus]` / `[mcp.ursa]` in config (URL and the program client id from the server's admin), then `ultra auth nexus` / `ultra auth ursa` once |
 
 Each is checked by `ultra doctor`; a missing one hides its feature, nothing else breaks.
 
@@ -226,6 +227,7 @@ card first. Archive has Undo.
 | `ultra doctor` | check config, permissions, tokens, tools, keys (prints no secrets) |
 | `ultra remote` | addresses other devices can open |
 | `ultra auth google --capability C` | mint a Google token (read, modify, send, calendar) |
+| `ultra auth nexus` / `ultra auth ursa` | sign in to a hosted MCP server; `--status` shows who, `--sign-out` forgets it |
 | `ultra purge --audio / --uploads / --attachments` | delete local copies |
 | `ultra config init` / `ultra config path` | write example config / show the folders |
 

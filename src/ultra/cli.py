@@ -72,6 +72,19 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["read", "modify", "send", "calendar"],
         required=True,
     )
+    for name, what in (("nexus", "the ledger"), ("ursa", "the cluster")):
+        m = asub.add_parser(
+            name,
+            help=f"Sign in to {what}'s hosted MCP server ([mcp.{name}] in config)",
+            description=(
+                f"Opens a browser to sign in to the [mcp.{name}] server as yourself, with "
+                "Ultra's pre-registered program client, and saves the tokens (mode 600). "
+                "--status shows who the saved token is and its limits; --sign-out deletes it."
+            ),
+        )
+        m.add_argument("--status", action="store_true", help="Show the signed-in identity")
+        m.add_argument("--sign-out", action="store_true", help="Delete the saved tokens")
+        m.add_argument("--no-browser", action="store_true", help="Print the URL only")
 
     pg = sub.add_parser("purge", help="Delete local copies (audio files, research uploads)")
     pg.add_argument("--audio", action="store_true", help="Delete generated audio files")
@@ -111,6 +124,46 @@ def _config_init() -> int:
         with os.fdopen(fd, "w") as f:
             f.write(text)
         print(f"[INFO] Wrote {target} (edit it: addresses, time zone, ids).")
+    return 0
+
+
+def _auth_mcp(cfg: object, args: argparse.Namespace) -> int:
+    from ultra import mcpclient
+
+    name = args.auth_cmd
+    client = mcpclient.client_from_config(cfg, name)  # type: ignore[arg-type]
+    if client is None:
+        print(
+            f"[ERROR] [mcp.{name}] is not configured (url and client_id) or is disabled. "
+            "See config.example.toml."
+        )
+        return 1
+    if args.sign_out:
+        client.tokens.clear()
+        print(f"[INFO] Signed out of {name} (deleted {client.tokens.path}).")
+        return 0
+    try:
+        if not args.status:
+            mcpclient.sign_in(client, open_browser=not args.no_browser)
+        who = client.whoami()
+    except mcpclient.McpError as e:
+        print(f"[ERROR] {e}")
+        return 1
+    shown = {
+        k: who[k]
+        for k in (
+            "email",
+            "netid",
+            "role",
+            "tiers",
+            "program",
+            "client_id",
+            "client_name",
+            "calls_per_min",
+        )
+        if k in who
+    }
+    print(f"[INFO] {name}: " + ", ".join(f"{k}={v}" for k, v in shown.items()))
     return 0
 
 
@@ -215,8 +268,13 @@ def main(argv: list[str] | None = None) -> None:
             print(f"[INFO] Deleted {n} saved attachment(s).")
         return
     if cmd == "auth":
+        if args.auth_cmd in ("nexus", "ursa"):
+            sys.exit(_auth_mcp(cfg, args))
         if args.auth_cmd != "google":
-            print("usage: ultra auth google --capability read|modify|send|calendar")
+            print(
+                "usage: ultra auth google --capability read|modify|send|calendar\n"
+                "       ultra auth nexus|ursa [--status | --sign-out]"
+            )
             sys.exit(2)
         from ultra import google_auth
 

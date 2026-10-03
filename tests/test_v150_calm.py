@@ -217,3 +217,43 @@ def test_action_labels_are_ascii():
         for r in table(name):
             assert r["label"].isascii(), r
     json.dumps(table("ACTIONS"))
+
+
+# ---------------------------------------------------------------- v1.7 (U2)
+def test_tidy_suggestion_only_in_calm_and_can_be_hidden_for_the_day():
+    app = src("app.js")
+    i = app.index("async function tidyHint()")
+    body = app[i : app.index("\n}\n", i)]
+    assert "if (!isCalm() || S.search) return;" in body
+    assert 'localStorage.getItem("ultra.tidyHintOff") === localDay(0)' in body
+    assert "innerHTML" not in body  # the count is the only data, set as text
+    assert "openTidy()" in body  # the suggestion opens the normal preview, never runs
+
+
+def test_ready_archive_offers_a_log_card_not_a_log():
+    app = src("app.js")
+    i = app.index("async function archive(it")
+    body = app[i : app.index("\n}\n", i)]
+    assert '(it.badges || []).includes("READY") && isCalm()' in body
+    assert 'stage("log", it.key)' in body  # the staged card, reviewed as always
+
+
+def test_today_plan_strip_and_ledger_summary_are_calm_only():
+    today = src("today.js")
+    assert 'id="today-plan" class="today-plan calm-only"' in today
+    assert 'api("/api/day/plan")' in today and 'data-goto="day"' in today
+    lt = src("ltab.js")
+    assert 'class="lt-summary calm-only"' in lt and 'class="lt-tiles classic-only"' in lt
+    assert 'show("org")' in lt and 'show("reports")' in lt  # moved to the ... menu, still reachable
+    css = src("app.css")
+    assert "body.calm #lt-seg .lt-rare { display: none; }" in css
+    assert "@media (hover: none) { body.calm .bd-acts { opacity: 1; } }" in css
+
+
+def test_board_takes_the_full_width_in_calm():
+    app = src("app.js")
+    assert 'document.body.classList.toggle("boardview", boardOpen());' in app
+    css = src("app.css")
+    assert "body.calm.boardview .panel.left { display: none; }" in css
+    board = src("board.js")
+    assert 'data-goto="inbox"' in board  # List gets back to the stream

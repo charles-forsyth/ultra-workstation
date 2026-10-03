@@ -120,6 +120,7 @@ function render() {
       <button class="btn small ghost" id="cal-close" title="Back to the conversation (Esc)">Close</button>
     </div>
     ${d.error ? `<div class="alert">${esc(d.error)}</div>` : ""}
+    <div id="today-plan" class="today-plan calm-only"></div>
     <div class="dim small-t today-hint">Drag an email, Slack or task from the stream onto a time to block it. Drag your own blocks to move them. Click a meeting for prep.</div>
     ${allDay.length ? `<div class="allday">${allDay.map((e) => `<span class="badge">${esc(e.summary)}</span>`).join(" ")}</div>` : ""}
     <div class="tl" id="tl" data-h="${y(T.v1) + 8}">
@@ -137,6 +138,34 @@ function render() {
   T.timed = timed;
   place();
   wire();
+  if (T.day === now.day) planStrip();
+}
+
+// Calm layout: Today carries the check-in plan's headline (SPEC 7.13), so the Day view
+// is one click away rather than a separate place. Read-only; every line opens the item.
+async function planStrip() {
+  const box = $("#today-plan"); if (!box || !document.body.classList.contains("calm")) return;
+  let p;
+  try { p = await api("/api/day/plan"); } catch { return; }
+  if (!T.open || !$("#today-plan")) return;
+  const chips = [];
+  const chip = (n, label, cls, title) => { if (n) chips.push(`<span class="tp-chip ${cls}" title="${esc(title)}">${esc(String(n))} ${esc(label)}</span>`); };
+  chip(p.mine_count, "your move", "", "Items waiting on you");
+  chip((p.overdue || []).length, "overdue", "bad", "Overdue ledger tasks");
+  chip((p.due_today || []).length, "due today", "warn", "Ledger tasks due today");
+  chip((p.waiting || []).length, "waiting 3+ days", "wait", "Threads waiting on someone else");
+  const free = (p.free || []).reduce((a, f) => a + f.minutes, 0);
+  const next = [...(p.overdue || []), ...(p.due_today || [])].slice(0, 3)
+    .map((t) => `<li class="day-item" data-key="t-${esc(t.id)}"><span class="badge pri ${esc(String(t.priority || "").toLowerCase())}">${esc(String(t.priority || "").slice(0, 1))}</span> ${esc(t.summary)}</li>`)
+    .concat((p.mine || []).slice(0, Math.max(0, 5 - Math.min(3, (p.overdue || []).length + (p.due_today || []).length)))
+      .map((i) => `<li class="day-item" data-key="${esc(i.key)}"><span class="src">${esc(i.source)}</span> <b>${esc(i.from || "")}</b> ${esc(i.subject || "")}</li>`));
+  box.innerHTML = `<div class="tp-head"><span class="label">Plan</span>${chips.join("")}<span class="dim small-t">${free} min free</span><span class="grow"></span>
+      <button class="btn tiny ghost" data-goto="day" title="The full check-in plan and the end-of-day report (d)">Full plan</button></div>
+    ${next.length ? `<ul class="day-list tp-list">${next.join("")}</ul>` : ""}`;
+  box.onclick = (e) => {
+    const li = e.target.closest(".day-item[data-key]"); if (!li) return;
+    window.dispatchEvent(new CustomEvent("ultra:open-key", { detail: { key: li.dataset.key } }));
+  };
 }
 
 // The CSP forbids inline style attributes, so positions ride in data-* and are set here

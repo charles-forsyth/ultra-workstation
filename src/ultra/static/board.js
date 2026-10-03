@@ -43,7 +43,7 @@ export async function openBoard() {
 function head() {
   const c = B.data?.counts || {};
   return `<div class="today-head">
-    <h2>Board</h2><span class="dim small-t bd-head-counts">${B.data ? `${c.mine} your move &middot; ${c.waiting} waiting &middot; ${c.watching} watching &middot; ${c.done} done today` : ""}</span>
+    <h2 title="Drag cards between columns, or use the buttons on a card. Watching is local to Ultra; Done and Wait open a card first; Nudge makes a draft.">Board</h2><span class="dim small-t bd-head-counts">${B.data ? `${c.mine} your move &middot; ${c.waiting} waiting &middot; ${c.watching} watching &middot; ${c.done} done today` : ""}</span>
     <button class="btn small ghost calm-only" data-goto="inbox" title="Back to the list (Esc)">List</button>
     <span class="grow"></span>
     <button class="btn small ghost" id="bd-fresh" title="Rebuild">&#8635;</button>
@@ -92,10 +92,10 @@ function render() {
     done: cols.done.map((x) => `<div class="bd-done"><span class="mono dim small-t">${esc(x.time)}</span> ${esc(x.what)}${x.subject ? `: ${esc(x.subject)}` : ""}</div>`).join("") || `<div class="dim small-t">Nothing finished yet today. Drag a card here.</div>`,
   };
   const th = $("#thread");
-  th.innerHTML = head() + `<div class="bd-cols">${COLS.map(([k, label, sub]) => `<section class="bd-col" data-drop="${k}" aria-label="${label}">
+  th.innerHTML = head() + `<div class="bd-cols">${COLS.map(([k, label, sub]) => `<section class="bd-col ${d.counts[k] ? "" : "empty"}" data-drop="${k}" aria-label="${label}">
       <div class="bd-chead"><span class="label">${label}</span> <span class="dim">${d.counts[k]}</span><div class="dim small-t">${sub}</div></div>
       <div class="bd-body">${body[k]}</div></section>`).join("")}</div>
-    <div class="dim small-t">Drag cards between columns, or use the buttons on a card. Watching is local to Ultra; Done and Wait open a card first; Nudge makes a draft.</div>`;
+    <div class="dim small-t bd-help">Drag cards between columns, or use the buttons on a card. Watching is local to Ultra; Done and Wait open a card first; Nudge makes a draft.</div>`;
   wireHead();
   wire(th);
 }

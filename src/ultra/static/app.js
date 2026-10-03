@@ -205,6 +205,7 @@ async function loadStream(keepSel = false) {
     const i = keepSel ? S.items.findIndex((x) => x.key === prevKey) : -1;
     S.sel = i >= 0 ? i : (S.items.length ? 0 : -1);
     renderStream();
+    tidyHint();
   } catch (e) {
     S.items = []; renderStream();
     setSource("sb-mail", "warn", "Mail");
@@ -535,6 +536,11 @@ async function archive(it, { keepOpen = false } = {}) {
   if (!tids.length) return;
   await api("/api/mail/archive", { method: "POST", body: { threads: tids } });
   removeRow(it, keepOpen);
+  // Show it when it matters (SPEC 7.13): a READY thread was finished work, so offer the
+  // log card right away (the toast below still offers Undo)
+  if ((it.badges || []).includes("READY") && isCalm()) {
+    setTimeout(() => toast("That one looked done. Log it?", "", { label: "Log it", fn: () => stage("log", it.key) }), 400);
+  }
   toast(`Archived "${(it.subject || "").slice(0, 40)}"`, "ok", {
     label: "Undo",
     fn: async () => {
@@ -712,6 +718,28 @@ function wire() {
 }
 
 
+// "Show it when it matters" (SPEC 7.13): Tidy comes forward as one line at the top of
+// the stream when the rule finds enough threads; otherwise it lives in the filter menu.
+let tidyAt = 0, tidyN = 0;
+async function tidyHint() {
+  if (!isCalm() || S.search) return;
+  if (Date.now() - tidyAt > 60000) {
+    tidyAt = Date.now();
+    try { const r = await api("/api/mail/tidy/count"); tidyN = r.count >= r.suggest_at ? r.count : 0; } catch { tidyN = 0; }
+  }
+  $("#tidy-hint")?.remove();
+  if (!tidyN || localStorage.getItem("ultra.tidyHintOff") === localDay(0)) return;
+  const d = document.createElement("div");
+  d.id = "tidy-hint"; d.className = "hint-line";
+  const b = document.createElement("button"); b.className = "btn tiny"; b.textContent = "Preview";
+  b.onclick = () => openTidy();
+  const x = document.createElement("button"); x.className = "btn tiny ghost"; x.textContent = "Not today"; x.title = "Hide this until tomorrow";
+  x.onclick = () => { localStorage.setItem("ultra.tidyHintOff", localDay(0)); d.remove(); };
+  const t = document.createElement("span"); t.className = "grow"; t.textContent = `${tidyN} old threads can be tidied`;
+  d.append(t, b, x);
+  $("#stream").prepend(d);
+}
+
 // ---------------------------------------------------------------- calm shell (SPEC 7.13)
 // Three places (Inbox, Today, Ledger), a filter menu, one status dot, the rail only when
 // something is open, the Bucket as a pill only when it holds something. Every view,
@@ -725,6 +753,7 @@ function syncPlaces() {
   const view = boardOpen() || graphOpen() || dayOpen() || todayOpen() || ledgerTabOpen();
   document.body.classList.toggle("idle", $("#thread").hidden);
   document.body.classList.toggle("wide", !!view);  // Board, Today, Ledger use the rail's width
+  document.body.classList.toggle("boardview", boardOpen());  // the Board takes the stream's width too
 }
 
 function closeViews() {
@@ -961,6 +990,15 @@ async function boot() {
     openItem: (key) => { const i = S.items.findIndex((x) => x.key === key); if (i >= 0) openItem(i); else toast("That item is not in the current filter.", "err"); },
   });
   window.addEventListener("ultra:person", (ev) => openPersonByAddr(ev.detail));
+  // open a stream item by key from any view (Today's plan strip); tasks open even when
+  // the stream filter hides them
+  window.addEventListener("ultra:open-key", async (ev) => {
+    const key = ev.detail?.key; if (!key) return;
+    let i = S.items.findIndex((x) => x.key === key);
+    if (i < 0 && key.startsWith("t-")) { $('#filter-seg button[data-f="tasks"]').click(); await new Promise((r) => setTimeout(r, 600)); i = S.items.findIndex((x) => x.key === key); }
+    if (i < 0) { $('#filter-seg button[data-f="all"]').click(); await new Promise((r) => setTimeout(r, 600)); i = S.items.findIndex((x) => x.key === key); }
+    if (i >= 0) { closeViews(); openItem(i); } else toast("That item is not in the stream right now.", "err");
+  });
   // Ask Hermes "Use as reply": which item is open, and open one by key (resolves when
   // its thread view, and so the composer slot, is on screen)
   window.__ultraOpenKey = () => (S.key && !$("#thread").hidden ? S.key : null);

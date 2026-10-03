@@ -774,3 +774,36 @@ body.calm .att:hover .btn, body.calm .att:focus-within .btn { display: inline-bl
   body.calm.idle:not(.railpin) .bucket, body.calm.wide:not(.railpin) .bucket { border-top: 0; }
   body.calm.wide:has(.bucket.has) .toasts, body.calm.idle:has(.bucket.has) .toasts { bottom: 96px; }
 }
+
+/* v1.7 (U2): Board, Today plan strip, Ledger summary, Tidy suggestion */
+body.calm .bd-help { display: none; }
+body.calm .bd-col.empty { min-height: 0; border: 1px dashed var(--line-2) !important; }
+body.calm .bd-col.empty .bd-body { opacity: .75; }
+body.calm .bd-col.empty .bd-chead .small-t { display: none; }
+body.calm .bd-acts { opacity: 0; }
+body.calm .bd-card:hover .bd-acts, body.calm .bd-card:focus-within .bd-acts { opacity: 1; }
+@media (hover: none) { body.calm .bd-acts { opacity: 1; } }
+body.calm .bd-col { border-color: transparent; }
+.today-plan:empty { display: none; }
+.today-plan { background: var(--bg-2); border-radius: var(--radius); padding: 8px 10px; margin: 4px 0 10px; }
+.tp-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tp-chip { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--cyan-d); color: var(--cyan); }
+.tp-chip.bad { background: var(--red-d); color: var(--red); }
+.tp-chip.warn, .tp-chip.wait { background: var(--amber-d); color: var(--amber); }
+.tp-list { margin: 6px 0 0; }
+.tp-list .day-item { cursor: pointer; }
+body.calm .today-hint { font-size: 11px; opacity: .7; }  /* kept: it teaches drag-to-block */
+.lt-summary { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; margin: 6px 0 12px; font-size: 13px; }
+.lt-sumlink { color: var(--text); text-decoration: none; }
+.lt-sumlink:hover { color: var(--cyan); }
+.lt-sumlink.bad { color: var(--red); font-weight: 600; }
+.lt-sumlink.warn { color: var(--amber); font-weight: 600; }
+body.calm #lt-seg .lt-rare { display: none; }
+.lt-more { background: none; border: 0; padding: 3px 8px; color: var(--dim); cursor: pointer; }
+.hint-line { display: flex; align-items: center; gap: 6px; margin: 6px 8px; padding: 6px 8px; border-radius: var(--radius); background: var(--bg-2); font-size: 12px; color: var(--dim); }
+
+@media (min-width: 801px) {
+  body.calm.boardview .layout { grid-template-columns: minmax(0, 1fr) !important; }
+  body.calm.boardview .panel.left { display: none; }
+  body.calm.boardview .bd-cols { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+}

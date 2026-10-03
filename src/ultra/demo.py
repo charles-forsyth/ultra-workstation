@@ -351,6 +351,7 @@ def register(api: Api) -> None:
     _register_ask(api)
     _register_board(api, items)
     _register_cluster(api)
+    _register_vault(api)
 
 
 class DemoCluster:
@@ -421,6 +422,75 @@ class DemoCluster:
                 }
             }
         raise ValueError(f"demo cluster has no {tool}")
+
+
+class DemoVaultClient:
+    """The notes vault in demo mode: a few canned notes, read only."""
+
+    NOTES: ClassVar[dict[str, str]] = {
+        "Home/Garden": "# Garden\n\n- Garlic: plant under straw mulch\n- Kale is doing well\n",
+        "Home/Car": "# Car\n\n**Inspection** due in March.\n",
+    }
+
+    def call(self, tool: str, args: dict[str, Any]) -> Any:
+        import datetime as _dt
+
+        today = _dt.date.today()
+        if tool == "get_vault_stats":
+            return {"notes": len(self.NOTES)}
+        if tool == "list_tasks":
+            d1 = (today - _dt.timedelta(days=1)).isoformat()
+            d2 = (today + _dt.timedelta(days=3)).isoformat()
+            return {
+                "results": [
+                    {
+                        "path": "Home/Garden",
+                        "text": f"Buy seed garlic \U0001f4c5 {d1}",
+                        "status": "open",
+                        "line": 3,
+                    },
+                    {
+                        "path": "Home/Car",
+                        "text": f"Book the oil change \U0001f4c5 {d2}",
+                        "status": "open",
+                        "line": 4,
+                    },
+                    {
+                        "path": "Home/Garden",
+                        "text": "Fix the screen door latch",
+                        "status": "open",
+                        "line": 5,
+                    },
+                ]
+            }
+        if tool == "search_notes_ranked":
+            q = str(args.get("query", "")).lower()
+            return {
+                "results": [
+                    {
+                        "path": p,
+                        "title": p.split("/")[-1],
+                        "headline": p.split("/")[-1],
+                        "snippet": t.split("\n")[2][:80],
+                    }
+                    for p, t in self.NOTES.items()
+                    if any(w in t.lower() for w in q.split())
+                ]
+            }
+        if tool == "read_notes":
+            p = args["paths"][0]
+            if p in self.NOTES:
+                return {"notes": [{"path": p, "contents": self.NOTES[p], "tags": []}], "errors": []}
+            return {"notes": [], "errors": [f"{p}: not found"]}
+        raise ValueError(f"demo vault has no {tool}")
+
+
+def _register_vault(api: Api) -> None:
+    from ultra.config import Config as _Config
+    from ultra.vault import Vault, VaultApi
+
+    v = Vault(_Config({"vault": {"path": "/demo/Notes", "name": "Notes"}}), DemoVaultClient())  # type: ignore[arg-type]
+    VaultApi(v).register(api)
 
 
 def _register_cluster(api: Api) -> None:

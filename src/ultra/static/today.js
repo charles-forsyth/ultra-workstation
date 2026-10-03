@@ -5,6 +5,7 @@
 // The only things that reach other people: your RSVP (one confirmation) and a meeting
 // invite (two approvals, like email).
 
+import { homeLine } from "./home.js";
 import { api, esc, toast, busy } from "./app.js";
 import { askButton, openAsk } from "./ask.js";
 
@@ -121,6 +122,7 @@ function render() {
     </div>
     ${d.error ? `<div class="alert">${esc(d.error)}</div>` : ""}
     <div id="today-plan" class="today-plan calm-only"></div>
+    <div id="today-home" class="today-plan"></div>
     <div class="dim small-t today-hint">Drag an email, Slack or task from the stream onto a time to block it. Drag your own blocks to move them. Click a meeting for prep.</div>
     ${allDay.length ? `<div class="allday">${allDay.map((e) => `<span class="badge">${esc(e.summary)}</span>`).join(" ")}</div>` : ""}
     <div class="tl" id="tl" data-h="${y(T.v1) + 8}">
@@ -138,7 +140,7 @@ function render() {
   T.timed = timed;
   place();
   wire();
-  if (T.day === now.day) planStrip();
+  if (T.day === now.day) { planStrip(); homeLine($("#today-home")); }
 }
 
 // Calm layout: Today carries the check-in plan's headline (SPEC 7.13), so the Day view

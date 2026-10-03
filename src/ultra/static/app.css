@@ -818,3 +818,12 @@ body.calm #lt-seg .lt-rare { display: none; }
 .cl-find.warning { border-left-color: var(--amber); }
 .cl-log pre { max-height: 300px; overflow: auto; white-space: pre-wrap; background: var(--bg); padding: 6px; border-radius: 4px; }
 .cl-acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* Home: notes vault (SPEC 8.10) */
+.vt-card { width: min(760px, 94vw); }
+.vt-res { max-height: 55vh; overflow: auto; margin-top: 8px; }
+.vt-row { padding: 6px 8px; border-radius: var(--radius); cursor: pointer; }
+.vt-row:hover, .vt-row:focus { background: var(--bg-2); outline: none; }
+.vt-snip { margin-top: 2px; color: var(--fg-2, inherit); }
+.vt-note .vt-body { max-height: 62vh; overflow: auto; margin-top: 8px; padding-right: 6px; }
+.home-item .badge.bad { background: var(--red-d); color: var(--red); }

@@ -87,6 +87,7 @@ paths are set in `[google]` of `config.toml`.
 | AI summary, drafting, web search, audio | `GEMINI_API_KEY` in `~/.config/ultra-workstation/.env` |
 | Slack read and reply | Claude Code with a Slack connector (`claude` on PATH) |
 | Ledger, link chips, tasks | the `nexus` CLI (`nexus serve` makes it fast) |
+| Home (notes) | a local MCP server over your Obsidian vault (`[vault]`; e.g. headless-obsidian-mcp), read only: dated todos on Today, notes search, a note reader (v1.10) |
 | Ask Hermes | the `hermes` CLI. With `[hermes] profile` set to a Hermes profile whose ledger and cluster MCP servers are limited to read tools, Ask can look things up itself (v1.9) |
 | Research | the `deep-research` CLI |
 | Hosted ledger / cluster MCP servers (v1.3) | `[mcp.nexus]` / `[mcp.ursa]` in config (URL and the program client id from the server's admin), then `ultra auth nexus` / `ultra auth ursa` once. `[ledger] backend = "mcp"` (v1.4) reads the ledger through it: a person's full history in about 2 s instead of 20. From v1.6 it writes through it too (deletes still need the `nexus` CLI) With `[mcp.ursa]`, a job id in support mail shows a Cluster chip: the job's state, the cause, the end of its log and a draft reply (v1.8) |

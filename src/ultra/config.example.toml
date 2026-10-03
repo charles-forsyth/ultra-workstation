@@ -124,6 +124,16 @@ source = "ultra"                       # session tag in your Hermes session list
 max_turns = 25
 budget_seconds = 300
 
+# [vault]
+# v1.10 Home: your personal notes vault (Obsidian markdown), read only. Ultra starts a
+# local MCP server over it (headless-obsidian-mcp: clone, `npm install && npm run build`)
+# with OBSIDIAN_TOOLS=reads, and shows dated todos on Today, palette search, a note reader.
+# path = "~/Notes"
+# name = "Notes"                       # Obsidian vault name, for "Open in Obsidian" links
+# command = "node"
+# args = ["~/src/headless-obsidian-mcp/dist/index.js"]
+# exclude = ["_archive", "Templates"]  # folders hidden from the Home line and search
+
 [research]
 enabled = true
 binary = "deep-research"

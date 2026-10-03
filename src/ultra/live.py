@@ -7,6 +7,7 @@ the background; the page re-asks when /api/status says the job finished.
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import re
 import threading
@@ -65,6 +66,8 @@ from ultra.tasks import (
 from ultra.tidy import Tidy
 from ultra.today import Today
 from ultra.tools import Tools
+from ultra.vault import Vault, VaultApi
+from ultra.vault import client_from_config as vault_client
 
 if TYPE_CHECKING:
     from ultra.server import Api
@@ -228,6 +231,9 @@ class Live:
         # v1.8 cluster facts in the mail loop: bifrost read tools only (SPEC 8.9)
         self.cluster = Cluster(self.mcp.get("ursa"))
         self.cluster_api = ClusterApi(self.cluster, self.store)
+        # v1.10 Home: the personal notes vault, read only (SPEC 8.10)
+        self.vault = Vault(cfg, vault_client(cfg), lambda: dt.datetime.now(self.calendar.tz).date())
+        self.vault_api = VaultApi(self.vault, self.store)
         # v1.1 Inbox Tidy: rule-based bulk archive, previewed, one Undo
         self.tidy = Tidy(
             self.store,
@@ -309,6 +315,7 @@ class Live:
         self.tidy.register(api)
         self.graph.register(api)
         self.cluster_api.register(api)
+        self.vault_api.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -557,6 +564,7 @@ class Live:
                 "ai": {**self.ai.state, "enabled": self.ai.enabled, "model": self.ai.model},
                 "research": {**self.research.state, "enabled": self.research.enabled},
                 "mcp": self.mcp_status(),
+                "vault": self.vault.status(),
             },
         }
 

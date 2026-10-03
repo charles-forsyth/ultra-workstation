@@ -14,6 +14,7 @@ import { initLedgerTab, openLedgerTab, closeLedgerTab, ledgerTabOpen } from "./l
 import { studioStart } from "./studio.js";
 import { initSearch, labelMenu, attHtml, wireAttachments, loadNotes, addHighlight, wireHighlightClicks, exportMenu } from "./mailx.js";
 import { initAsk, openAsk, askButton } from "./ask.js";
+import { searchVault, vaultOn } from "./home.js";
 import { ACTIONS, TASK_ACTIONS, ROW_ACTIONS, arrange, popMenu, closeMenu, menuOpen, isCalm } from "./actions.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -665,7 +666,8 @@ async function pollStatus() {
       else if (s.ok === false) { cls = "err"; txt = `${label} !`; }
       el.className = `src ${cls}`; el.textContent = txt; el.title = s.error || "";
     }
-    renderMcpStatus(st.sources.mcp || {});
+    renderMcpStatus(st.sources.mcp || {}, st.sources.vault);
+    if (st.sources.vault) S.vaultOn = !!st.sources.vault.enabled;
     paintDot();
     const mailAge = st.sources.mail?.age, slackAge = st.sources.slack?.age, taskAge = st.sources.tasks?.age;
     const newer = (a, b) => a != null && b != null && a < b;  // age went down = fresh data
@@ -678,10 +680,18 @@ async function pollStatus() {
 }
 
 // Hosted MCP servers (SPEC 8.8): one light each, only for configured servers
-function renderMcpStatus(mcp) {
+function renderMcpStatus(mcp, vault) {
   const box = document.getElementById("sb-mcp");
   if (!box) return;
   box.replaceChildren();
+  if (vault?.enabled) {
+    // the notes vault (SPEC 8.10): a local stdio MCP server, started on first use
+    const el = document.createElement("span");
+    const cls = vault.ok === true ? "ok" : vault.ok === false ? "err" : "";
+    el.className = `src ${cls}`; el.textContent = `Notes ${cls === "ok" ? "ok" : cls === "err" ? "!" : "--"}`;
+    el.title = vault.error || `vault ${vault.name || ""}, read only`;
+    box.appendChild(el);
+  }
   const label = { nexus: "Ledger MCP", ursa: "Cluster" };
   for (const [name, s] of Object.entries(mcp)) {
     const el = document.createElement("span");
@@ -780,6 +790,7 @@ function wire() {
   $("#btn-left").onclick = () => drawer("#left");
   $("#btn-right").onclick = () => drawer("#right");
   $("#scrim").onclick = closeDrawers;
+  vaultOn().then((on) => { S.vaultOn = on; });
   $("#btn-palette").onclick = () => palette();
   $("#btn-help").onclick = () => toggleHelp();
   $("#btn-layout").onclick = () => setLayout("calm");
@@ -920,6 +931,7 @@ function commands() {
     { t: "Log the bucket", run: () => stage("log") },
     { t: "Task from the bucket", run: () => stage("task") },
     { t: "Search the ledger", run: () => searchFor("") },
+    ...(S.vaultOn ? [{ t: "Search my notes (vault)...", run: () => searchVault("") }] : []),
     { t: "Web search...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tw-q")?.focus(); } },
     { t: "Search past research...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tr-q")?.focus(); } },
     { t: "New deep research...", run: () => launcher("") },
@@ -972,6 +984,7 @@ function palette() {
         { t: `Search mail for "${text.slice(0, 60)}"`, k: "/", run: () => { const m = $("#ms-q"); if (!m) return; closeViews(); m.value = text.slice(0, 300); m.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); } },
         { t: `Search the ledger for "${text.slice(0, 60)}"`, run: () => searchFor(text) },
         { t: `Search past research for "${text.slice(0, 60)}"`, run: () => researchSearch(text.slice(0, 300)) },
+        ...(S.vaultOn ? [{ t: `Search my notes for "${text.slice(0, 60)}"`, run: () => searchVault(text.slice(0, 300)) }] : []),
       ]);
     }
     sel = 0; paint();

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.9.1 of the spec; app at v1.9.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, and Ask Hermes that can look things up; see the delivery plan in section 19)
+Status: v1.10 of the spec; app at v1.10.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, and Home, the personal notes vault, read only; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -210,6 +210,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `ledger_mcp.py` | ledger reads through the hosted MCP server, answered in the CLI's JSON shapes (8.4, v1.4) |
 | `ledger_mcp_write.py` | ledger writes through the hosted MCP server: argv -> write tool, refusal vs unknown outcome (8.4, v1.6) |
 | `cluster.py` | cluster facts in the mail loop: job-id detection, bifrost read tools only, Cluster chip routes (8.9, v1.8) |
+| `vault.py` | Home: the personal notes vault over a local stdio MCP server, read tools only, todos, search, note reader (8.10, v1.10) |
 | `ledgertab.py` | Ledger tab routes |
 | `calendar.py`, `today.py`, `invites.py` | Calendar adapter; Today/Week routes; invitations and RSVP with approvals |
 | `day.py` | Day plan, report, exports |
@@ -229,6 +230,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `static/tidy.js` | Inbox Tidy dialog |
 | `static/graph.js` | Graph view (SVG force layout) |
 | `static/actions.js` | action table (7.13): calm toolbar groups, Reply/AI/"..." menus, row menus, palette entries |
+| `static/home.js` | Home line on Today, notes search, note reader (8.10) |
 
 ## 6. Data model (local store)
 
@@ -1427,6 +1429,37 @@ read tiers only. `cluster.py`; tests `tests/test_v180_cluster.py`.
 - **Measured live** (2026-10-03): a failed job's card with findings, log and draft in
   1.4 s; `script_check` 0.3 s.
 
+### 8.10 Home: the personal notes vault (v1.10)
+
+The personal side of the house: the operator's Obsidian vault (markdown on disk), read
+only. Ultra starts a local MCP server over it (`[vault]` in config; by default
+`headless-obsidian-mcp`, a stdio server that reads the files directly, no Obsidian app
+needed) and talks to it with a small stdio MCP client in `vault.py`.
+
+- **Read only, twice.** The server is always started with `OBSIDIAN_TOOLS=reads`, so its
+  write tools are not listed or callable; and Ultra's allow-list names five read tools
+  (`search_notes_ranked`, `read_notes`, `list_tasks`, `list_recent_notes`,
+  `get_vault_stats`). The page has no write route for the vault.
+- **What stays hidden.** Anything the server cannot see (a symlink out of the vault such
+  as a linked work folder, dot folders), plus the folders in `[vault] exclude` (archive,
+  templates) from the Home line, search and the reader. Note paths are checked (no
+  `..`, no absolute paths).
+- **Home line on Today** (both layouts; shown only when something is due): open
+  checkbox todos with a due date (a calendar emoji then `YYYY-MM-DD`, as the Tasks plugin writes, or `due: YYYY-MM-DD`), overdue first,
+  then due within 7 days, at most five lines; each opens its note. Undated todos are
+  counted, not listed.
+- **Search** from the palette ("Search my notes for ...") or the Home line: ranked
+  full-text, opens a reader. The reader renders through `renderMd` (escapes first), with
+  Copy text and Open in Obsidian (`obsidian://open` link).
+- **Status.** A "Notes" light joins the MCP lights; the server starts on first use
+  (about 0.6 s) and later calls take tens of milliseconds. A crash is an error and the
+  next call starts a fresh process.
+- Routes: `GET /api/vault/status`, `/api/vault/home`, `/api/vault/search?q=`,
+  `/api/vault/note?path=`.
+- Tests: `tests/test_v1100_vault.py` (a fake stdio server drives the real transport:
+  read tools only, `OBSIDIAN_TOOLS=reads`, path checks, exclude, crash and restart, cache,
+  not configured, missing binary, UI wiring).
+
 ## 9. Composer and double approval
 
 The operator iterates on drafts many times, then approves twice. The server enforces
@@ -1949,7 +1982,7 @@ All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` an
 `Content-Type: application/json` (12.1). Long calls return a job id that the page polls.
 There is no SSE stream and no generic jobs route; each feature has its own job route.
 Path parameters are shown as `<name>`; the server matches each with a strict pattern.
-159 route paths as of v1.8 (`tests/test_v101_spec.py` fails if one is added without a row
+163 route paths as of v1.10 (`tests/test_v101_spec.py` fails if one is added without a row
 here).
 
 **Core** (server.py)
@@ -1974,6 +2007,15 @@ here).
 | GET | `/api/mail/tidy/count` | how many threads the default Tidy rule would archive (read only; feeds the calm suggestion) |
 | GET | `/api/cluster/status`, `/api/cluster/health` | cluster server set up and reachable; Today's cluster line (8.9) |
 | POST | `/api/cluster/job`, `/api/cluster/script` | one job's facts, findings, log end and reply draft; a batch script check (8.9, read only) |
+
+**Home** (vault.py)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/vault/status` | vault configured, name, last call ok |
+| GET | `/api/vault/home` | open dated todos: overdue, due this week, later, undated count (8.10) |
+| GET | `/api/vault/search` | ranked notes search (`q`), excluded folders hidden |
+| GET | `/api/vault/note` | one note, read only (`path`), with its Obsidian link |
 | POST | `/api/mail/tidy/preview`, `/api/mail/tidy/run`, `/api/mail/tidy/undo` | Inbox Tidy: preview with a single-use token, archive the ticked threads, one Undo (8.1) |
 | POST | `/api/ai/summary` | AI summary of a thread |
 
@@ -2224,6 +2266,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.6 Ledger writes on MCP (shipped 1.6.0) | Section 8.4: desk and Ledger-tab writes through the hosted server, deletes on the CLI, refusal falls back, unknown outcomes never re-sent; one live log verified |
 | v1.7 Calm, part 2 (shipped 1.7.0) | Section 7.13: Board full width, Today plan strip, Ledger summary line and a shorter tab strip, Tidy suggestion, Log offer after archiving READY |
 | v1.8 Cluster facts in mail (shipped 1.8.0) | Section 8.9: job ids in support mail show a Cluster chip with the job's facts, findings, log end and a reply draft from bifrost; script check; cluster line on Today; read tools only |
+| v1.10 Home (shipped 1.10.0) | Section 8.10: the personal notes vault over a local MCP server, read only: Home line on Today, notes search, note reader |
 | v1.9 Ask that looks things up (shipped 1.9.0) | Section 7.12: `[hermes] profile`, a read-only Hermes profile with the ledger and cluster read tools, checked before each use, falls back to the old Ask |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
@@ -2250,6 +2293,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.10 | App v1.10.0 (new 8.10; 5.2, 14, 19): Home, the personal notes vault, read only. Local stdio MCP server (headless-obsidian-mcp) started with reads only; five allow-listed read tools; Home line on Today for dated todos (overdue and this week), palette notes search, a note reader with Open in Obsidian; `[vault] exclude` hides folders; a Notes status light. |
 | 2026-10-03 | 1.9.1 | App v1.9.1 (7.7, 7.13): both layouts stay for good, switchable both ways: "Calm layout" button in the classic top bar (there was no visible way back from classic, only the palette), `L` toggles, the dot-menu and palette entries show the key. |
 | 2026-10-03 | 1.9 | App v1.9.0 (7.12, 13, 19): Ask Hermes can look things up in the ledger and on the cluster through a read-only Hermes profile (`[hermes] profile`), whose MCP servers are limited to read tools; Ultra re-checks the include lists and enabled servers before each use and falls back to the plain Ask. |
 | 2026-10-03 | 1.8 | App v1.8.0 (new 8.9; 5.2, 14, 19): cluster facts in the mail loop. Job ids and batch scripts in email and ticket threads show a Cluster chip; the card reads `job_show_any`, `job_explain_any` and `ticket_draft` from bifrost (read tiers, allow-listed), with "Use as reply" into the reply-all draft; Check the script (`script_check`); Today shows a cluster chip only for issues, unknown, or 10%+ failures. Demo has a support email for job 315. |

@@ -35,6 +35,7 @@ function head() {
   return `<div class="today-head">
     <h2>Day</h2>${D.now ? `<span class="dim small-t" id="day-now" title="Read from the clock when this page was built">${esc(D.now.weekday)} ${esc(D.now.date)}, ${esc(D.now.time)}</span>` : ""}
     <div class="seg" id="day-seg"><button data-dt="plan" class="${D.tab === "plan" ? "on" : ""}">Check-in plan</button><button data-dt="report" class="${D.tab === "report" ? "on" : ""}">End-of-day report</button></div>
+    <button class="btn small ghost calm-only" data-goto="today" title="Calendar (g)">Calendar</button>
     <span class="grow"></span>
     <a class="btn small ghost" href="/api/day/agenda.ics" download title="Today's agenda as a calendar file">Agenda .ics</a>
     <a class="btn small ghost" href="/api/day/journal.csv" download title="Everything Ultra did today, as CSV">Journal .csv</a>

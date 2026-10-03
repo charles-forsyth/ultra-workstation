@@ -30,7 +30,7 @@ export async function openGraph(id = "", fresh = false) {
   const seq = ++G.seq;
   $("#thread-empty").hidden = true;
   const th = $("#thread"); th.hidden = false;
-  th.innerHTML = `<div class="today-head gr-head"><h2>Graph</h2><span class="dim small-t" id="gr-sum">Reading the ledger...</span><span class="grow"></span>
+  th.innerHTML = `<div class="today-head gr-head"><h2>Graph</h2><button class="btn small ghost calm-only" data-goto="ledger" title="Back to the Ledger (n)">Ledger</button><span class="dim small-t" id="gr-sum">Reading the ledger...</span><span class="grow"></span>
       <div class="seg" id="gr-types"></div>
       <button class="btn small ghost" id="gr-me" title="Back to you">Me</button>
       <button class="btn small ghost" id="gr-fresh" title="Reload from the ledger">&#8635;</button>

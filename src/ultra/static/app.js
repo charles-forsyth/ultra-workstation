@@ -14,6 +14,7 @@ import { initLedgerTab, openLedgerTab, closeLedgerTab, ledgerTabOpen } from "./l
 import { studioStart } from "./studio.js";
 import { initSearch, labelMenu, attHtml, wireAttachments, loadNotes, addHighlight, wireHighlightClicks, exportMenu } from "./mailx.js";
 import { initAsk, openAsk, askButton } from "./ask.js";
+import { ACTIONS, TASK_ACTIONS, ROW_ACTIONS, arrange, popMenu, closeMenu, menuOpen, isCalm } from "./actions.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -157,7 +158,7 @@ function rowActs(it) {
   const arch = it.source === "slack"
     ? `<button class="ra ra-arch ra-quick" data-ra="archive" title="Mark done: hide until someone writes again (nothing is sent)">Done</button>`
     : threadsOf(it).length ? `<button class="ra ra-arch ra-quick" data-ra="archive" title="Archive (leaves the inbox; Undo in the toast)">Archive</button>` : "";
-  return `${arch}<div class="ract" role="group" aria-label="Actions">
+  return `<span class="rq">${arch}<button class="ra ra-more" data-ra="more" title="More actions" aria-label="More actions" aria-haspopup="menu">&#8943;</button></span><div class="ract" role="group" aria-label="Actions">
     <button class="ra" data-ra="bucket" title="Add to bucket">+ Bucket</button>
     <button class="ra" data-ra="log" title="${task ? "Log progress on this task" : "Log this conversation in the ledger"}">Log</button>
     ${task ? "" : `<button class="ra" data-ra="task" title="Make a ledger task from it">Task</button>`}
@@ -166,7 +167,14 @@ function rowActs(it) {
   </div>`;
 }
 
-async function rowAction(a, it) {
+async function rowAction(a, it, btn = null) {
+  if (a === "more") {
+    const task = it.source === "task";
+    const items = ROW_ACTIONS.filter((r) => r.place === "more" && !(task && r.id === "task"))
+      .map((r) => ({ label: r.id === "log" && task ? "Log progress" : r.label, cls: r.id === "ask" ? "ai" : "", run: () => rowAction(r.id, it).catch((e) => toast(e.message, "err")) }));
+    popMenu(btn, items, { label: "Row actions" });
+    return;
+  }
   if (a === "ask") { closeDrawers(); return openAsk({ type: "item", key: it.key }, it.subject || ""); }
   if (a === "archive") return it.source === "slack" ? slackDone(it, { keepOpen: true }) : archive(it, { keepOpen: true });
   if (a === "block") {
@@ -299,6 +307,7 @@ async function openItem(i) {
     const ab = $('[data-a="archive"]', th);
     if (it.source === "slack") { ab.disabled = false; ab.textContent = "Mark done"; ab.title = "Hide until a new message arrives (e). Nothing is sent to Slack."; ab.onclick = () => busy(ab, () => slackDone(it)); }
     else ab.onclick = () => busy(ab, () => archive(it));
+    arrange($(".thread-acts", th), ACTIONS, "a");  // calm layout: Reply, Archive, AI, ... (SPEC 7.13)
     if (it.source === "slack") await resumeSlack(it); else await resumeForThread(it.key);
   } catch (e) { th.innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
   loadContext(it);
@@ -439,7 +448,7 @@ async function openTask(i) {
       <select id="t-snooze" title="Hide from the stream for a while (local only)"><option value="">Snooze...</option><option value="1">1 day</option><option value="3">3 days</option><option value="7">1 week</option>${t.snoozed_until ? `<option value="0">Unsnooze</option>` : ""}</select>
       <button class="btn small" data-t="log" title="Log progress on this task (l)">Log update</button>
       <button class="btn small" data-t="bucket" title="Add to bucket (b)">+ Bucket</button>
-      <button class="btn small" data-t="block" title="Block time for this task on your calendar">Block time</button>
+      <button class="btn small" data-t="blocktime" title="Block time for this task on your calendar">Block time</button>
       <button class="btn small" data-t="copy">Copy</button>
       ${askButton("btn small ai").replace('data-ask="1"', 'data-ask="1" data-t="ask"')}
       <button class="btn small ai" data-t="email" title="Draft an email that moves this task forward: Draft Studio reads the task, related mail, your past emails, policy pages and the ledger" ${S.aiOn ? "" : "disabled"}>Draft email</button>
@@ -462,7 +471,7 @@ async function openTask(i) {
     if (a === "copy") { copyText(`${t.summary} (${t.priority}, ${t.status})`); return; }
     if (a === "bucket") { addEntityToBucket({ id: t.id, name: t.summary, type: "Task" }); return; }
     if (a === "log") { stageTaskLog(t, d.links); return; }
-    if (a === "block") { window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: `t-${t.id}`, subject: t.summary } })); return; }
+    if (a === "blocktime") { window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: `t-${t.id}`, subject: t.summary } })); return; }
     if (a === "ask") { openAsk({ type: "item", key: `t-${t.id}` }, t.summary); return; }
     if (a === "email") { studioStart(`t-${t.id}`, { run: true }); $("#studio")?.scrollIntoView({ block: "nearest" }); return; }
     busy(b, async () => {
@@ -503,6 +512,7 @@ async function openTask(i) {
     if (await act({ action: "snooze", days: Number(v) }, `Snoozed for ${v} day(s). Only on this laptop.`)) removeRow(it);
   };
   th.ondragstart = (e) => { const li = e.target.closest("[data-ent]"); if (li) e.dataTransfer.setData("application/x-ultra-entity", li.dataset.ent); };
+  arrange($(".thread-acts", th), TASK_ACTIONS, "t");
   if (S.key === it.key) loadPeople(it);  // v0.8: the task's people + everyone named in it, and the Full tab
 }
 
@@ -579,6 +589,7 @@ async function pollStatus() {
       el.className = `src ${cls}`; el.textContent = txt; el.title = s.error || "";
     }
     renderMcpStatus(st.sources.mcp || {});
+    paintDot();
     const mailAge = st.sources.mail?.age, slackAge = st.sources.slack?.age, taskAge = st.sources.tasks?.age;
     const newer = (a, b) => a != null && b != null && a < b;  // age went down = fresh data
     const changed = newer(mailAge, lastBuilt.mail) || newer(slackAge, lastBuilt.slack) || newer(taskAge, lastBuilt.tasks) || (S.loading && mailAge != null);
@@ -635,6 +646,7 @@ function wire() {
     const b = e.target.closest("[data-ra]");
     if (b) {  // a row action: do it without opening the item
       e.stopPropagation();
+      if (b.dataset.ra === "more") { rowAction("more", S.items[Number(el.dataset.i)], b); return; }
       busy(b, () => rowAction(b.dataset.ra, S.items[Number(el.dataset.i)]));
       return;
     }
@@ -649,6 +661,7 @@ function wire() {
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); palette(); return; }
     if (e.key === "Escape" && helpOpen()) { toggleHelp(); return; }
+    if (menuOpen()) { if (e.key === "Escape") { e.preventDefault(); closeMenu(); } return; }
     // Browser and OS shortcuts (Ctrl+R, Ctrl+F, Ctrl+C, Ctrl+A, Alt+...) are never ours
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.matches("input, textarea, select, [contenteditable=true]") || !$("#review").hidden || !$("#palette").hidden || !$("#ledger-card").hidden || !$("#ask").hidden || helpOpen()) return;
@@ -698,12 +711,106 @@ function wire() {
 
 }
 
+
+// ---------------------------------------------------------------- calm shell (SPEC 7.13)
+// Three places (Inbox, Today, Ledger), a filter menu, one status dot, the rail only when
+// something is open, the Bucket as a pill only when it holds something. Every view,
+// key and action is the same as the classic layout; only where they sit changes.
+const PLACE_OF = { "btn-today": "today", "btn-day": "today", "btn-ledger": "ledger", "btn-graph": "ledger", "btn-board": "inbox" };
+
+function syncPlaces() {
+  let place = "inbox";
+  for (const [id, pl] of Object.entries(PLACE_OF)) if ($(`#${id}`)?.classList.contains("on")) place = pl;
+  $$("#places button").forEach((b) => b.classList.toggle("on", b.dataset.place === place));
+  const view = boardOpen() || graphOpen() || dayOpen() || todayOpen() || ledgerTabOpen();
+  document.body.classList.toggle("idle", $("#thread").hidden);
+  document.body.classList.toggle("wide", !!view);  // Board, Today, Ledger use the rail's width
+}
+
+function closeViews() {
+  if (boardOpen()) closeBoard();
+  if (graphOpen()) closeGraph();
+  if (dayOpen()) closeDay();
+  if (todayOpen()) closeToday();
+  if (ledgerTabOpen()) closeLedgerTab();
+}
+
+function goPlace(place) {
+  if (place === "inbox") { closeViews(); if (S.sel >= 0 && S.items[S.sel]) openItem(S.sel); return; }
+  if (place === "today") return todayOpen() || dayOpen() ? null : openToday();
+  if (place === "ledger") return ledgerTabOpen() || graphOpen() ? null : openLedgerTab();
+}
+
+const EXTRA_FILTERS = [["slack", "Slack"], ["tasks", "Tasks", "T"], ["tickets", "Tickets"], ["low", "Low priority"]];
+function filterMenu(btn) {
+  const n = (f) => (S.counts[f] ? ` (${S.counts[f]})` : "");
+  const items = EXTRA_FILTERS.filter(([f]) => f !== "slack" || S.slackOn)
+    .map(([f, label, key]) => ({ label: `${S.filter === f ? "\u2713 " : ""}${label}${n(f)}`, key, run: () => $(`#filter-seg button[data-f="${f}"]`).click() }));
+  items.push({ sep: true },
+    { label: "Board view", key: "o", run: () => openBoard() },
+    { label: "Refresh mail and Slack", key: "R", run: () => $("#btn-refresh").click() },
+    { label: "Tidy the inbox...", run: () => openTidy() });
+  popMenu(btn, items, { label: "Filters and views" });
+}
+
+function paintDot() {
+  const lights = $$("#statusbar .src");
+  const worst = lights.some((l) => l.classList.contains("err")) ? "err" : lights.some((l) => l.classList.contains("warn")) ? "warn" : lights.some((l) => l.classList.contains("ok")) ? "ok" : "";
+  const dot = $("#sdot"); if (!dot) return;
+  dot.className = `btn ghost calm-only sdot ${worst}`;
+  const bad = lights.filter((l) => l.classList.contains("err") || l.classList.contains("warn")).map((l) => l.textContent.trim());
+  dot.title = bad.length ? `Needs a look: ${bad.join(", ")}` : "All sources fine";
+}
+
+function dotMenu(btn) {
+  const items = $$("#statusbar .src").filter((l) => l.textContent.trim())
+    .map((l) => ({ info: l.textContent.trim() + (l.title ? `  -  ${l.title}` : ""), cls: `src ${[...l.classList].filter((c) => c !== "src").join(" ")}`, title: l.title }));
+  if (S.demo) items.unshift({ info: "Demo data: nothing is sent or written." });
+  items.push({ sep: true },
+    { label: "Refresh mail and Slack", key: "R", run: () => $("#btn-refresh").click() },
+    { label: "Keyboard shortcuts", key: "?", run: () => toggleHelp() },
+    { label: "Use the classic layout", title: "This browser only; [ui] layout in config sets the default", run: () => setLayout("classic") },
+    { info: `ultra ${S.version || ""}`, cls: "dim mono" });
+  popMenu(btn, items, { label: "Sources" });
+}
+
+function setLayout(v) { localStorage.setItem("ultra.layout", v); location.reload(); }
+
+function initCalm() {
+  $("#places")?.addEventListener("click", (e) => { const b = e.target.closest("[data-place]"); if (b) goPlace(b.dataset.place); });
+  $("#btn-filters")?.addEventListener("click", (e) => filterMenu(e.currentTarget));
+  $("#sdot")?.addEventListener("click", (e) => dotMenu(e.currentTarget));
+  // view headers link to their neighbours in the same place (Calendar <-> Plan, Ledger <-> Map, Board -> List)
+  document.addEventListener("click", (e) => {
+    const g = e.target.closest("[data-goto]"); if (!g) return;
+    const to = g.dataset.goto;
+    if (to === "day") openDay(); else if (to === "today") openToday();
+    else if (to === "graph") openGraph(); else if (to === "ledger") openLedgerTab();
+    else if (to === "inbox") goPlace("inbox");
+  });
+  const watch = new MutationObserver(syncPlaces);
+  for (const id of Object.keys(PLACE_OF)) { const b = $(`#${id}`); if (b) watch.observe(b, { attributes: true, attributeFilter: ["class"] }); }
+  watch.observe($("#thread"), { attributes: true, attributeFilter: ["hidden"] });
+  // Ledger search and Research (palette, selection bar) open in the rail: keep it showing
+  const pin = () => document.body.classList.toggle("railpin", !$("#rt-search").hidden || !$("#rt-tools").hidden);
+  const pins = new MutationObserver(pin);
+  for (const id of ["#rt-search", "#rt-tools"]) pins.observe($(id), { attributes: true, attributeFilter: ["hidden"] });
+  // the Bucket tray shows while something is dragged, so there is somewhere to drop it
+  document.addEventListener("dragstart", () => document.body.classList.add("dragging"));
+  for (const ev of ["dragend", "drop"]) document.addEventListener(ev, () => document.body.classList.remove("dragging"));
+  $("#bucket-head-toggle")?.addEventListener("click", () => $("#bucket").classList.toggle("expanded"));
+  if (!isCalm()) $("#sdot")?.remove();
+  syncPlaces();
+}
+
 // ---------------------------------------------------------------- command palette
 function commands() {
   const it = S.items[S.sel];
   const c = [
     { t: "Compose new email", k: "c", run: () => composeNew() },
     { t: "Keyboard shortcuts", k: "?", run: () => toggleHelp() },
+    { t: isCalm() ? "Use the classic layout (this browser)" : "Use the calm layout (this browser)", run: () => setLayout(isCalm() ? "classic" : "calm") },
+    { t: "Day: check-in plan and end-of-day report", k: "d", run: () => openDay() },
     { t: "Tidy the inbox (preview a bulk archive)", k: "", run: () => openTidy() },
     { t: "Graph: your ledger neighborhood", k: "v", run: () => openGraph() },
     { t: "Board: my court, waiting on, watching, done", k: "o", run: () => openBoard() },
@@ -726,9 +833,15 @@ function commands() {
     ...["mine", "waiting", "all", "tasks", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
   if (it && S.key === it.key) {
-    c.unshift({ t: `Ask Hermes about: ${it.subject || ""}`.slice(0, 90), k: "h", run: () => openAsk({ type: "item", key: it.key }, it.subject || "") });
-    for (const [a, label, k] of [["reply", "Reply", "r"], ["reply_all", "Reply all", "a"], ["forward", "Forward", "f"], ["summary", "Summarize with AI", "s"], ["archive", "Archive", "e"], ["copy", "Copy thread", ""], ["bucket", "Add to bucket", "b"], ["log", "Log in ledger", "l"], ["task", "Ledger task", "t"]]) {
-      c.unshift({ t: `${label}: ${it.subject || ""}`.slice(0, 90), k, run: () => $(`#thread [data-a="${a}"]`)?.click() });
+    // every action on the open item, from the action table (SPEC 7.13): hidden in a menu
+    // is never more than a palette search away
+    const task = it.source === "task";
+    const table = task ? TASK_ACTIONS : ACTIONS, attr = task ? "t" : "a";
+    const found = (a) => (a.virtual ? $(a.virtual) : a.id === "ask" ? $("#thread [data-ask]") : a.id === "permalink" ? $("#thread .thread-acts a.btn[href]") : $(`#thread [data-${attr}="${a.id}"]`));
+    for (const a of [...table].reverse()) {
+      const el = found(a);
+      if (!el || el.hidden || el.disabled) continue;
+      c.unshift({ t: `${el.textContent.trim() || a.label}: ${it.subject || ""}`.slice(0, 90), k: a.key || "", run: () => el.click() });
     }
   }
   for (const [i, x] of S.items.entries()) c.push({ t: `Open: ${x.from} - ${x.subject}`.slice(0, 100), run: () => openItem(i) });
@@ -750,6 +863,15 @@ function palette() {
   q.oninput = () => {
     const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
     shown = all.filter((c) => words.every((w) => c.t.toLowerCase().includes(w)));
+    // the search box is the palette: whatever was typed can also be searched for
+    const text = q.value.trim();
+    if (text) {
+      shown = shown.concat([
+        { t: `Search mail for "${text.slice(0, 60)}"`, k: "/", run: () => { const m = $("#ms-q"); if (!m) return; closeViews(); m.value = text.slice(0, 300); m.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); } },
+        { t: `Search the ledger for "${text.slice(0, 60)}"`, run: () => searchFor(text) },
+        { t: `Search past research for "${text.slice(0, 60)}"`, run: () => researchSearch(text.slice(0, 300)) },
+      ]);
+    }
     sel = 0; paint();
   };
   q.onkeydown = (e) => {
@@ -779,6 +901,9 @@ async function boot() {
   try {
     const s = await api("/api/session");
     TOKEN = s.token; S.tz = s.timezone || "UTC"; S.demo = s.demo; S.slackOn = s.slack; S.aiOn = s.ai;
+    S.version = s.version;
+    const want = localStorage.getItem("ultra.layout") || s.layout || "calm";
+    document.body.classList.toggle("calm", want !== "classic");
     if (!s.slack) $('#filter-seg button[data-f="slack"]').hidden = true;
     $("#sb-version").textContent = `ultra ${s.version}${s.demo ? " demo" : ""}`;
   } catch (e) { toast(`Server: ${e.message}`, "err"); }
@@ -794,7 +919,7 @@ async function boot() {
     }
     else if (d?.thread_id) stageAfterSend("g-" + d.thread_id);
   });
-  initRail(); wireSearch(); initTools(); initAsk();
+  initRail(); wireSearch(); initTools(); initAsk(); initCalm();
   initSearch({
     onResults: (r) => {
       S.search = r; S.items = r.items || []; S.sel = S.items.length ? 0 : -1;
@@ -803,7 +928,7 @@ async function boot() {
       head.className = "ms-head dim small-t";
       head.innerHTML = `${r.count} result${r.count === 1 ? "" : "s"} for <b>${esc(r.query)}</b> in ${r.scope === "all" ? "all mail" : "the inbox"}${r.cached ? " (cached)" : ""} <button class="btn tiny ghost" id="ms-clear">Back to the stream</button>`;
       $("#stream").prepend(head);
-      $("#ms-clear").onclick = () => { $("#ms-q").value = ""; S.search = null; loadStream(); };
+      $("#ms-clear").onclick = () => { $("#ms-q").value = ""; $(".msearch")?.classList.remove("active"); S.search = null; loadStream(); };
     },
     onClear: () => { if (S.search) { S.search = null; loadStream(); } },
   });

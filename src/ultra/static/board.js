@@ -44,6 +44,7 @@ function head() {
   const c = B.data?.counts || {};
   return `<div class="today-head">
     <h2>Board</h2><span class="dim small-t bd-head-counts">${B.data ? `${c.mine} your move &middot; ${c.waiting} waiting &middot; ${c.watching} watching &middot; ${c.done} done today` : ""}</span>
+    <button class="btn small ghost calm-only" data-goto="inbox" title="Back to the list (Esc)">List</button>
     <span class="grow"></span>
     <button class="btn small ghost" id="bd-fresh" title="Rebuild">&#8635;</button>
     <button class="btn small ghost" id="bd-close" title="Back (Esc)">Close</button>

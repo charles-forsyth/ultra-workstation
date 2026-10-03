@@ -32,6 +32,15 @@ folder.
 - **Research and listening.** Search past deep-research runs and start new ones; read
   aloud or AI audio summaries.
 
+### The layout
+
+Ultra opens in the calm layout: three places at the top (Inbox, Today, Ledger), the
+search box (Ctrl+K, which also runs every command) and one status dot. Rows show
+Archive and `...` when you point at them; an open email shows Reply all, Archive, AI
+and `...`. Everything else is in those menus, in the palette and on its key, so
+nothing is gone. Prefer every button on screen? Pick "Use the classic layout" in the
+status dot menu (this browser), or set `[ui] layout = "classic"` in `config.toml`.
+
 ## Install
 
 ```bash

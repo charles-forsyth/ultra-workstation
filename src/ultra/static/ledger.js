@@ -114,7 +114,10 @@ function suggestHtml() {
       ${s.options.map((o) => `<button class="btn tiny" data-sug="person" data-id="${esc(o.id)}" data-name="${esc(o.name)}" title="Confirm: add ${esc(o.name)} to this item's group">${esc(o.name)}?</button>`).join(" ")}</div>`).join("");
   const r2 = ai.map((s) => `<div class="sugg"><span class="badge ai">AI possible</span> ${esc(s.type)}: <b>${esc(s.name)}</b> <span class="dim small-t">${esc(s.why)}</span>
       <button class="btn tiny" data-sug="entity" data-id="${esc(s.id)}" data-name="${esc(s.name)}" data-type="${esc(s.type)}">Confirm</button></div>`).join("");
-  return `<div class="sect"><span class="label">Possible matches (confirm to include)</span>${r1}${r2}</div>`;
+  // calm layout: one line ("2 possible matches"), opened on click; classic shows them open
+  const n = rule.length + ai.length;
+  const open = document.body.classList.contains("calm") ? "" : " open";
+  return `<details class="sect sugg-wrap"${open}><summary class="label">${n} possible match${n === 1 ? "" : "es"} (confirm to include)</summary>${r1}${r2}</details>`;
 }
 
 async function loadAiSuggestions(key) {
@@ -540,6 +543,7 @@ function renderBucket() {
   $("#bucket-drop").textContent = R.bucket.length ? "Drop more here" : "Drag email, Slack, tickets or people here";
   $$("#bucket-acts button[data-act]").forEach((b) => { b.disabled = !R.bucket.length; });
   $("#bucket-clear").hidden = !R.bucket.length;
+  $("#bucket").classList.toggle("has", R.bucket.length > 0);  // calm layout: pill only when not empty
 }
 
 export async function addConversation(key) {

@@ -24,6 +24,7 @@ export function studioStart(key, { run = false } = {}) {
   if (!key || !(key.startsWith("g-") || key.startsWith("t-"))) { host.hidden = true; return; }
   host.hidden = false;
   if (run) return studioRun(key);
+  host.classList.add("idle");  // calm layout hides the idle strip; AI > Draft reply starts it
   host.innerHTML = idleStrip();
   $("#st-go", host)?.addEventListener("click", () => studioRun(key));
   api(`/api/studio/${encodeURIComponent(key)}`)
@@ -38,6 +39,7 @@ function idleStrip() {
 
 function studioRun(key) {
   const host = $("#studio"); if (!host) return;
+  host.classList.remove("idle");
   ST.autoOpened = false;
   host.innerHTML = `<div class="st-strip dim small-t">Draft Studio: starting...</div>`;
   api("/api/studio/start", { method: "POST", body: { key } })

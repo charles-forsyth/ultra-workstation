@@ -41,18 +41,26 @@ export function toast(msg, kind = "", action = null) {
 }
 
 let TOKEN = "";
+// v1.11 workspaces (SPEC 7.14): every request names the workspace this browser is in
+// (header on fetch, ?ws= on links that cannot set headers). Remembered per browser.
+export const WS = {
+  get: () => localStorage.getItem("ultra.workspace") || "main",
+  set: (slug) => localStorage.setItem("ultra.workspace", slug || "main"),
+  // for <a href>, <audio src>, <iframe src>: the browser sends no custom header there
+  url: (path) => { const s = WS.get(); return s === "main" ? path : `${path}${path.includes("?") ? "&" : "?"}ws=${encodeURIComponent(s)}`; },
+};
 // The server issues a new write token each time it starts. A tab left open across a
 // restart holds the old one, so on a token refusal fetch the current token and retry
 // the request once. The token only proves the request came from this page (CSRF);
 // every action behind it still has its own checks and approvals.
 async function refreshToken() {
-  const r = await fetch("/api/session");
+  const r = await fetch("/api/session", { headers: { "X-Ultra-Workspace": WS.get() } });
   const s = await r.json().catch(() => ({}));
   if (r.ok && s.token) { TOKEN = s.token; return true; }
   return false;
 }
 export async function api(path, { method = "GET", body } = {}, retried = false) {
-  const opt = { method, headers: {} };
+  const opt = { method, headers: { "X-Ultra-Workspace": WS.get() } };
   if (method !== "GET") {
     if (!TOKEN) await refreshToken();
     opt.headers["Content-Type"] = "application/json";
@@ -136,7 +144,9 @@ function renderStream() {
     b.textContent = b.dataset.label + (n ? ` ${n}` : "");
   });
   if (!S.items.length) {
-    el.innerHTML = `<div class="empty dim">${S.loading ? "Loading your mail..." : "Nothing here."}</div>`;
+    el.innerHTML = S.auth
+      ? `<div class="empty"><b>Mail needs signing in.</b><div class="dim small-t">${esc(S.auth.error)}</div><div class="dim small-t">Run in a terminal: <code>ultra auth google --capability ${esc(S.auth.capability)}${WS.get() !== "main" ? ` --workspace ${esc(WS.get())}` : ""}</code></div></div>`
+      : `<div class="empty dim">${S.loading ? "Loading your mail..." : "Nothing here."}</div>`;
     return;
   }
   el.innerHTML = S.items.map((it, i) => `
@@ -203,6 +213,7 @@ async function loadStream(keepSel = false) {
     S.items = r.items || [];
     S.counts = r.counts || {};
     S.loading = !!r.loading;
+    S.auth = r.auth || null;
     const i = keepSel ? S.items.findIndex((x) => x.key === prevKey) : -1;
     S.sel = i >= 0 ? i : (S.items.length ? 0 : -1);
     renderStream();
@@ -785,6 +796,7 @@ function wire() {
     else if (e.key === "w") $('#filter-seg button[data-f="waiting"]').click();
     else if (e.key === "T") $('#filter-seg button[data-f="tasks"]').click();
     else if (e.key === "L") setLayout(isCalm() ? "classic" : "calm");
+    else if (e.key === "W") nextWorkspace();
   });
   const drawer = (sel) => { $(sel).classList.toggle("open"); $("#scrim").hidden = !$$(".panel.open").length; };
   $("#btn-left").onclick = () => drawer("#left");
@@ -889,6 +901,40 @@ function dotMenu(btn) {
 
 function setLayout(v) { localStorage.setItem("ultra.layout", v); location.reload(); }
 
+// ---------------------------------------------------------------- workspaces (SPEC 7.14)
+// Work and Personal (or any workspaces/<slug>/ in config): each a whole Ultra with its own
+// mail, calendar, ledger and history. Switching reloads the page in the other one; the
+// browser remembers the last one used.
+function setWorkspace(slug) {
+  if (slug === WS.get()) return;
+  WS.set(slug);
+  location.reload();
+}
+function nextWorkspace() {
+  const list = S.workspaces || [];
+  if (list.length < 2) return toast("Only one workspace is set up. Add one in config: workspaces/<name>/config.toml.", "");
+  const i = list.findIndex((w) => w.slug === WS.get());
+  setWorkspace(list[(i + 1) % list.length].slug);
+}
+function wsMenu(btn) {
+  const items = (S.workspaces || []).map((w) => ({
+    label: `${w.slug === WS.get() ? "\u2713 " : ""}${w.name}`, cls: `ws-item ws-${w.color}`,
+    run: () => setWorkspace(w.slug),
+  }));
+  items.push({ sep: true }, { info: "W switches to the next one. Each workspace keeps its own mail, calendar, ledger and history.", cls: "dim small-t" });
+  popMenu(btn, items, { label: "Workspace" });
+}
+async function loadWorkspaces(current) {
+  try { S.workspaces = (await api("/api/workspaces")).workspaces || []; } catch { S.workspaces = []; }
+  const btn = $("#ws-switch");
+  document.body.dataset.ws = current.slug; document.body.dataset.wscolor = current.color;
+  if (S.workspaces.length > 1) {
+    btn.hidden = false; $("#ws-name").textContent = current.name;
+    btn.onclick = () => wsMenu(btn);
+    document.title = `Ultra - ${current.name}`;
+  }
+}
+
 function initCalm() {
   $("#places")?.addEventListener("click", (e) => { const b = e.target.closest("[data-place]"); if (b) goPlace(b.dataset.place); });
   $("#btn-filters")?.addEventListener("click", (e) => filterMenu(e.currentTarget));
@@ -923,6 +969,7 @@ function commands() {
     { t: "Compose new email", k: "c", run: () => composeNew() },
     { t: "Keyboard shortcuts", k: "?", run: () => toggleHelp() },
     { t: isCalm() ? "Use the classic layout (this browser)" : "Use the calm layout (this browser)", k: "L", run: () => setLayout(isCalm() ? "classic" : "calm") },
+    ...(S.workspaces || []).filter((w) => w.slug !== WS.get()).map((w) => ({ t: `Switch to the ${w.name} workspace`, k: "W", run: () => setWorkspace(w.slug) })),
     { t: "Day: check-in plan and end-of-day report", k: "d", run: () => openDay() },
     { t: "Tidy the inbox (preview a bulk archive)", k: "", run: () => openTidy() },
     { t: "Graph: your ledger neighborhood", k: "v", run: () => openGraph() },
@@ -1017,6 +1064,9 @@ async function boot() {
     const s = await api("/api/session");
     TOKEN = s.token; S.tz = s.timezone || "UTC"; S.demo = s.demo; S.slackOn = s.slack; S.aiOn = s.ai;
     S.version = s.version;
+    // a workspace this browser remembers but the server no longer has: back to main
+    if (s.workspace && s.workspace.slug !== WS.get() && WS.get() !== "main") WS.set("main");
+    if (s.workspace) loadWorkspaces(s.workspace);
     const want = localStorage.getItem("ultra.layout") || s.layout || "calm";
     document.body.classList.toggle("calm", want !== "classic");
     if (!s.slack) $('#filter-seg button[data-f="slack"]').hidden = true;

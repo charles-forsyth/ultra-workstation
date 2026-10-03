@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -61,7 +62,14 @@ class Api:
         self.routes: list[tuple[str, re.Pattern[str], Handler]] = []
         self.add("GET", r"/api/health", self.health)
         self.add("GET", r"/api/session", self.session)
+        self.add("GET", r"/api/workspaces", self.workspaces)
         self.live: Any = None
+        # v1.11 workspaces (SPEC 7.14): the main workspace is this Api; each other one is
+        # its own Api (own Live, own config and folders), built on first use. A request
+        # names its workspace in the X-Ultra-Workspace header (links: ?ws=).
+        self.others: dict[str, Api] = {}
+        self._others_lock = threading.Lock()
+        self.main_cfg = cfg  # a workspace Api lists workspaces from the main config
         if demo:
             from ultra import demo as demo_data
 
@@ -71,6 +79,31 @@ class Api:
 
             self.live = Live(cfg)
             self.live.register(self)
+
+    def for_workspace(self, slug: str | None) -> Api:
+        """The Api serving a workspace; the main one for "" / "main". KeyError if unknown."""
+        if not slug or slug == "main" or slug == self.cfg.slug:
+            return self
+        if self.demo:
+            raise KeyError("workspaces are off in demo mode")
+        with self._others_lock:
+            hit = self.others.get(slug)
+            if hit is None:
+                from ultra.config import load_workspace
+
+                hit = Api(load_workspace(slug), self.token)
+                hit.main_cfg = self.cfg
+                self.others[slug] = hit
+                if hit.live is not None:
+                    hit.live.warm()
+            return hit
+
+    def workspaces(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        from ultra.config import list_workspaces
+
+        if self.demo:
+            return {"workspaces": [{**self.cfg.workspace, "main": True}]}
+        return {"workspaces": list_workspaces(self.main_cfg)}
 
     def add(self, method: str, pattern: str, fn: Handler) -> None:
         self.routes.append((method, re.compile(f"^{pattern}$"), fn))
@@ -105,6 +138,9 @@ class Api:
             "ai": bool(self.live and self.live.ai.enabled) or self.demo,
             # v1.6: "calm" (default) or "classic"; a browser can override it (dot menu)
             "layout": "classic" if self.cfg.get("ui", "layout", "calm") == "classic" else "calm",
+            # v1.11: which workspace answered (the page shows its name and colour)
+            "workspace": self.cfg.workspace,
+            "addresses": sorted(self.cfg.my_addresses)[:4],
         }
 
 
@@ -188,8 +224,16 @@ def make_handler(
                     body = json.loads(self.rfile.read(length) or b"null")
                 except ValueError:
                     return self._json(400, {"error": "Invalid JSON"})
+            query = parse_qs(url.query)
+            ws = self.headers.get("X-Ultra-Workspace") or (query.get("ws") or [""])[0]
             try:
-                status, obj = api.dispatch(method, url.path, parse_qs(url.query), body)
+                target = api.for_workspace(ws)
+            except KeyError as e:
+                return self._json(404, {"error": f"Unknown workspace: {e}"})
+            except Exception as e:  # noqa: BLE001 - a broken workspace config
+                return self._json(500, {"error": f"Workspace {ws!r} failed to start: {e}"})
+            try:
+                status, obj = target.dispatch(method, url.path, query, body)
             except ApiError as e:
                 return self._json(e.status, {"error": str(e)})
             except Exception as e:  # noqa: BLE001 - never leak a traceback to the page
@@ -327,6 +371,12 @@ def serve(cfg: Config, port: int, demo: bool = False, host: str = "127.0.0.1") -
             print(f"[INFO] Own tailnet devices: {own or 'none found'}", flush=True)
     if api.live is not None:
         api.live.warm()
+    if not demo:
+        from ultra.config import list_workspaces
+
+        names = [w["name"] for w in list_workspaces(cfg)]
+        if len(names) > 1:
+            print(f"[INFO] Workspaces: {', '.join(names)}", flush=True)
     try:
         httpd.serve_forever()
     finally:

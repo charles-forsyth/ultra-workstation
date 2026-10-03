@@ -2,6 +2,12 @@
 # Copy to ~/.config/ultra-workstation/config.toml (`ultra config init` does this).
 # Every value here is a placeholder. Real addresses and ids live only in your copy.
 
+[workspace]
+# v1.11: this workspace's name and colour in the top bar (cyan, green, amber, magenta, red).
+# Other workspaces: workspaces/<name>/config.toml next to this file (SPEC 7.14).
+name = "Main"
+color = "cyan"
+
 [operator]
 name = "Ada Example"
 addresses = ["ada@example.org"]        # every address that counts as "from me"

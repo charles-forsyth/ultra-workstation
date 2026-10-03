@@ -157,6 +157,8 @@ async function planStrip() {
   chip((p.due_today || []).length, "due today", "warn", "Ledger tasks due today");
   chip((p.waiting || []).length, "waiting 3+ days", "wait", "Threads waiting on someone else");
   const free = (p.free || []).reduce((a, f) => a + f.minutes, 0);
+  // a workspace with nothing to plan yet (no mail signed in, no ledger): no empty strip
+  if (!p.mine_count && !(p.overdue || []).length && !(p.due_today || []).length && !(p.waiting || []).length && !free) { box.innerHTML = ""; return; }
   // the cluster line (SPEC 8.9): shown only when there is a problem, or a failure rate
   try {
     const h = await api("/api/cluster/health");

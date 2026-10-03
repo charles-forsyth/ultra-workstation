@@ -43,6 +43,15 @@ the status dot menu); press `L` again, or the "Calm layout" button, to come back
 layouts stay. The choice is per browser; `[ui] layout = "classic"` in `config.toml` sets
 the default.
 
+### Workspaces
+
+One Ultra can hold several workspaces, each a whole Ultra with its own mail, calendar,
+ledger, history and sign-ins: for example Work and Personal. The main one is your
+normal config; add another as `~/.config/ultra-workstation/workspaces/<name>/config.toml`
+(with `[workspace] name` and `color`), sign it in with `ultra auth google --capability
+read --workspace <name>` (and modify, send, calendar), then switch with the workspace
+button next to the logo or `W`. Each browser opens in the workspace it used last.
+
 ## Install
 
 ```bash
@@ -220,7 +229,7 @@ keys need an item open. Browser shortcuts (Ctrl+R, Ctrl+F, ...) are left alone.
 | `a` | reply all | `w` | stream: Waiting |
 | `f` | forward | `T` | stream: Tasks |
 | `s` | AI summary | `R` | refresh mail and Slack |
-| `L` | switch layout: calm / classic | | |
+| `L` | switch layout: calm / classic | `W` | switch workspace (Work / Personal) |
 | `h` | Ask Hermes | `?` | keyboard help |
 | `e` | archive / complete task / mark Slack done | `Ctrl+Enter` | Ask (in the Ask box) |
 | `b` | add to bucket | | |

@@ -2,7 +2,7 @@
 // thread export. Nothing here sends mail. Label changes are journaled with Undo;
 // system labels are never offered. Highlights and notes stay on this machine.
 
-import { api, esc, toast, busy, copyText } from "./app.js";
+import { api, esc, toast, busy, copyText, WS } from "./app.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -119,7 +119,7 @@ export function attHtml(m) {
     const prev = /^(text\/plain|text\/csv|image\/(png|jpeg|gif)|application\/pdf)$/.test(a.mime || "");
     return `<span class="att" title="${esc(a.mime)}"><span class="att-n">${esc(a.name)}</span> <span class="dim">${kb} KB</span>
       ${a.id ? `${prev ? `<button class="btn tiny ghost" data-att="preview" data-m="${esc(m.id)}" data-id="${esc(a.id)}" data-name="${esc(a.name)}" data-mime="${esc(a.mime)}">Preview</button>` : ""}
-      <a class="btn tiny ghost" href="/api/mail/attachment/${encodeURIComponent(m.id)}/${encodeURIComponent(a.id)}" download="${esc(a.name)}">Download</a>
+      <a class="btn tiny ghost" href="${WS.url(`/api/mail/attachment/${encodeURIComponent(m.id)}/${encodeURIComponent(a.id)}`)}" download="${esc(a.name)}">Download</a>
       <button class="btn tiny ghost" data-att="save" data-m="${esc(m.id)}" data-id="${esc(a.id)}" title="Save to Ultra's private attachments folder">Save</button>
       <button class="btn tiny ghost" data-att="attach" data-m="${esc(m.id)}" data-id="${esc(a.id)}" data-name="${esc(a.name)}" title="Attach to the open draft (for a forward)">Attach to draft</button>` : ""}</span>`;
   }).join("")}</div>`;
@@ -147,7 +147,7 @@ export function wireAttachments(th, getDraftId) {
 
 function preview(m, id, name, mime) {
   const dlg = $("#review");
-  const url = `/api/mail/attachment/${encodeURIComponent(m)}/${encodeURIComponent(id)}?inline=1`;
+  const url = WS.url(`/api/mail/attachment/${encodeURIComponent(m)}/${encodeURIComponent(id)}?inline=1`);
   const img = /^image\//.test(mime);
   dlg.innerHTML = `<div class="rv-card att-prev" role="dialog" aria-modal="true" aria-label="Preview ${esc(name)}">
     <h3>${esc(name)} <span class="dim small-t">${esc(mime)} &middot; preview is sandboxed</span></h3>

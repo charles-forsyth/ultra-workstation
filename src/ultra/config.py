@@ -3,11 +3,17 @@
 Nothing operator-specific lives in the package. Config is read from
 $XDG_CONFIG_HOME/ultra-workstation/config.toml; state goes to
 $XDG_DATA_HOME/ultra-workstation/. Both folders are created mode 700.
+
+Workspaces (v1.11, SPEC 7.14): the folders above are the main workspace. Each other
+workspace lives in `workspaces/<slug>/` under both folders, with its own config.toml,
+style.toml, tokens and state. A Config knows its own folders (`config_home`,
+`data_home`), so nothing a workspace reads or writes lands in another one's.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import stat
 import tomllib
 from dataclasses import dataclass, field
@@ -16,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 APP = "ultra-workstation"
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
+COLORS = ("cyan", "green", "amber", "magenta", "red")
 
 
 def config_dir() -> Path:
@@ -60,6 +68,34 @@ def insecure(path: Path) -> bool:
 class Config:
     raw: dict[str, Any] = field(default_factory=dict)
     path: Path | None = None
+    # a workspace other than the main one: its own folders (None = the main folders)
+    home: Path | None = None
+    data: Path | None = None
+    slug: str = ""
+
+    @property
+    def config_home(self) -> Path:
+        return self.home or config_dir()
+
+    @property
+    def data_home(self) -> Path:
+        return self.data or data_dir()
+
+    @property
+    def style_path(self) -> Path:
+        return self.config_home / "style.toml"
+
+    @property
+    def workspace(self) -> dict[str, str]:
+        """slug, name and colour of this config's workspace."""
+        w = self.section("workspace")
+        slug = self.slug or "main"
+        color = str(w.get("color") or ("cyan" if not self.slug else "green"))
+        return {
+            "slug": slug,
+            "name": str(w.get("name") or ("Main" if not self.slug else slug.title()))[:24],
+            "color": color if color in COLORS else "cyan",
+        }
 
     def section(self, name: str) -> dict[str, Any]:
         v = self.raw.get(name)
@@ -88,6 +124,39 @@ def load(path: Path | None = None) -> Config:
         with path.open("rb") as f:
             return Config(tomllib.load(f), path)
     return Config(tomllib.loads(example_config_text()), None)
+
+
+def workspace_home(slug: str) -> Path:
+    return config_dir() / "workspaces" / slug
+
+
+def load_workspace(slug: str) -> Config:
+    """A workspace's config, with its own folders. Raises KeyError if there is none."""
+    if not SLUG_RE.match(slug or "") or slug == "main":
+        raise KeyError(f"bad workspace name: {slug!r}")
+    home = workspace_home(slug)
+    path = home / "config.toml"
+    if not path.exists():
+        raise KeyError(f"no workspace {slug!r} ({path} not found)")
+    with path.open("rb") as f:
+        raw = tomllib.load(f)
+    return Config(raw, path, home=home, data=data_dir() / "workspaces" / slug, slug=slug)
+
+
+def list_workspaces(main: Config) -> list[dict[str, Any]]:
+    """The main workspace first, then every workspaces/<slug>/config.toml, by name."""
+    out: list[dict[str, Any]] = [{**main.workspace, "main": True}]
+    root = config_dir() / "workspaces"
+    if root.is_dir():
+        extra = []
+        for d in sorted(root.iterdir()):
+            if d.is_dir() and SLUG_RE.match(d.name) and d.name != "main":
+                try:
+                    extra.append({**load_workspace(d.name).workspace, "main": False})
+                except (KeyError, OSError, tomllib.TOMLDecodeError):
+                    continue
+        out += sorted(extra, key=lambda w: w["name"].lower())
+    return out
 
 
 def load_env_file(path: Path | None = None) -> dict[str, str]:

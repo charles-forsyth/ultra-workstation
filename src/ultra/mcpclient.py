@@ -376,20 +376,24 @@ class McpClient:
         res = self.rpc("tools/call", {"name": tool, "arguments": args or {}})
         if not isinstance(res, dict):
             raise McpUnknown(f"{self.name}: {tool} returned no result")
-        if res.get("structuredContent") is not None and not res.get("isError"):
-            sc = res["structuredContent"]
+        data: Any
+        sc = res.get("structuredContent")
+        if sc is not None and not res.get("isError"):
             # FastMCP wraps a str return as {"result": "<json>"}
             if isinstance(sc, dict) and set(sc) == {"result"} and isinstance(sc["result"], str):
-                return _maybe_json(sc["result"])
-            return sc
-        text = "\n".join(
-            str(p.get("text", ""))
-            for p in res.get("content") or []
-            if isinstance(p, dict) and p.get("type") == "text"
-        )
-        if res.get("isError"):
-            raise McpToolError(f"{tool}: {text[:500] or 'error'}")
-        data = _maybe_json(text)
+                data = _maybe_json(sc["result"])
+            else:
+                data = sc
+        else:
+            text = "\n".join(
+                str(p.get("text", ""))
+                for p in res.get("content") or []
+                if isinstance(p, dict) and p.get("type") == "text"
+            )
+            if res.get("isError"):
+                raise McpToolError(f"{tool}: {text[:500] or 'error'}")
+            data = _maybe_json(text)
+        # the ledger server reports a refused or failed read as {"error": "..."}
         if isinstance(data, dict) and set(data) == {"error"}:
             raise McpToolError(f"{tool}: {data['error']}")
         return data

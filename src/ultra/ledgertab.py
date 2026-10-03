@@ -199,6 +199,7 @@ class LedgerTab:
         h = self.ledger.serve.health() if self.ledger.serve.enabled else None
         return {
             "enabled": self.ledger.enabled,
+            "mcp": getattr(self.ledger, "mcp", None) is not None,
             "serve": bool(h),
             "serve_env": (h or {}).get("env"),
             "serve_version": (h or {}).get("version"),

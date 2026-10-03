@@ -69,6 +69,7 @@
 .statusbar .src.ok { color: var(--green); }
 .statusbar .src.warn { color: var(--amber); }
 .statusbar .src.err { color: var(--red); }
+#sb-mcp { display: contents; }  /* one light per MCP server, same gap as the rest */
 
 .toasts { position: fixed; right: 16px; bottom: 36px; display: flex; flex-direction: column; gap: 6px; z-index: 50; }
 .toast { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 8px 12px; max-width: 360px; }

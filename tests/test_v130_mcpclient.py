@@ -115,6 +115,16 @@ class FakeMcp:
                         return self._send(200, {})
                     if outer.mode == "error_json":
                         result = {"content": [{"type": "text", "text": '{"error": "No task x"}'}]}
+                    elif outer.mode == "error_structured":  # FastMCP: str wrapped in result
+                        result = {
+                            "content": [{"type": "text", "text": '{"error": "No unit zz"}'}],
+                            "structuredContent": {"result": '{"error": "No unit zz"}'},
+                        }
+                    elif outer.mode == "structured":
+                        result = {
+                            "content": [{"type": "text", "text": "[1, 2]"}],
+                            "structuredContent": {"result": "[1, 2]"},
+                        }
                     elif outer.mode == "tool_error":
                         result = {"content": [{"type": "text", "text": "bad"}], "isError": True}
                     elif msg["method"] == "tools/list":
@@ -284,6 +294,11 @@ def test_tool_errors(fake, tmp_path):
     fake.mode = "error_json"  # the ledger server reports errors as {"error": ...}
     with pytest.raises(McpToolError, match="No task x"):
         c.call("nexus_tasks_show", {"task_id": "x"})
+    fake.mode = "error_structured"  # ...and the same inside structuredContent
+    with pytest.raises(McpToolError, match="No unit zz"):
+        c.call("nexus_labs_show", {"name": "zz"})
+    fake.mode = "structured"
+    assert c.call("x") == [1, 2]
 
 
 def test_https_required_except_loopback(tmp_path):

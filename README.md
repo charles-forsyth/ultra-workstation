@@ -78,7 +78,7 @@ paths are set in `[google]` of `config.toml`.
 | Ledger, link chips, tasks | the `nexus` CLI (`nexus serve` makes it fast) |
 | Ask Hermes | the `hermes` CLI |
 | Research | the `deep-research` CLI |
-| Hosted ledger / cluster MCP servers (v1.3) | `[mcp.nexus]` / `[mcp.ursa]` in config (URL and the program client id from the server's admin), then `ultra auth nexus` / `ultra auth ursa` once |
+| Hosted ledger / cluster MCP servers (v1.3) | `[mcp.nexus]` / `[mcp.ursa]` in config (URL and the program client id from the server's admin), then `ultra auth nexus` / `ultra auth ursa` once. `[ledger] backend = "mcp"` (v1.4) reads the ledger through it: a person's full history in about 2 s instead of 20 |
 
 Each is checked by `ultra doctor`; a missing one hides its feature, nothing else breaks.
 

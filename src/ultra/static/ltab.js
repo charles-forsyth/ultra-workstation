@@ -54,7 +54,7 @@ function wireHead() {
   q.onkeydown = (e) => { if (e.key === "Enter" && q.value.trim()) search(q.value.trim()); };
   api("/api/lt/status").then((s) => {
     const el = $("#lt-src"); if (!el) return;
-    el.textContent = s.serve ? `live via nexus serve (${s.serve_env})` : "via the nexus command (slower)";
+    el.textContent = s.mcp ? "live via the ledger MCP server" : s.serve ? `live via nexus serve (${s.serve_env})` : "via the nexus command (slower)";
     el.title = s.serve ? `nexus ${s.serve_version}; last call ${s.last?.ms ?? "?"} ms` : "Start it with: nexus serve --start";
   }).catch(() => {});
 }

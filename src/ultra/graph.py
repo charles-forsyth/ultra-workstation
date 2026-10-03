@@ -229,9 +229,14 @@ class Graph:
             except Exception:  # noqa: BLE001 - a neighbor that fails just has no extra edges
                 self.store.cache_put(f"graph:tree:{n['id']}", {"root": {}, "connections": []})
 
+        # Over the hosted MCP server (v1.4) a tree takes about a second and the client
+        # runs 8 at once (measured: 40 heavy neighbors in about 6 s, against about 75 s
+        # 3-wide on the CLI); the CLI path keeps 3.
+        workers = 8 if getattr(self.ledger, "mcp", None) is not None else 3
+
         def run() -> None:
             try:
-                with ThreadPoolExecutor(max_workers=3) as ex:  # the ledger has its own semaphore
+                with ThreadPoolExecutor(max_workers=workers) as ex:
                     list(ex.map(one, nbrs))
             finally:
                 with self.lock:

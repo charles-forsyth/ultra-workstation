@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.8 of the spec; app at v1.8.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, and cluster facts in support mail; see the delivery plan in section 19)
+Status: v1.9 of the spec; app at v1.9.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, and Ask Hermes that can look things up; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -899,6 +899,33 @@ item; each question is a full agent turn on the operator's main model.
 - **Code.** `hermes.py` (adapter), `ask.py` (targets and routes), `static/ask.js`
   (panel). Tests: `tests/test_v013_ask.py` (fake `hermes` binary records argv, query
   file mode and environment).
+
+**Looking things up (v1.9).** With `[hermes] profile = "ultra-ask"`, Ask runs
+`hermes -p ultra-ask chat ... -t session_search,nexus,ursa`. That Hermes profile (a clone
+of the operator's, so it shares the model, keys and persona) has its own sign-ins to the
+ledger and cluster MCP servers, each limited by `tools.include` to read tools: the 23
+ledger reads, and 14 cluster reads (status, health, partitions, recipes, modules,
+interactive help, script check, any user's job show and explain, ticket draft, all jobs,
+usage and waste reports; no files, storage or download links). Its Google Workspace
+server is disabled. `trust: full` is set on both servers, because the servers' read-only
+annotations do not reach Hermes today (`mcp` 2.0 renamed the attribute, so every tool
+reads as write-capable); the include lists are what keep it read-only.
+
+- Ultra checks the profile before using it (cached 10 minutes, `hermes -p <profile>
+  config get ... --json`): every included tool must be in Ultra's own read list
+  (`PROFILE_READ_TOOLS` in `hermes.py`), each server must have an include list, and no
+  other MCP server may be enabled. Any failure: Ask runs exactly as before
+  (`session_search` only, default profile) and the panel shows "lookup off: profile
+  check failed" with the reason.
+- Verified from inside the profile (2026-10-03): it lists 46 callable tools, none of
+  them writes; `tool_search` for log, add task, unlink, submit, cancel, send email,
+  shell or file writes finds nothing that writes. A real Ask about a failed job called
+  `job_explain_any` and answered in 18 s.
+- The panel's note names what Hermes may use ("your past sessions, the ledger (read),
+  the cluster (read)").
+- Tests: `tests/test_v190_ask_profile.py` (a fake `hermes` that answers `config get`;
+  a write tool in an include list, a missing list, an empty list, or another enabled
+  server each fall back; no profile is the old behaviour; the check is cached).
 
 ### 7.13 Calm layout and the action table (v1.5)
 
@@ -1891,6 +1918,7 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
     source = "ultra"                      # session tag in Hermes
     max_turns = 25
     budget_seconds = 300
+    profile = ""                          # v1.9: e.g. "ultra-ask" (read-only profile, 7.12)
 
     [research]
     enabled = true
@@ -2192,6 +2220,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.6 Ledger writes on MCP (shipped 1.6.0) | Section 8.4: desk and Ledger-tab writes through the hosted server, deletes on the CLI, refusal falls back, unknown outcomes never re-sent; one live log verified |
 | v1.7 Calm, part 2 (shipped 1.7.0) | Section 7.13: Board full width, Today plan strip, Ledger summary line and a shorter tab strip, Tidy suggestion, Log offer after archiving READY |
 | v1.8 Cluster facts in mail (shipped 1.8.0) | Section 8.9: job ids in support mail show a Cluster chip with the job's facts, findings, log end and a reply draft from bifrost; script check; cluster line on Today; read tools only |
+| v1.9 Ask that looks things up (shipped 1.9.0) | Section 7.12: `[hermes] profile`, a read-only Hermes profile with the ledger and cluster read tools, checked before each use, falls back to the old Ask |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
@@ -2217,6 +2246,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.9 | App v1.9.0 (7.12, 13, 19): Ask Hermes can look things up in the ledger and on the cluster through a read-only Hermes profile (`[hermes] profile`), whose MCP servers are limited to read tools; Ultra re-checks the include lists and enabled servers before each use and falls back to the plain Ask. |
 | 2026-10-03 | 1.8 | App v1.8.0 (new 8.9; 5.2, 14, 19): cluster facts in the mail loop. Job ids and batch scripts in email and ticket threads show a Cluster chip; the card reads `job_show_any`, `job_explain_any` and `ticket_draft` from bifrost (read tiers, allow-listed), with "Use as reply" into the reply-all draft; Check the script (`script_check`); Today shows a cluster chip only for issues, unknown, or 10%+ failures. Demo has a support email for job 315. |
 | 2026-10-03 | 1.7 | App v1.7.0 (7.13, 14, 19): calm layout part 2. Board full width with hover actions and compact empty columns; Today plan strip; Ledger summary line, Org and Health under "..."; Tidy suggestion at 10+ threads (`GET /api/mail/tidy/count`); Log offer after archiving a READY thread. |
 | 2026-10-03 | 1.6 | App v1.6.0 (8.4, 5.2, 19): ledger writes through the hosted ledger MCP server when `[ledger] backend = "mcp"`. `ledger_mcp_write.py` maps each argv the two writers build to one write tool; deletes and `projects docs rm` stay on the CLI; a refusal before anything ran falls back to serve/CLI; an unknown outcome is never re-sent. One live log verified (provenance source mcp, client Ultra). |

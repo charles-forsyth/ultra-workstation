@@ -70,7 +70,9 @@ function paintPreview() {
 function render() {
   const dlg = $("#ask");
   const st = A.status || {};
-  const tools = (st.toolsets || []).join(", ") || "session_search";
+  const LABEL = { session_search: "your past sessions", nexus: "the ledger (read)", ursa: "the cluster (read)" };
+  const tools = (st.toolsets || []).map((t) => LABEL[t] || t).join(", ") || "your past sessions";
+  const profNote = st.profile && st.profile_ok === false ? ` <span class="badge warn" title="${esc(st.profile_why || "")}">lookup off: profile check failed</span>` : "";
   const follow = !!A.session;
   dlg.innerHTML = `<div class="lc-card ask-card" role="dialog" aria-modal="true" aria-labelledby="ask-h">
     <div class="lc-head"><h3 id="ask-h">Ask Hermes</h3><span class="dim small-t ell" id="ask-title">${esc(A.title)}</span><span class="grow"></span>
@@ -86,7 +88,7 @@ function render() {
       <span class="grow"></span>
       <button class="btn small ai" id="ask-go" ${st.enabled ? "" : "disabled"}>Ask</button>
     </div>
-    <div class="dim small-t ask-note">Read-only: Hermes may use ${esc(tools)}${st.web_ok ? " (and the web if ticked)" : ""}. It cannot send, post, log or change anything. Session tag: <span class="mono">${esc(st.source || "ultra")}</span>.${A.session ? ` <span class="nowrap">Session <span class="mono">${esc(A.session)}</span> <button class="btn tiny ghost" id="ask-copy-sid" title="Copy the session id (resume with: hermes --resume ID)">Copy id</button></span>` : ""}</div>
+    <div class="dim small-t ask-note">Read-only: Hermes may use ${esc(tools)}${st.web_ok ? " (and the web if ticked)" : ""}. It cannot send, post, log or change anything.${profNote} Session tag: <span class="mono">${esc(st.source || "ultra")}</span>.${A.session ? ` <span class="nowrap">Session <span class="mono">${esc(A.session)}</span> <button class="btn tiny ghost" id="ask-copy-sid" title="Copy the session id (resume with: hermes --resume ID)">Copy id</button></span>` : ""}</div>
   </div>`;
   $("#ask-x").onclick = close;
   dlg.onclick = (e) => { if (e.target === dlg) close(); };

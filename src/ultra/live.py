@@ -24,7 +24,7 @@ from ultra.board import Board
 from ultra.calendar import Calendar
 from ultra.cluster import Cluster, ClusterApi, with_cluster
 from ultra.compose import ComposeError, Composer, gmail_send
-from ultra.config import Config, data_dir, expand, private_dir
+from ultra.config import Config, expand, private_dir
 from ultra.day import Day
 from ultra.desk import Desk
 from ultra.drafttools import compare, cut_sentences, tidy
@@ -106,7 +106,7 @@ def load_vips(cfg: Config) -> set[str]:
 class Live:
     def __init__(self, cfg: Config, store: Store | None = None):
         self.cfg = cfg
-        self.store = store or Store()
+        self.store = store or Store(private_dir(cfg.data_home) / "state.db")
         self.rules = Rules.from_config(cfg, load_vips(cfg))
         self.mail = Mail(cfg, self.store, self.rules)
         # Hosted MCP servers (SPEC 8.8): only those configured in [mcp.<name>]. One
@@ -121,7 +121,7 @@ class Live:
         self.ledger = Ledger(cfg, self.store, mcp=self.mcp.get("nexus"))
         self.slack = Slack(cfg, self.store)
         self.ai = AI(cfg)
-        self.draft_files = DraftFiles(self.store, private_dir(data_dir()) / "attachments")
+        self.draft_files = DraftFiles(self.store, private_dir(cfg.data_home) / "attachments")
         self.compose = Composer(
             cfg,
             self.store,
@@ -187,9 +187,10 @@ class Live:
             self.operator,
             (int(wh[0]), int(wh[1])),
         )
-        set_extra_generic(list(cfg.get("draft", "generic_words", []) or []))
+        if not cfg.slug:  # module-wide list: the main workspace owns it (v1.11)
+            set_extra_generic(list(cfg.get("draft", "generic_words", []) or []))
         self.facts = HouseFacts(self.store)
-        self.learner = EditLearner(self.store)
+        self.learner = EditLearner(self.store, cfg.style_path)
         self.studio = Studio(
             self.store,
             self.ai,
@@ -202,7 +203,7 @@ class Live:
             self.operator,
             str(cfg.get("draft", "notes_dir", "") or ""),
             self._style_notes,
-            lambda: str((load_style().get("signature") or {}).get("text", "")),
+            lambda: str((load_style(self.cfg.style_path).get("signature") or {}).get("text", "")),
             task_fn=self._studio_task,
         )
         self.show_tasks = bool(cfg.get("ledger", "tasks_in_stream", True))
@@ -224,7 +225,9 @@ class Live:
             compose=self.compose,
             from_addr=self.from_default,
             my_addrs=set(cfg.my_addresses),
-            signature_fn=lambda: str((load_style().get("signature") or {}).get("text", "")),
+            signature_fn=lambda: str(
+                (load_style(self.cfg.style_path).get("signature") or {}).get("text", "")
+            ),
         )
         # v1.2 Graph: ledger neighborhood, read only
         self.graph = Graph(self.ledger, self.store, str(cfg.get("ledger", "my_id", "") or ""))
@@ -418,9 +421,8 @@ class Live:
             raise LedgerError(str(r.get("error") or "task not found"))
         return r
 
-    @staticmethod
-    def _style_notes() -> str:
-        style = load_style()
+    def _style_notes(self) -> str:
+        style = load_style(self.cfg.style_path)
         return "; ".join(
             str(r.get("message")) for r in style.get("forbid") or [] if r.get("message")
         )
@@ -527,7 +529,17 @@ class Live:
         counts = {k: sum(1 for it in items if fn(it)) for k, fn in FILTERS.items()}
         keep = FILTERS.get(f, FILTERS["mine"])
         rows = [{k: v for k, v in it.items() if k != "messages"} for it in items if keep(it)]
-        return {"items": rows, "counts": counts, "age": age, "loading": age is None}
+        # mail that has never loaded because it needs a sign-in is not "loading" (v1.11)
+        auth = self.mail.state.get("auth") if self.mail.state.get("ok") is False else None
+        out: dict[str, Any] = {
+            "items": rows,
+            "counts": counts,
+            "age": age,
+            "loading": age is None and not auth,
+        }
+        if auth:
+            out["auth"] = {"capability": auth, "error": str(self.mail.state.get("error", ""))[:300]}
+        return out
 
     def r_refresh(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         what = (body or {}).get("what", "mail")
@@ -1204,7 +1216,7 @@ class Live:
         sig = (
             ""
             if d["kind"] == "slack"
-            else str((load_style().get("signature") or {}).get("text", ""))
+            else str((load_style(self.cfg.style_path).get("signature") or {}).get("text", ""))
         )
         text, changes = tidy(
             cur.get("body") or "",
@@ -1246,7 +1258,7 @@ class Live:
             thread_text = self._slack_text(d)
         else:
             thread_text = self._thread_text(d["thread_id"]) if d["thread_id"] else ""
-        style = load_style()
+        style = load_style(self.cfg.style_path)
         notes = "; ".join(
             str(r.get("message")) for r in style.get("forbid") or [] if r.get("message")
         )
@@ -1366,7 +1378,7 @@ class Live:
 
     def r_att_save(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         name, _mime, data = self._mx(self.mail.attachment, m.group(1), m.group(2))
-        folder = private_dir(data_dir() / "attachments" / "saved")
+        folder = private_dir(self.cfg.data_home / "attachments" / "saved")
         path = folder / safe_name(name)
         n = 1
         while path.exists():

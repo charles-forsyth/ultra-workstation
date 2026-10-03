@@ -363,7 +363,7 @@ class Composer:
         hit = self.store.cache_get(f"draft:{did}:participants")
         issues = lint(
             v,
-            load_style(),
+            load_style(self.cfg.style_path),
             thread_participants=set(hit[0]) if hit else set(),
             me=self.me,
             org_domain=self.org,

@@ -437,8 +437,8 @@ def _maybe_json(text: str) -> Any:
 
 
 # ---------------------------------------------------------------------- config
-def token_path(name: str) -> Path:
-    return config_dir() / "tokens" / f"mcp-{name}.json"
+def token_path(name: str, cfg: Config | None = None) -> Path:
+    return (cfg.config_home if cfg is not None else config_dir()) / "tokens" / f"mcp-{name}.json"
 
 
 def configured(cfg: Config, name: str) -> bool:
@@ -456,7 +456,7 @@ def client_from_config(cfg: Config, name: str) -> McpClient | None:
     if sec.get("enabled", True) is False:
         return None
     d = DEFAULTS[name]
-    tf = expand(str(sec["token_file"])) if sec.get("token_file") else token_path(name)
+    tf = expand(str(sec["token_file"])) if sec.get("token_file") else token_path(name, cfg)
     return McpClient(
         name,
         str(sec["url"]),

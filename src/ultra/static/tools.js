@@ -2,7 +2,7 @@
 // Research "Start" spends money: it only runs from the launcher dialog's Start button,
 // after the estimate is shown. Nothing here starts a run from a keyboard shortcut.
 
-import { api, esc, toast, busy, copyText } from "./app.js";
+import { api, esc, toast, busy, copyText, WS } from "./app.js";
 import { addSnippet } from "./ledger.js";
 import { askButton, openAsk } from "./ask.js";
 
@@ -339,7 +339,7 @@ async function pollAudio(job, onStep) {
 function playAudio(res, title) {
   stopReading();
   const bar = $("#listenbar"); bar.hidden = false; bar.dataset.audio = "1";
-  const src = `/api/audio/file/${res.id}`;
+  const src = WS.url(`/api/audio/file/${res.id}`);
   bar.innerHTML = `<span class="label">AI audio</span><span class="dim small-t ell">${esc(title)} &middot; ${esc(res.voice)} &middot; ${Math.round(res.seconds / 60 * 10) / 10} min${res.cost_usd != null ? ` &middot; $${esc(res.cost_usd)}` : ""}${res.cached ? " (cached)" : ""}</span>
     <audio id="lb-audio" controls preload="auto" src="${src}"></audio>
     <select id="lb-speed">${[1, 1.25, 1.5, 1.75, 2].map((r) => `<option value="${r}">${r}x</option>`).join("")}</select>

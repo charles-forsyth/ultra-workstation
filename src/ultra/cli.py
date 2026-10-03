@@ -72,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["read", "modify", "send", "calendar"],
         required=True,
     )
+    g.add_argument("--workspace", default="", help="A workspace other than the main one")
     for name, what in (("nexus", "the ledger"), ("ursa", "the cluster")):
         m = asub.add_parser(
             name,
@@ -85,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
         m.add_argument("--status", action="store_true", help="Show the signed-in identity")
         m.add_argument("--sign-out", action="store_true", help="Delete the saved tokens")
         m.add_argument("--no-browser", action="store_true", help="Print the URL only")
+        m.add_argument("--workspace", default="", help="A workspace other than the main one")
 
     pg = sub.add_parser("purge", help="Delete local copies (audio files, research uploads)")
     pg.add_argument("--audio", action="store_true", help="Delete generated audio files")
@@ -173,6 +175,13 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = config.load()
     port = getattr(args, "port", None) or cfg.port
+    ws = getattr(args, "workspace", "") or ""
+    if ws and ws != "main":
+        try:
+            cfg = config.load_workspace(ws)
+        except KeyError as e:
+            print(f"[ERROR] {e}")
+            sys.exit(2)
     cmd = args.command
     if cmd is None:
         build_parser().print_help()

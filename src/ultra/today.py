@@ -15,6 +15,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from ultra import google_auth
 from ultra.calendar import COLORS, WEEKDAYS, CalendarError
 from ultra.invites import InviteError, Invites, Rsvp
 
@@ -77,7 +78,8 @@ class Today:
         fresh = (q.get("fresh") or ["0"])[0] == "1"
         try:
             return self.cal.day(day, fresh=fresh)
-        except CalendarError as e:
+        except (CalendarError, google_auth.AuthNeeded) as e:
+            # the page still draws the day (and the Home line) around the message
             return {"day": day, "events": [], "error": str(e)}
 
     def r_event(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -102,7 +104,7 @@ class Today:
         fresh = (q.get("fresh") or ["0"])[0] == "1"
         try:
             return self.cal.week(day, fresh=fresh)
-        except CalendarError as e:
+        except (CalendarError, google_auth.AuthNeeded) as e:
             return {"week_start": day, "days": {}, "pending": [], "error": str(e)}
 
     # ------------------------------------------------------------ writes

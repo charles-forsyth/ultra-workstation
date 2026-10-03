@@ -3,7 +3,7 @@
 // press Add to calendar there); the report saves to the ledger only through a staged log
 // card you review and commit.
 
-import { api, esc, toast, busy, copyText } from "./app.js";
+import { api, esc, toast, busy, copyText, WS } from "./app.js";
 import { askButton, openAsk } from "./ask.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -37,8 +37,8 @@ function head() {
     <div class="seg" id="day-seg"><button data-dt="plan" class="${D.tab === "plan" ? "on" : ""}">Check-in plan</button><button data-dt="report" class="${D.tab === "report" ? "on" : ""}">End-of-day report</button></div>
     <button class="btn small ghost calm-only" data-goto="today" title="Calendar (g)">Calendar</button>
     <span class="grow"></span>
-    <a class="btn small ghost" href="/api/day/agenda.ics" download title="Today's agenda as a calendar file">Agenda .ics</a>
-    <a class="btn small ghost" href="/api/day/journal.csv" download title="Everything Ultra did today, as CSV">Journal .csv</a>
+    <a class="btn small ghost" href="${WS.url("/api/day/agenda.ics")}" download title="Today's agenda as a calendar file">Agenda .ics</a>
+    <a class="btn small ghost" href="${WS.url("/api/day/journal.csv")}" download title="Everything Ultra did today, as CSV">Journal .csv</a>
     <button class="btn small ghost" id="day-fresh" title="Rebuild">&#8635;</button>
     <button class="btn small ghost" id="day-close" title="Back (Esc)">Close</button>
   </div>`;

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.10 of the spec; app at v1.10.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, and Home, the personal notes vault, read only; see the delivery plan in section 19)
+Status: v1.11 of the spec; app at v1.11.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, Home, the personal notes vault, read only, and workspaces (Work / Personal); see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -192,7 +192,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | File | What it is |
 |---|---|
 | `cli.py`, `daemon.py` | `ultra` command; background start/stop/status (PID file) |
-| `config.py` | config and data paths, `private_dir` (mode 700) |
+| `config.py` | config and data paths, `private_dir` (mode 700), workspaces (`load_workspace`, `list_workspaces`, per-workspace folders; 7.14) |
 | `server.py`, `guard.py`, `remote.py` | HTTP server and routing; Host/Origin/CSRF/content-type guards; remote allow-list (LAN, `tailnet:mine`) |
 | `store.py` | SQLite store: cache, bucket, journal |
 | `doctor.py` | `ultra doctor` checks (no secrets printed) |
@@ -1018,6 +1018,46 @@ status, so a menu entry built from the id would have set the task BLOCKED.
   ("N old threads can be tidied", Preview, Not today) when the default rule finds 10 or
   more threads (`GET /api/mail/tidy/count`, read only, no token); archiving a READY
   thread offers "Log it" (the staged card, as always).
+
+### 7.14 Workspaces: Work and Personal (v1.11)
+
+Two (or more) whole Ultras in one server, switched like the layout: each workspace has
+its own mail, calendar, ledger, history, drafts, VIP list, style and sign-ins. The main
+workspace is today's folders, so nothing moves. Every other workspace is a folder:
+
+    ~/.config/ultra-workstation/workspaces/<slug>/config.toml   (and style.toml, tokens/, vip.txt)
+    ~/.local/share/ultra-workstation/workspaces/<slug>/         (state.db, attachments, audio, hermes)
+
+- `[workspace] name` and `color` (cyan, green, amber, magenta, red) in each config; the
+  main one defaults to "Main", cyan.
+- **Switch.** A workspace button next to the brand (shown when there is more than one),
+  `W` for the next one, and palette entries. The choice is per browser
+  (`localStorage ultra.workspace`); Ultra opens in the last one used there. The brand
+  mark, the switch's dot and a line under the top bar take the workspace colour.
+- **Routing.** Every request carries `X-Ultra-Workspace` (links and media that cannot
+  set headers carry `?ws=`). The server keeps one Api per workspace, each with its own
+  Live, built on first use; the main one is built at start. An unknown or malformed
+  name is a 404; a remembered workspace that no longer exists sends the page back to
+  main.
+- **What never crosses.** Each workspace's Config knows its own folders, and everything
+  that reads or writes a file goes through them: the state store, MCP tokens
+  (`tokens/mcp-<name>.json`), style.toml (lint, signature, learned rules), attachments,
+  audio, Hermes query files, research uploads. Google API clients are cached per token
+  file. The Gemini key may be set per workspace (`.env` in its folder); the main `.env`
+  is the fallback. The draft-sources generic-word list is process-wide and set from the
+  main workspace only.
+- **CLI.** `ultra auth google|nexus|ursa --workspace <slug>` signs that workspace in.
+- **Mail not signed in** shows "Mail needs signing in" with the exact command, not an
+  endless "Loading"; Today draws the day around a calendar sign-in message.
+- Live set-up (operator, 2026-10-03): Work = the main folders (work mail and calendar,
+  Nexus, Slack, tickets, cluster); Personal = personal Gmail and calendar (W1, pending an
+  OAuth client in the personal Google Cloud project), no Nexus, Slack or tickets, the
+  notes vault (8.10) as its ledger side. Next: W1 personal Google sign-in, W2 the vault as
+  Personal's Ledger place, W3 Google Drive (browse, open, insert, attach, save) in both,
+  W4 vault writes from Personal Log and Task.
+- Tests: `tests/test_v1110_workspaces.py` (own folders, bad and missing names, broken
+  configs skipped, tokens and store per workspace, routing by header and query through
+  the real HTTP handler, demo has one, every raw `/api/` link carries the workspace).
 
 ## 8. Adapters
 
@@ -1982,7 +2022,7 @@ All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` an
 `Content-Type: application/json` (12.1). Long calls return a job id that the page polls.
 There is no SSE stream and no generic jobs route; each feature has its own job route.
 Path parameters are shown as `<name>`; the server matches each with a strict pattern.
-163 route paths as of v1.10 (`tests/test_v101_spec.py` fails if one is added without a row
+164 route paths as of v1.11 (`tests/test_v101_spec.py` fails if one is added without a row
 here).
 
 **Core** (server.py)
@@ -1990,7 +2030,8 @@ here).
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | ok, version, demo |
-| GET | `/api/session` | CSRF token, operator, time zone, which sources are on |
+| GET | `/api/session` | CSRF token, operator, time zone, which sources are on, this workspace (7.14) |
+| GET | `/api/workspaces` | every workspace: slug, name, colour (7.14) |
 
 **Stream, threads, status** (live.py)
 
@@ -2170,8 +2211,8 @@ here).
                                         Slack connector (and ANTHROPIC_API_KEY), Gemini key,
                                         deep-research, ffmpeg, each configured MCP
                                         server (reachable, version, signed in as whom)
-    ultra auth google [--capability read|modify|send|calendar]
-    ultra auth nexus | ursa [--status | --sign-out | --no-browser]
+    ultra auth google [--capability read|modify|send|calendar] [--workspace SLUG]
+    ultra auth nexus | ursa [--status | --sign-out | --no-browser] [--workspace SLUG]
                                         sign in to a hosted MCP server (8.8) as the
                                         program client; --status shows who and the budget
     ultra config init                   write example config.toml and style.toml
@@ -2266,6 +2307,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.6 Ledger writes on MCP (shipped 1.6.0) | Section 8.4: desk and Ledger-tab writes through the hosted server, deletes on the CLI, refusal falls back, unknown outcomes never re-sent; one live log verified |
 | v1.7 Calm, part 2 (shipped 1.7.0) | Section 7.13: Board full width, Today plan strip, Ledger summary line and a shorter tab strip, Tidy suggestion, Log offer after archiving READY |
 | v1.8 Cluster facts in mail (shipped 1.8.0) | Section 8.9: job ids in support mail show a Cluster chip with the job's facts, findings, log end and a reply draft from bifrost; script check; cluster line on Today; read tools only |
+| v1.11 Workspaces (shipped 1.11.0) | Section 7.14: Work and Personal, each a whole Ultra (own mail, calendar, ledger, history, sign-ins); switch, `W`, per-browser memory |
 | v1.10 Home (shipped 1.10.0) | Section 8.10: the personal notes vault over a local MCP server, read only: Home line on Today, notes search, note reader |
 | v1.9 Ask that looks things up (shipped 1.9.0) | Section 7.12: `[hermes] profile`, a read-only Hermes profile with the ledger and cluster read tools, checked before each use, falls back to the old Ask |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
@@ -2293,6 +2335,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.11 | App v1.11.0 (new 7.14; 5.2, 7.7, 14, 15, 19): workspaces. Main = today's folders; others in `workspaces/<slug>/` with their own config, style, tokens and state; one Api and Live per workspace, chosen per request by `X-Ultra-Workspace` / `?ws=`; switch next to the brand, `W`, palette; workspace colour on the top bar; `--workspace` on `ultra auth`; mail sign-in message instead of endless Loading; Today draws around a calendar sign-in error. Live: Work and Personal (the notes vault moves to Personal). |
 | 2026-10-03 | 1.10 | App v1.10.0 (new 8.10; 5.2, 14, 19): Home, the personal notes vault, read only. Local stdio MCP server (headless-obsidian-mcp) started with reads only; five allow-listed read tools; Home line on Today for dated todos (overdue and this week), palette notes search, a note reader with Open in Obsidian; `[vault] exclude` hides folders; a Notes status light. |
 | 2026-10-03 | 1.9.1 | App v1.9.1 (7.7, 7.13): both layouts stay for good, switchable both ways: "Calm layout" button in the classic top bar (there was no visible way back from classic, only the palette), `L` toggles, the dot-menu and palette entries show the key. |
 | 2026-10-03 | 1.9 | App v1.9.0 (7.12, 13, 19): Ask Hermes can look things up in the ledger and on the cluster through a read-only Hermes profile (`[hermes] profile`), whose MCP servers are limited to read tools; Ultra re-checks the include lists and enabled servers before each use and falls back to the plain Ask. |

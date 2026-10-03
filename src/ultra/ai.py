@@ -51,7 +51,13 @@ class Result:
 class AI:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.key = load_env_file().get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY", "")
+        # a workspace may have its own .env; the main one is the fallback (same AI everywhere)
+        own = load_env_file(cfg.config_home / ".env") if cfg.slug else {}
+        self.key = (
+            own.get("GEMINI_API_KEY")
+            or load_env_file().get("GEMINI_API_KEY")
+            or os.getenv("GEMINI_API_KEY", "")
+        )
         # Operator rule (2026-09-30): every text-generating call uses gemini-3.8-flash.
         # No silent fallback to another model; a failure is shown, not papered over.
         self.model = str(cfg.get("ai", "model", "") or "gemini-3.8-flash")

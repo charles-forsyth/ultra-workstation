@@ -40,7 +40,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from ultra.config import Config, data_dir, private_dir
+from ultra.config import Config, private_dir
 
 # Toolsets an Ask may use. Every one is a read. `web` is added only when the operator
 # ticks Allow web for that question. Config can narrow this list, never widen it.
@@ -291,7 +291,7 @@ class Hermes:
         return a
 
     def _qfile(self, text: str) -> Path:
-        d = private_dir(data_dir() / "hermes")
+        d = private_dir(self.cfg.data_home / "hermes")
         fd, name = tempfile.mkstemp(prefix="ask-", suffix=".txt", dir=d)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)

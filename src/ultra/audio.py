@@ -21,7 +21,7 @@ import wave
 from pathlib import Path
 from typing import Any
 
-from ultra.config import Config, data_dir, private_dir
+from ultra.config import Config, private_dir
 from ultra.store import Store
 
 TOKENS_PER_SEC = 25  # Gemini TTS audio tokens per second of speech
@@ -99,7 +99,7 @@ class Audio:
         self.price_in = float(a.get("price_in_per_1m") or 0)
         self.price_out = float(a.get("price_out_per_1m") or 0)
         self.chunk_chars = int(a.get("chunk_chars") or 3500)
-        self.folder = data_dir() / "audio"
+        self.folder = cfg.data_home / "audio"
         self.enabled = bool(getattr(ai, "enabled", False))
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jl = threading.Lock()

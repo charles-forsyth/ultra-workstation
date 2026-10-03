@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ultra.config import Config, data_dir, private_dir
+from ultra.config import Config, private_dir
 from ultra.store import Store
 
 ALLOWED = {"search", "list", "show", "estimate", "start"}
@@ -135,7 +135,7 @@ class Research:
         return d
 
     def _thread_file(self, text: str) -> Path:
-        folder = private_dir(data_dir() / "research-uploads")
+        folder = private_dir(self.cfg.data_home / "research-uploads")
         fd, name = tempfile.mkstemp(prefix="thread-", suffix=".txt", dir=folder)
         with os.fdopen(fd, "w") as f:
             f.write(text[:1_000_000])
@@ -144,7 +144,7 @@ class Research:
 
     def cleanup_uploads(self, max_age: float = 86400) -> int:
         """Remove thread files for finished runs, and anything older than a day."""
-        folder = data_dir() / "research-uploads"
+        folder = self.cfg.data_home / "research-uploads"
         if not folder.exists():
             return 0
         n = 0

@@ -827,3 +827,19 @@ body.calm #lt-seg .lt-rare { display: none; }
 .vt-snip { margin-top: 2px; color: var(--fg-2, inherit); }
 .vt-note .vt-body { max-height: 62vh; overflow: auto; margin-top: 8px; padding-right: 6px; }
 .home-item .badge.bad { background: var(--red-d); color: var(--red); }
+
+/* Workspaces (SPEC 7.14): the switch, and a workspace colour on the top bar */
+.ws-switch { display: inline-flex; align-items: center; gap: 6px; font: 600 12px var(--sans); margin-left: 8px; }
+.ws-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); }
+body[data-wscolor="green"] .ws-dot { background: var(--green); }
+body[data-wscolor="amber"] .ws-dot { background: var(--amber); }
+body[data-wscolor="magenta"] .ws-dot { background: var(--magenta); }
+body[data-wscolor="red"] .ws-dot { background: var(--red); }
+body[data-wscolor="green"] .brand-mark { background: var(--green); }
+body[data-wscolor="amber"] .brand-mark { background: var(--amber); }
+body[data-wscolor="magenta"] .brand-mark { background: var(--magenta); }
+body[data-wscolor="red"] .brand-mark { background: var(--red); }
+body[data-wscolor="green"] .topbar { box-shadow: inset 0 -2px 0 var(--green); }
+body[data-wscolor="amber"] .topbar { box-shadow: inset 0 -2px 0 var(--amber); }
+body[data-wscolor="magenta"] .topbar { box-shadow: inset 0 -2px 0 var(--magenta); }
+body[data-wscolor="red"] .topbar { box-shadow: inset 0 -2px 0 var(--red); }

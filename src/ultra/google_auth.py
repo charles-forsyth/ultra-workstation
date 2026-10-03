@@ -42,7 +42,7 @@ SATISFIES = {
 }
 
 _lock = threading.Lock()
-_services: dict[tuple[str, str, int], Any] = {}
+_services: dict[tuple[str, str, str, int], Any] = {}
 
 
 class AuthNeeded(Exception):
@@ -107,7 +107,9 @@ def service(cfg: Config, api: str, version: str, capability: str):
     client. Building one is about a millisecond (no discovery fetch)."""
     from googleapiclient.discovery import build
 
-    key = (api, capability, threading.get_ident())
+    # keyed by the token file too: two workspaces must never share a client (v1.11)
+    tp = str(cfg.get("google", f"token_{capability}") or "")
+    key = (api, capability, tp, threading.get_ident())
     with _lock:
         svc = _services.get(key)
         creds = getattr(svc, "_ultra_creds", None) if svc else None

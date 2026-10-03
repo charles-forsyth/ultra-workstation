@@ -21,6 +21,7 @@ from ultra.ask import AskDesk
 from ultra.audio import Audio
 from ultra.board import Board
 from ultra.calendar import Calendar
+from ultra.cluster import Cluster, ClusterApi, with_cluster
 from ultra.compose import ComposeError, Composer, gmail_send
 from ultra.config import Config, data_dir, expand, private_dir
 from ultra.day import Day
@@ -224,6 +225,9 @@ class Live:
         )
         # v1.2 Graph: ledger neighborhood, read only
         self.graph = Graph(self.ledger, self.store, str(cfg.get("ledger", "my_id", "") or ""))
+        # v1.8 cluster facts in the mail loop: bifrost read tools only (SPEC 8.9)
+        self.cluster = Cluster(self.mcp.get("ursa"))
+        self.cluster_api = ClusterApi(self.cluster, self.store)
         # v1.1 Inbox Tidy: rule-based bulk archive, previewed, one Undo
         self.tidy = Tidy(
             self.store,
@@ -304,6 +308,7 @@ class Live:
         self.board.register(api)
         self.tidy.register(api)
         self.graph.register(api)
+        self.cluster_api.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)
@@ -557,9 +562,10 @@ class Live:
 
     def r_thread(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         try:
-            return self.mail.thread(m.group(1))
+            t = self.mail.thread(m.group(1))
         except google_auth.AuthNeeded as e:
             return {"error": str(e), "auth": e.capability, "messages": []}
+        return with_cluster(t, self.cluster.enabled)
 
     # ---------------------------------------------------------------- tasks
     def r_task_thread(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -702,7 +708,10 @@ class Live:
         for tid in tk.get("threads", [])[:10]:
             msgs += [{**x, "thread_id": tid} for x in self.mail.thread(tid)["messages"]]
         msgs.sort(key=lambda x: x["ts"])
-        return {"key": f"k-{num}", "messages": msgs, "events": tk.get("events", [])}
+        return with_cluster(
+            {"key": f"k-{num}", "messages": msgs, "events": tk.get("events", [])},
+            self.cluster.enabled,
+        )
 
     def r_slack_thread(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         key = "s-" + m.group(1)

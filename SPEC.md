@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.7 of the spec; app at v1.7.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, and the calm layout driven by one action table; see the delivery plan in section 19)
+Status: v1.8 of the spec; app at v1.8.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, and cluster facts in support mail; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -209,6 +209,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `ledger.py`, `ledger_serve.py`, `ledger_write.py` | ledger reads (MCP, `nexus serve` or the CLI); allow-listed writes |
 | `ledger_mcp.py` | ledger reads through the hosted MCP server, answered in the CLI's JSON shapes (8.4, v1.4) |
 | `ledger_mcp_write.py` | ledger writes through the hosted MCP server: argv -> write tool, refusal vs unknown outcome (8.4, v1.6) |
+| `cluster.py` | cluster facts in the mail loop: job-id detection, bifrost read tools only, Cluster chip routes (8.9, v1.8) |
 | `ledgertab.py` | Ledger tab routes |
 | `calendar.py`, `today.py`, `invites.py` | Calendar adapter; Today/Week routes; invitations and RSVP with approvals |
 | `day.py` | Day plan, report, exports |
@@ -1358,6 +1359,43 @@ has its own calls-per-minute budget per person, separate from the person's chat 
 - The child runs in the operator's home directory, so Hermes picks up no repo context
   from Ultra's working directory.
 
+### 8.9 Cluster facts in the mail loop (v1.8)
+
+Support mail about the HPC cluster gets the facts next to the thread, from the
+cluster MCP server (bifrost, `[mcp.ursa]`), as Ultra's program client with the R1 + R2
+read tiers only. `cluster.py`; tests `tests/test_v180_cluster.py`.
+
+- **Detection (rules, no AI).** A job id needs a word that says so: "job 315", "Job ID:
+  315", "job #315", `JobId=315`, or the log name `slurm-315.out`. A bare number, a room,
+  a phone number or a version never counts; at most 5 ids per thread. A `#SBATCH` line
+  marks a batch script. Email and ticket threads carry `cluster: {jobs, script}` when
+  there is something to show and `[mcp.ursa]` is set up; otherwise nothing changes.
+- **Cluster chip.** "Cluster: job N" in the thread header opens a card: state, user,
+  partition, minutes, exit code, CPU and memory use (`job_show_any`), the server's
+  deterministic findings with evidence and the suggested fix, and the end of the log
+  with its path (`job_explain_any`, 60 lines; full logs are fine for the operator, an
+  admin; decided 2026-10-02). With the newest message from the other side as ticket
+  text, `ticket_draft` adds a reply; "Use as reply" puts it in the reply-all draft as a
+  new AI version, which still needs both approvals. Also Ask Hermes (the job facts as
+  the attached text) and Copy facts.
+- **Check the script.** Sends the script found in the thread to `script_check` and lists
+  its problems (missing modules, GPUs on a CPU partition, cores and memory defaults) and
+  the worst-case cost.
+- **Today.** The Plan strip shows a cluster chip only when it matters: issues from the
+  staff `health` tool (cached 5 minutes), "cluster unknown" when the server cannot be
+  read, or a 24 h job failure rate of 10% or more.
+- **Safety.** An allow-list of read tools (`job_show_any`, `job_explain_any`,
+  `ticket_draft`, `script_check`, `cluster_status`, `health`) is checked before every
+  call, on top of the client holding no A1 tier: Ultra cannot submit, cancel, hold or
+  release. Cluster text (logs, job names, submit lines) is set as text in the page,
+  never HTML, and never used as instructions. Answers are cached 60 s. The journal
+  records `cluster_job` with the job id only.
+- **Routes.** `GET /api/cluster/status`, `GET /api/cluster/health`,
+  `POST /api/cluster/job` (`job_id`, optional `ticket_text`, `lines`),
+  `POST /api/cluster/script` (`script`).
+- **Measured live** (2026-10-03): a failed job's card with findings, log and draft in
+  1.4 s; `script_check` 0.3 s.
+
 ## 9. Composer and double approval
 
 The operator iterates on drafts many times, then approves twice. The server enforces
@@ -1879,7 +1917,7 @@ All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` an
 `Content-Type: application/json` (12.1). Long calls return a job id that the page polls.
 There is no SSE stream and no generic jobs route; each feature has its own job route.
 Path parameters are shown as `<name>`; the server matches each with a strict pattern.
-155 route paths as of v1.7 (`tests/test_v101_spec.py` fails if one is added without a row
+159 route paths as of v1.8 (`tests/test_v101_spec.py` fails if one is added without a row
 here).
 
 **Core** (server.py)
@@ -1902,6 +1940,8 @@ here).
 | POST | `/api/slack/done`, `/api/slack/undone` | local Slack Mark done |
 | POST | `/api/mail/archive`, `/api/mail/unarchive` | archive with undo |
 | GET | `/api/mail/tidy/count` | how many threads the default Tidy rule would archive (read only; feeds the calm suggestion) |
+| GET | `/api/cluster/status`, `/api/cluster/health` | cluster server set up and reachable; Today's cluster line (8.9) |
+| POST | `/api/cluster/job`, `/api/cluster/script` | one job's facts, findings, log end and reply draft; a batch script check (8.9, read only) |
 | POST | `/api/mail/tidy/preview`, `/api/mail/tidy/run`, `/api/mail/tidy/undo` | Inbox Tidy: preview with a single-use token, archive the ticked threads, one Undo (8.1) |
 | POST | `/api/ai/summary` | AI summary of a thread |
 
@@ -2151,6 +2191,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.5 Calm layout (shipped 1.5.0) | Section 7.13: three places, filter menu, status dot, row hover actions, Reply/Archive/AI/... toolbar from one action table, rail and Bucket only when needed, `[ui] layout` switch; palette searches mail, ledger and research |
 | v1.6 Ledger writes on MCP (shipped 1.6.0) | Section 8.4: desk and Ledger-tab writes through the hosted server, deletes on the CLI, refusal falls back, unknown outcomes never re-sent; one live log verified |
 | v1.7 Calm, part 2 (shipped 1.7.0) | Section 7.13: Board full width, Today plan strip, Ledger summary line and a shorter tab strip, Tidy suggestion, Log offer after archiving READY |
+| v1.8 Cluster facts in mail (shipped 1.8.0) | Section 8.9: job ids in support mail show a Cluster chip with the job's facts, findings, log end and a reply draft from bifrost; script check; cluster line on Today; read tools only |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
@@ -2176,6 +2217,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.8 | App v1.8.0 (new 8.9; 5.2, 14, 19): cluster facts in the mail loop. Job ids and batch scripts in email and ticket threads show a Cluster chip; the card reads `job_show_any`, `job_explain_any` and `ticket_draft` from bifrost (read tiers, allow-listed), with "Use as reply" into the reply-all draft; Check the script (`script_check`); Today shows a cluster chip only for issues, unknown, or 10%+ failures. Demo has a support email for job 315. |
 | 2026-10-03 | 1.7 | App v1.7.0 (7.13, 14, 19): calm layout part 2. Board full width with hover actions and compact empty columns; Today plan strip; Ledger summary line, Org and Health under "..."; Tidy suggestion at 10+ threads (`GET /api/mail/tidy/count`); Log offer after archiving a READY thread. |
 | 2026-10-03 | 1.6 | App v1.6.0 (8.4, 5.2, 19): ledger writes through the hosted ledger MCP server when `[ledger] backend = "mcp"`. `ledger_mcp_write.py` maps each argv the two writers build to one write tool; deletes and `projects docs rm` stay on the CLI; a refusal before anything ran falls back to serve/CLI; an unknown outcome is never re-sent. One live log verified (provenance source mcp, client Ultra). |
 | 2026-10-03 | 1.5 | App v1.5.0 (new 7.13; 5.2, 7.5, 13, 19): calm layout, default. Three places (Inbox, Today, Ledger) with links between neighbouring views, filter menu, one status dot with a source menu, rows with Archive and "..." on hover, thread toolbar Reply all (split) / Archive / AI / ..., task toolbar Complete / Log update / AI / ..., rail only while an item is open, possible matches on one line, Bucket hidden when empty, tray while dragging. `static/actions.js` drives the groups and the palette; `[ui] layout = "classic"` or the dot menu brings back every button. Task Block time gets its own action id. Measured on demo data: desk with an email open 69 -> 31 visible controls, thread toolbar 15 -> 5. |

@@ -99,9 +99,35 @@ STREAM: list[dict[str, Any]] = [
         "badges": [],
         "waiting_days": 23,
     },
+    {
+        "key": "g-800",
+        "source": "email",
+        "from": "Fay Green",
+        "addr": "fay@example.org",
+        "subject": "Job keeps dying on the cluster",
+        "snippet": "My job 315 died after an hour, can you take a look?",
+        "ts": "2026-09-29T08:30:00-04:00",
+        "court": "MINE",
+        "badges": [],
+        "waiting_days": 0,
+    },
 ]
 
 THREADS: dict[str, list[dict[str, Any]]] = {
+    "g-800": [
+        {
+            "from": "Fay Green <fay@example.org>",
+            "from_addr": "fay@example.org",
+            "to": "ada@example.org",
+            "ts": "2026-09-29 08:30",
+            "subject": "Job keeps dying on the cluster",
+            "body": "Hi Ada,\n\nMy job 315 died after an hour, the log ends in slurm-315.out "
+            "with Killed. Can you take a look? My script is below.\n\n"
+            "#!/bin/bash\n#SBATCH -p computehigh\n#SBATCH --gres=gpu:1\n#SBATCH -t 02:00:00\n"
+            "module load python\npython fold.py\n\nThanks,\nFay",
+            "id": "demomsg0800",
+        }
+    ],
     "g-300": [
         {
             "from": "IT Service Desk <desk@service-now.example>",
@@ -324,6 +350,92 @@ def register(api: Api) -> None:
     _register_ledgertab(api)
     _register_ask(api)
     _register_board(api, items)
+    _register_cluster(api)
+
+
+class DemoCluster:
+    """The cluster MCP server in demo mode: canned read answers, nothing real."""
+
+    state: dict[str, Any] = {"ok": True, "error": ""}  # noqa: RUF012 - read by status only
+
+    def call(self, tool: str, args: dict[str, Any] | None = None) -> Any:
+        a = args or {}
+        job = {
+            "job_id": a.get("job_id", "315"),
+            "name": "fold",
+            "user": "fay_example_org",
+            "partition": "computehigh",
+            "state": "OUT_OF_MEMORY",
+            "exit_code": "0:125",
+            "elapsed_s": 3720,
+            "efficiency": {"cpu_percent": 91.0, "mem_peak_mb": 3956, "mem_alloc_mb": 3956},
+        }
+        finding = {
+            "rule": "oom",
+            "severity": "error",
+            "title": "The job ran out of memory",
+            "evidence": ["state OUT_OF_MEMORY", "peak 3956 MB of 3956 MB"],
+            "suggestion": "Ask for more memory (#SBATCH --mem=16G) or more cores.",
+        }
+        if tool == "job_show_any":
+            return {"data": job}
+        if tool == "job_explain_any":
+            return {
+                "data": {
+                    "job": job,
+                    "findings": [finding],
+                    "log_path": "/home/fay/slurm-315.out",
+                    "log_tail_untrusted": {"note": "untrusted", "text": "step 41/120\nKilled\n"},
+                }
+            }
+        if tool == "ticket_draft":
+            return {
+                "data": {
+                    "confidence": "high",
+                    "reply_draft": "Hi Fay,\n\nI looked at job 315. It ran out of memory after "
+                    "about an hour: it asked for no memory, so it got the 4 GB default on "
+                    "computehigh. Add #SBATCH --mem=16G and it should finish.\n",
+                }
+            }
+        if tool == "health":
+            health = {"ok": True, "issues": [], "failure_rate_24h_percent": 1.2}
+            health["jobs_ended_24h"] = 84
+            return {"data": health}
+        if tool == "script_check":
+            return {
+                "data": {
+                    "ok": False,
+                    "partition": "computehigh",
+                    "est_max_cost_usd": 0.6,
+                    "issues": [
+                        {
+                            "severity": "error",
+                            "message": "GPUs requested on computehigh (no GPUs); use gpul4",
+                        },
+                        {
+                            "severity": "error",
+                            "line": 5,
+                            "message": 'module "python" not found; closest: python-ml',
+                        },
+                    ],
+                }
+            }
+        raise ValueError(f"demo cluster has no {tool}")
+
+
+def _register_cluster(api: Api) -> None:
+    from ultra.cluster import Cluster, ClusterApi, with_cluster
+
+    cl = Cluster(DemoCluster())  # type: ignore[arg-type]
+    ClusterApi(cl).register(api)
+    # wrap the demo thread route so job ids show the chip, as live does
+    for i, (method, rx, fn) in enumerate(api.routes):
+        if method == "GET" and rx.pattern == r"^/api/thread/([A-Za-z0-9_-]+)$":
+
+            def wrapped(q: dict, body: Any, m: Any, _fn: Any = fn) -> Any:
+                return with_cluster(_fn(q, body, m), True)
+
+            api.routes[i] = (method, rx, wrapped)
 
 
 class DemoHermes:

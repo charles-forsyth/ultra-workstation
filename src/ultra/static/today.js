@@ -155,6 +155,13 @@ async function planStrip() {
   chip((p.due_today || []).length, "due today", "warn", "Ledger tasks due today");
   chip((p.waiting || []).length, "waiting 3+ days", "wait", "Threads waiting on someone else");
   const free = (p.free || []).reduce((a, f) => a + f.minutes, 0);
+  // the cluster line (SPEC 8.9): shown only when there is a problem, or a failure rate
+  try {
+    const h = await api("/api/cluster/health");
+    if (h.enabled && h.ok === false) chip((h.issues || []).length || "!", "cluster issues", "bad", (h.issues || []).join("\n") || h.error || "");
+    else if (h.enabled && h.ok === null) chip("?", "cluster unknown", "wait", h.error || "cluster server unreachable");
+    else if (h.enabled && Number(h.failure_rate_24h_percent) >= 10) chip(`${h.failure_rate_24h_percent}%`, "jobs failing (24h)", "warn", `${h.jobs_ended_24h} jobs ended in the last day`);
+  } catch { /* the plan still shows */ }
   const next = [...(p.overdue || []), ...(p.due_today || [])].slice(0, 3)
     .map((t) => `<li class="day-item" data-key="t-${esc(t.id)}"><span class="badge pri ${esc(String(t.priority || "").toLowerCase())}">${esc(String(t.priority || "").slice(0, 1))}</span> ${esc(t.summary)}</li>`)
     .concat((p.mine || []).slice(0, Math.max(0, 5 - Math.min(3, (p.overdue || []).length + (p.due_today || []).length)))

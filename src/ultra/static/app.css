@@ -807,3 +807,14 @@ body.calm #lt-seg .lt-rare { display: none; }
   body.calm.boardview .panel.left { display: none; }
   body.calm.boardview .bd-cols { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 }
+
+/* v1.8 cluster facts (SPEC 8.9) */
+.cl-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
+.cl-chip { border-color: var(--cyan); color: var(--cyan); }
+.cl-card { background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 8px 10px; margin: 6px 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.cl-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cl-find { border-left: 3px solid var(--line-2); padding-left: 8px; }
+.cl-find.error { border-left-color: var(--red); }
+.cl-find.warning { border-left-color: var(--amber); }
+.cl-log pre { max-height: 300px; overflow: auto; white-space: pre-wrap; background: var(--bg); padding: 6px; border-radius: 4px; }
+.cl-acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

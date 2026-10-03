@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.3 of the spec; app at v1.3.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, and the client for the hosted ledger and cluster MCP servers; see the delivery plan in section 19)
+Status: v1.4 of the spec; app at v1.4.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, and ledger reads through the hosted ledger MCP server; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -206,7 +206,8 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `live.py` | live routes: stream, threads, drafts, send, mail extras, task actions |
 | `desk.py`, `bucket.py` | context rail, bucket, staged ledger cards, commit + read-back |
 | `itemctx.py`, `itemdesk.py` | item-level People / Full context, AI briefing, Add to ledger |
-| `ledger.py`, `ledger_serve.py`, `ledger_write.py` | ledger reads (CLI or `nexus serve`); allow-listed writes |
+| `ledger.py`, `ledger_serve.py`, `ledger_write.py` | ledger reads (MCP, `nexus serve` or the CLI); allow-listed writes |
+| `ledger_mcp.py` | ledger reads through the hosted MCP server, answered in the CLI's JSON shapes (8.4, v1.4) |
 | `ledgertab.py` | Ledger tab routes |
 | `calendar.py`, `today.py`, `invites.py` | Calendar adapter; Today/Week routes; invitations and RSVP with approvals |
 | `day.py` | Day plan, report, exports |
@@ -540,6 +541,10 @@ A view (top-bar Graph, key `v`, palette, and a Graph button on every Ledger reco
 page) of a ledger neighborhood. Code: `graph.py`, `static/graph.js`; tests
 `tests/test_v120_graph.py`. Read only.
 
+- Over the hosted MCP server (v1.4) the background fill below runs 8 at a time instead
+  of 3: on the operator's own 146-node neighborhood, the first hop draws in about 2 s and
+  the 40 neighbor trees arrive about 6 s later (75 s on the CLI path). Reading them
+  inline was tried and dropped: the page then waited about 8 s before drawing anything.
 - Data: `nexus tree <id> --json` (an allow-listed read), cached 10 minutes. The center
   is the operator (`[ledger] my_id`) unless a record is chosen. One hop out is drawn
   at once (about 3 s on the CLI). Links between neighbors and per-node counts need the
@@ -1105,6 +1110,27 @@ Writes (only after a staged card is committed):
 - The desk never calls destructive ledger commands. The Ledger tab (7.11) may run
   single-record deletes and unlinks, only after two confirmations; `db-reset`, `init`,
   doctor fixes, sync and bulk commands are never available.
+- **Hosted MCP server (v1.4).** With `[ledger] backend = "mcp"` and `[mcp.nexus]` signed
+  in (8.8), every read goes to the hosted ledger MCP server first. `ledger_mcp.py` maps
+  each allow-listed read argv to read tools and returns the CLI's `--json` shapes, so
+  nothing above `Ledger._run` changes: `search` -> `nexus_search`, `tree` ->
+  `nexus_tree` (all edges, interactions oldest first), `dossier` -> built from the
+  person's full tree, `people show` -> exact NetID/email match through `nexus_search`,
+  `tasks list` -> `nexus_tasks_list` (OPEN unless `--all`; filtered to the operator unless
+  `--global`), `tasks show`, `interactions list/show` (show adds `links` from its tree),
+  the six `* list` tools, `labs/projects/grants/assets/gcp show`, `stats`, `org show`,
+  `ship status`. `doctor` and `gcp audit-report` have no tool and use serve or the CLI.
+  The read allow-list is checked before the MCP call, exactly as before. If the server
+  cannot be reached, refuses the token, or returns an error, the read falls back to
+  serve or the CLI when the `nexus` binary is installed (reads are safe to repeat) and
+  the status bar says why; without the binary it fails with the error. Writes do not
+  change in v1.4. Known differences from the CLI: tree edges carry no role (the MCP
+  brief has none), names in trees are cut at 200 characters, and the dossier leaves out
+  lab-owned assets not linked to the person and the cached cloud scan.
+  `scripts/ledger_parity.py NETID ...` (read-only, live) runs every read on both paths and
+  compares the ids Ultra uses; on 2026-10-03, 20 reads over the three heaviest records
+  matched, with the dossier of a 3,142-edge person at 20.1 s on the CLI path and 1.9 s
+  over MCP, open tasks 6.1 s and 0.6 s, stats 5.6 s and 0.5 s.
 - **Local server (v0.12).** When `nexus serve` is running (127.0.0.1, token file
   `~/.config/nexus/serve.token`), every read and write goes through it: one warm
   process, so calls take 0.3-2 s instead of 6-10 s. Ultra's own allow-lists, review
@@ -1197,9 +1223,10 @@ has its own calls-per-minute budget per person, separate from the person's chat 
   `/health` read runs every 10 minutes while a tab is open. The status bar shows one
   light per configured server ("Ledger MCP", "Cluster"); unconfigured servers show
   nothing.
-- **Not yet.** v1.3.0 adds the client, sign-in and status only. Ledger reads move to it in
-  v1.4 (`[ledger] backend = mcp`), writes in a later release; cluster facts in mail and
-  the Day view after that. Deletes stay on the local ledger CLI.
+- **Use.** v1.3.0 added the client, sign-in and status. v1.4.0 moves ledger reads onto it
+  (`[ledger] backend = "mcp"`, 8.4). Writes follow in a later release; cluster facts in
+  mail and the Day view after that. Deletes stay on the local ledger CLI. The app keeps
+  one client per server: they share a token file whose refresh token rotates.
 
 ### 8.7 Hermes (`hermes` CLI, v0.13)
 
@@ -1712,6 +1739,8 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
     default_depth = 1
     default_breadth = 3
 
+    # [ledger] backend = "mcp"            # v1.4: ledger reads through [mcp.nexus] (8.4)
+
     [mcp.nexus]                           # hosted ledger MCP server (8.8, v1.3)
     url = "https://ledger-mcp.example.org/mcp"
     client_id = "ledger-ultra"            # the program client in that server's users file
@@ -1995,6 +2024,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.1 Inbox Tidy (shipped 1.1.0) | Section 8.1: rule-based bulk archive with a preview, untick, single-use run token, one Undo |
 | v1.2 Graph (shipped 1.2.0) | Section 7.6: ledger neighborhood as an SVG graph; click to open, double-click to center, drag an item onto a node to bucket both; plus the phone top-bar fix (16) |
 | v1.3 MCP client (shipped 1.3.0) | Section 8.8: client for the hosted ledger and cluster MCP servers, sign-in, doctor, status lights. First step of the plan to move ledger reads (v1.4) and writes onto MCP and declutter the UI (calm layout) |
+| v1.4 Ledger reads on MCP (shipped 1.4.0) | Section 8.4: every ledger read through the hosted MCP server, CLI shapes kept, serve/CLI fallback for reads; Graph second hop 8 wide; parity script |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
@@ -2020,6 +2050,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.4 | App v1.4.0 (8.4, 7.6, 8.8, 5.2, 13, 19): ledger reads through the hosted ledger MCP server with `[ledger] backend = "mcp"`. `ledger_mcp.py` answers every allow-listed read in the CLI's JSON shapes; `doctor` and `gcp audit-report` stay on serve/CLI; unreachable, auth or tool errors fall back to serve/CLI for reads. Graph fills its second hop 8 wide over MCP (about 6 s for 40 heavy neighbors, was 75 s). Ledger tab header says "live via the ledger MCP server". Client fix: a `{"error": ...}` answer inside structured content is now a tool error (it was returned as data). `scripts/ledger_parity.py` (live, read-only): 20 reads matched; dossier 20.1 s -> 1.9 s. |
 | 2026-10-03 | 1.3 | App v1.3.0 (new 8.8; 5.2, 13, 15, 16, 19): client for the hosted ledger and cluster MCP servers. `mcpclient.py` (stdlib): pre-registered program-client sign-in with PKCE, refresh tokens rotated under one lock per server and saved atomically before use, JSON or SSE answers, parallel cap and per-minute budget, unreachable vs unknown failures (writes never re-sent). `ultra auth nexus|ursa [--status|--sign-out]`, doctor lines, one status-bar light per configured server. No reads or writes move yet. |
 | 2026-10-02 | 1.2.2 | Docs only, audited against the code (app still v1.2.1). Corrected: header (Q1 decided); 2 non-goals (remote mode and phone use exist); 4 Replied ask; 5.1 no vendored marked/DOMPurify (built-in `renderMd`); 7.1 filters as built (Tasks, Low; no VIP button, no person grouping), noise is the Low filter, no Show original, thread actions as built, no Replied badge; 7.8 marks which exports exist and which are plan only, no `docs/EXPORT.md`, AI brief builder not built; 7.9 Research is a rail tab (no `g r`), Insert summary not built; 8.1 historyId caching (no `history.list`), Tidy Undo is a token not a file, `messages.send` only, plain-text body only, astropost rows for Summarize unread and drafts list; 7.4 slot finder, check-in and end-of-day as built (Day view); 7.5 palette as built; 8.5 ticket templates not built; 11.1 person cache is `kv_cache`; 11.4 Replied badge not built; 12.3 real `purge` flags; 12.4 email HTML is converted to text, never rendered; 16 staged cards are in memory and reads are not retried; 19 v1.x parked. Moved: ticket replies, task mode, 9.7 and 9.8 from the top of section 11 into section 9; 8.6 back before 8.7. |
 | 2026-10-01 | 1.2.1 | App v1.2.1 (8.5): ticket cards reply like email threads. Reply / Reply all / Forward and Draft Studio (full context) now work on a ticket card, on its newest notice thread, with the desk on To, the requester on Cc and the Ref:MSG line carried; the ticket thread read returns each message's thread id. Demo gains a ServiceNow notice with a Ref line and the fix-ref route. |

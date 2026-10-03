@@ -15,8 +15,10 @@ import subprocess
 import threading
 from typing import Any
 
+from ultra import ledger_mcp
 from ultra.config import Config
 from ultra.ledger_serve import ServeClient, ServeError, ServeUnavailable
+from ultra.mcpclient import McpAuthNeeded, McpClient, McpError, McpToolError
 from ultra.store import Store
 
 TTL_PERSON = 86400
@@ -74,11 +76,21 @@ class LedgerError(Exception):
 
 
 class Ledger:
-    def __init__(self, cfg: Config, store: Store):
+    def __init__(self, cfg: Config, store: Store, mcp: McpClient | None = None):
         self.cfg = cfg
         self.store = store
         self.binary = str(cfg.get("ledger", "binary", "nexus"))
-        self.enabled = bool(cfg.get("ledger", "enabled", True)) and bool(shutil.which(self.binary))
+        # [ledger] backend: "mcp" reads through the hosted MCP server (8.8) and falls
+        # back to serve/CLI only for reads it cannot answer or when it is unreachable.
+        backend = str(cfg.get("ledger", "backend", "cli")).lower()
+        self.mcp = mcp if backend == "mcp" else None
+        self.my_id = str(cfg.get("ledger", "my_id", "") or "")
+        has_cli = bool(shutil.which(self.binary))
+        self.enabled = bool(cfg.get("ledger", "enabled", True)) and (
+            has_cli or self.mcp is not None
+        )
+        self.has_cli = has_cli
+        self.last_via = ""
         self.sem = threading.Semaphore(int(cfg.get("ledger", "max_parallel", 3)))
         self.domain = str(cfg.get("ledger", "org_email_domain", "")).lower()
         self.netid_local = bool(cfg.get("ledger", "netid_from_local_part", False))
@@ -94,6 +106,23 @@ class Ledger:
             raise LedgerError(f"not an allowed read command: {' '.join(args[:2])}")
         if any(a == f or a.startswith(f + "=") for a in args for f in READ_DENIED_FLAGS):
             raise LedgerError("that option is not allowed on a ledger read")
+        if self.mcp is not None:
+            try:
+                data = ledger_mcp.run(self.mcp, args, self.my_id)
+                self.state = {"ok": True, "error": "", "via": "mcp"}
+                self.last_via = "mcp"
+                return data
+            except ledger_mcp.NotMapped:
+                pass  # doctor, gcp audit-report: serve or the CLI below
+            except McpAuthNeeded as e:
+                self.state = {"ok": False, "error": str(e), "via": "mcp"}
+                if not self.has_cli:
+                    raise LedgerError(str(e)) from e
+            except (McpToolError, McpError) as e:
+                # reads are safe to repeat elsewhere; say why in the status bar
+                self.state = {"ok": False, "error": f"MCP: {e}", "via": "mcp"}
+                if not self.has_cli:
+                    raise LedgerError(str(e)) from e
         out = ""
         done = False
         if self.serve.available():

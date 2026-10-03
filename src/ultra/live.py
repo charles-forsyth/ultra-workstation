@@ -105,14 +105,16 @@ class Live:
         self.store = store or Store()
         self.rules = Rules.from_config(cfg, load_vips(cfg))
         self.mail = Mail(cfg, self.store, self.rules)
-        self.ledger = Ledger(cfg, self.store)
-        # Hosted MCP servers (SPEC 8.8): only those configured in [mcp.<name>]
+        # Hosted MCP servers (SPEC 8.8): only those configured in [mcp.<name>]. One
+        # client per server for the whole app: they share a token file whose refresh
+        # token rotates, so a second client would race the first.
         self.mcp: dict[str, McpClient] = {}
         for _name in MCP_SERVERS:
             _c = client_from_config(cfg, _name)
             if _c is not None:
                 self.mcp[_name] = _c
         self.mcp_health: dict[str, dict[str, Any]] = {}
+        self.ledger = Ledger(cfg, self.store, mcp=self.mcp.get("nexus"))
         self.slack = Slack(cfg, self.store)
         self.ai = AI(cfg)
         self.draft_files = DraftFiles(self.store, private_dir(data_dir()) / "attachments")

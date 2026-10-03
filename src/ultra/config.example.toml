@@ -118,6 +118,9 @@ binary = "hermes"
 toolsets = ["session_search"]          # read-only; the only choice today (web is per question)
 allow_web = true                       # shows the per-question "Allow web" tick
 source = "ultra"                       # session tag in your Hermes session list
+# profile = "ultra-ask"                # v1.9: a Hermes profile whose nexus/ursa MCP servers
+#                                      # are limited to read tools (tools.include); Ask can
+#                                      # then look things up itself. Checked before each use.
 max_turns = 25
 budget_seconds = 300
 

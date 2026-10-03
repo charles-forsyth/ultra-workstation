@@ -158,9 +158,14 @@ class AskDesk:
     # ---------------------------------------------------------------- routes
     def r_status(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         h = self.hermes
+        prof = getattr(h, "profile", "")  # the demo agent has no profile
+        pc = h.check_profile() if prof else {"ok": None, "why": ""}
         return {
             "enabled": h.enabled,
-            "toolsets": h.toolsets,
+            "toolsets": list(h.toolsets) + (["nexus", "ursa"] if pc.get("ok") else []),
+            "profile": prof,
+            "profile_ok": pc.get("ok"),
+            "profile_why": pc.get("why", ""),
             "web_ok": h.web_ok,
             "source": h.source,
             "budget_seconds": h.budget,

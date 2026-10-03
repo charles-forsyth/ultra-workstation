@@ -1,7 +1,7 @@
 // Ultra client shell. Vanilla JS modules, no build step, no inline code (CSP).
 // Helpers adapted from the deep-research dashboard (MIT, same author).
 
-import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent, openDraftById } from "./compose.js";
+import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent, openDraftById, applyStudioDraft } from "./compose.js";
 import { initBoard, openBoard, closeBoard, boardOpen } from "./board.js";
 import { toggleHelp, helpOpen } from "./keys.js";
 import { initTidy, openTidy } from "./tidy.js";
@@ -247,6 +247,7 @@ async function openItem(i) {
       ${it.reason ? `<div class="why dim">${esc(it.court)} &middot; ${esc(it.reason)}</div>` : ""}
       ${t.error ? `<div class="alert">${esc(t.error)}</div>` : ""}
       ${(t.events || []).length ? `<div class="badges ev">${t.events.map((e) => `<span class="badge">${esc(e)}</span>`).join("")}</div>` : ""}
+      ${t.cluster ? `<div class="cl-chips">${(t.cluster.jobs || []).map((j) => `<button class="btn tiny cl-chip" data-job="${esc(j)}" title="Look up job ${esc(j)} on the cluster (read only)">Cluster: job ${esc(j)}</button>`).join("")}${t.cluster.script ? `<button class="btn tiny cl-chip" data-clscript="1" title="Check the batch script in this thread against the cluster (read only)">Check the script</button>` : ""}</div><div id="cl-panel"></div>` : ""}
       <div class="thread-acts">
         <button class="btn small" data-a="reply" ${mailOnly} title="Reply (r)">Reply</button>
         <button class="btn small" data-a="reply_all" ${mailOnly} title="Reply all (a)">Reply all</button>
@@ -305,6 +306,7 @@ async function openItem(i) {
     $('[data-a="task"]', th).onclick = () => stage("task", it.key);
     $('[data-a="block"]', th).onclick = () => window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));
     wireSelection(th, it);
+    if (t.cluster) wireCluster(th, it, t, mailKey);
     const ab = $('[data-a="archive"]', th);
     if (it.source === "slack") { ab.disabled = false; ab.textContent = "Mark done"; ab.title = "Hide until a new message arrives (e). Nothing is sent to Slack."; ab.onclick = () => busy(ab, () => slackDone(it)); }
     else ab.onclick = () => busy(ab, () => archive(it));
@@ -312,6 +314,75 @@ async function openItem(i) {
     if (it.source === "slack") await resumeSlack(it); else await resumeForThread(it.key);
   } catch (e) { th.innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
   loadContext(it);
+}
+
+// ---------------------------------------------------------------- cluster (SPEC 8.9)
+// A job id or a batch script in the thread shows a chip; opening it reads the cluster
+// server (bifrost, read tiers only). Cluster text is data: always set as text here.
+function wireCluster(th, it, t, mailKey) {
+  const panel = $("#cl-panel", th);
+  const lastText = () => {
+    const theirs = (t.messages || []).filter((m) => !m.mine);
+    const m = theirs[theirs.length - 1] || (t.messages || [])[t.messages.length - 1] || {};
+    return `${m.subject || it.subject || ""}\n${m.body || ""}`.slice(0, 4000);
+  };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  th.querySelectorAll(".cl-chip[data-job]").forEach((b) => (b.onclick = () => busy(b, async () => {
+    panel.replaceChildren(el("div", "dim small-t", `Reading job ${b.dataset.job} on the cluster...`));
+    let r;
+    try { r = await api("/api/cluster/job", { method: "POST", body: { job_id: b.dataset.job, ticket_text: lastText(), lines: 60 } }); }
+    catch (e) { panel.replaceChildren(el("div", "lint warning", e.message)); return; }
+    const card = el("section", "cl-card");
+    const s = r.show || {}, x = r.explain || {}, d = r.draft;
+    const head = el("div", "cl-head");
+    head.append(el("b", "", `Job ${r.job_id}`), el("span", `badge ${s.state === "FAILED" || s.state === "TIMEOUT" || s.state === "OUT_OF_MEMORY" ? "ready" : s.state === "COMPLETED" ? "" : "wait"}`, s.state || "?"),
+      el("span", "dim small-t", [s.name && `"${s.name}"`, s.user, s.partition, s.elapsed_s != null && `${Math.round(s.elapsed_s / 60)} min`, s.exit_code && `exit ${s.exit_code}`].filter(Boolean).join(" \u00b7 ")));
+    card.append(head);
+    const eff = s.efficiency || {};
+    if (eff.cpu_percent != null) card.append(el("div", "dim small-t", `CPU ${eff.cpu_percent}% of allocated, memory peak ${eff.mem_peak_mb} MB of ${eff.mem_alloc_mb} MB`));
+    for (const f of x.findings || []) {
+      const row = el("div", `cl-find ${f.severity || ""}`);
+      row.append(el("b", "", f.title || f.rule || "finding"));
+      if ((f.evidence || []).length) row.append(el("div", "dim small-t", f.evidence.join("; ")));
+      if (f.suggestion) row.append(el("div", "small-t", f.suggestion));
+      card.append(row);
+    }
+    const logText = x.log_tail_untrusted?.text || "";
+    if (logText) {
+      const det = el("details", "cl-log");
+      det.append(el("summary", "small-t", `Log (end)${x.log_path ? `: ${x.log_path}` : ""}`), el("pre", "mono small-t", logText.slice(-12000)));
+      card.append(det);
+    }
+    const acts = el("div", "cl-acts");
+    if (d && d.reply_draft && mailKey) {
+      const use = el("button", "btn tiny ai", "Use as reply"); use.title = "Put the cluster's draft in the reply-all draft as a new AI version. Edit it; it still needs both approvals.";
+      use.onclick = () => busy(use, async () => { await applyStudioDraft(mailKey, d.reply_draft, `Cluster: job ${r.job_id}`); toast("The cluster's draft is in the reply. Edit, then approve twice to send.", "ok"); });
+      acts.append(use);
+      acts.append(el("span", "dim small-t", `draft confidence: ${d.confidence || "?"}`));
+    }
+    const ask = el("button", "btn tiny ai", "Ask Hermes"); ask.onclick = () => openAsk({ type: "text", key: it.key, text: JSON.stringify({ job: s, findings: x.findings || [] }).slice(0, 20000), title: `Job ${r.job_id}` }, `Job ${r.job_id}`);
+    const copy = el("button", "btn tiny", "Copy facts"); copy.onclick = () => copyText([`Job ${r.job_id}: ${s.state} on ${s.partition}, exit ${s.exit_code}`, ...(x.findings || []).map((f) => `- ${f.title}: ${(f.evidence || []).join("; ")}`)].join("\n"));
+    const x2 = el("button", "btn tiny ghost", "Close"); x2.onclick = () => panel.replaceChildren();
+    acts.append(ask, copy, x2);
+    card.append(acts);
+    panel.replaceChildren(card);
+  })));
+  const sc = th.querySelector(".cl-chip[data-clscript]");
+  if (sc) sc.onclick = () => busy(sc, async () => {
+    const text = (t.messages || []).map((m) => m.body || "").join("\n");
+    const i = text.search(/^#!.*\n?(?:.*\n)*?#SBATCH|^#SBATCH/m);
+    const script = text.slice(Math.max(0, i)).split(/\n\s*\n\s*\n/)[0].slice(0, 20000);
+    let r;
+    try { r = await api("/api/cluster/script", { method: "POST", body: { script } }); }
+    catch (e) { panel.replaceChildren(el("div", "lint warning", e.message)); return; }
+    const c = r.check || {}, card = el("section", "cl-card");
+    card.append(el("b", "", `Script check: ${c.ok ? "no blocking problems" : "problems found"}`));
+    if (c.est_max_cost_usd != null) card.append(el("div", "dim small-t", `Partition ${c.partition || "?"}; worst-case cost about $${c.est_max_cost_usd}`));
+    for (const i2 of c.issues || []) card.append(el("div", `cl-find ${i2.severity || ""}`, `${i2.line ? `line ${i2.line}: ` : ""}${i2.message}`));
+    const x2 = el("button", "btn tiny ghost", "Close"); x2.onclick = () => panel.replaceChildren();
+    card.append(x2);
+    panel.replaceChildren(card);
+  });
 }
 
 // ---------------------------------------------------------------- selection bar

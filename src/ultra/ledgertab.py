@@ -34,6 +34,7 @@ import time
 from collections.abc import Callable
 from typing import Any, ClassVar
 
+from ultra import ledger_mcp_write
 from ultra.ledger import Ledger, LedgerError
 from ultra.ledger_serve import ServeError, ServeUnavailable
 from ultra.ledger_write import ANSI, UUID, WriteError, check_due
@@ -938,6 +939,14 @@ class LedgerTabWriter:
     def _run(self, argv: list[str], stdin: str) -> tuple[int, str]:
         if self._run_fn is not None:
             return self._run_fn(argv, stdin)
+        mcp = getattr(self.ledger, "mcp", None)
+        if mcp is not None:  # v1.6: hosted server first; deletes stay on the CLI
+            try:
+                rc, out = ledger_mcp_write.run(mcp, argv, stdin, self.ledger.my_id)
+                return rc, _ascii(out)
+            except (ledger_mcp_write.NotMapped, ledger_mcp_write.Refused) as e:
+                if not getattr(self.ledger, "has_cli", True):
+                    return 1, f"ledger MCP: {e}"
         serve = self.ledger.serve
         if serve.available():
             try:

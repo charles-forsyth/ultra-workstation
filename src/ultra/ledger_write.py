@@ -22,8 +22,10 @@ import threading
 from datetime import date
 from typing import Any
 
+from ultra import ledger_mcp_write
 from ultra.config import Config
 from ultra.ledger_serve import ServeClient, ServeError, ServeUnavailable
+from ultra.mcpclient import McpClient
 from ultra.store import Store
 
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -107,11 +109,19 @@ def clean(out: str) -> str:
 
 
 class LedgerWriter:
-    def __init__(self, cfg: Config, store: Store):
+    def __init__(self, cfg: Config, store: Store, mcp: McpClient | None = None):
         self.cfg = cfg
         self.store = store
         self.binary = str(cfg.get("ledger", "binary", "nexus"))
-        self.enabled = bool(cfg.get("ledger", "enabled", True)) and bool(shutil.which(self.binary))
+        # v1.6: with [ledger] backend = "mcp" the caller passes the MCP client and writes
+        # go through the hosted server first (ledger_mcp_write); deletes stay on the CLI
+        self.mcp = mcp
+        self.my_id = str(cfg.get("ledger", "my_id", "") or "")
+        self.has_cli = bool(shutil.which(self.binary))
+        self.enabled = bool(cfg.get("ledger", "enabled", True)) and (
+            self.has_cli or mcp is not None
+        )
+        self.last_via = ""
         self.lock = threading.Lock()  # one write at a time: keeps ordering obvious
         self.serve = ServeClient(cfg)
 
@@ -135,6 +145,16 @@ class LedgerWriter:
         if not self.enabled:
             raise WriteError("ledger CLI not found")
         with self.lock:
+            if self.mcp is not None:
+                try:
+                    rc, out = ledger_mcp_write.run(self.mcp, args, stdin or "", self.my_id)
+                    self.last_via = "mcp"
+                    return rc, clean(out)
+                except (ledger_mcp_write.NotMapped, ledger_mcp_write.Refused) as e:
+                    # nothing ran on the server: the CLI may run the same command
+                    if not self.has_cli:
+                        raise WriteError(f"ledger MCP: {e}") from e
+            self.last_via = "cli"
             if self.serve.available():
                 try:
                     rc, out, err = self.serve.run(args, stdin=stdin or "", timeout=timeout)

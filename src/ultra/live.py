@@ -133,7 +133,8 @@ class Live:
         self.operator = str(cfg.get("operator", "name", ""))
         addrs = list(cfg.get("operator", "addresses", []) or [])
         self.from_default = addrs[0] if addrs else "me"
-        self.writer = LedgerWriter(cfg, self.store)
+        # writes over MCP only when reads are too ([ledger] backend = "mcp")
+        self.writer = LedgerWriter(cfg, self.store, mcp=self.ledger.mcp)
         self.desk = Desk(
             self.store,
             self.rules,

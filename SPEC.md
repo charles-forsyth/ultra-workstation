@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.5 of the spec; app at v1.5.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads through the hosted ledger MCP server, and the calm layout driven by one action table; see the delivery plan in section 19)
+Status: v1.6 of the spec; app at v1.6.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, and the calm layout driven by one action table; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -208,6 +208,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `itemctx.py`, `itemdesk.py` | item-level People / Full context, AI briefing, Add to ledger |
 | `ledger.py`, `ledger_serve.py`, `ledger_write.py` | ledger reads (MCP, `nexus serve` or the CLI); allow-listed writes |
 | `ledger_mcp.py` | ledger reads through the hosted MCP server, answered in the CLI's JSON shapes (8.4, v1.4) |
+| `ledger_mcp_write.py` | ledger writes through the hosted MCP server: argv -> write tool, refusal vs unknown outcome (8.4, v1.6) |
 | `ledgertab.py` | Ledger tab routes |
 | `calendar.py`, `today.py`, `invites.py` | Calendar adapter; Today/Week routes; invitations and RSVP with approvals |
 | `day.py` | Day plan, report, exports |
@@ -1214,6 +1215,33 @@ Writes (only after a staged card is committed):
   the CLI; it is reported as unknown so the operator can check, because a retry could
   make a duplicate.
 
+**Writes over MCP (v1.6).** With `backend = "mcp"`, both writers (desk cards in
+`ledger_write.py`, the Ledger tab in `ledgertab.py`) still build the exact `nexus` argv
+and keep every check they had (allow-list, review card, single-use token, two
+confirmations for destructive changes, read-back, journal). `_run` hands the argv to
+`ledger_mcp_write.run`, which maps it to one write tool (`nexus_log`, `nexus_tasks_add`,
+`nexus_tasks_update`, `nexus_link`, `nexus_unlink`, `nexus_interactions_edit`,
+`nexus_people_add/update/tag`, `nexus_labs_add/update`, `nexus_projects_add`,
+`nexus_projects_docs_add`, `nexus_grants_add`, `nexus_gcp_add`, `nexus_assets_add`). The
+server runs the same CLI command in-process and returns its output, so the read-backs
+parse it unchanged; records carry provenance `source: mcp, client: Ultra`.
+
+- The nine deletes and `projects docs rm` have no tool and stay on the local CLI
+  (operator decision); without the CLI they are refused with a message saying so.
+- Refused before anything ran (the server rejected the arguments or role, could not be
+  reached, or refused the sign-in): the same argv runs on serve or the CLI.
+- Unknown outcome (timeout, HTTP 5xx, lost connection, a tool error): reported as a
+  failure that says to check the record. Never re-sent anywhere; a second `log` is a
+  duplicate record.
+- `unlink`: the server's own two-step token is fetched and used in one go, because
+  Ultra already asked twice.
+- A log with no other links passes your own id (the tool needs one; the CLI links you
+  anyway).
+- Tests: `tests/test_v160_ledger_mcp_write.py` (every write argv maps to its tool,
+  deletes never reach MCP, refusal vs unknown outcome on both writers, unlink step two).
+  Live (2026-10-03): one real interaction logged through `LedgerWriter` over MCP in
+  22 s (the server's AI summary), read back with the self link and the provenance.
+
 ### 8.5 Tickets (ServiceNow notifications in email)
 
 - Sender patterns and ticket regex come from config (defaults cover
@@ -2104,6 +2132,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.3 MCP client (shipped 1.3.0) | Section 8.8: client for the hosted ledger and cluster MCP servers, sign-in, doctor, status lights. First step of the plan to move ledger reads (v1.4) and writes onto MCP and declutter the UI (calm layout) |
 | v1.4 Ledger reads on MCP (shipped 1.4.0) | Section 8.4: every ledger read through the hosted MCP server, CLI shapes kept, serve/CLI fallback for reads; Graph second hop 8 wide; parity script |
 | v1.5 Calm layout (shipped 1.5.0) | Section 7.13: three places, filter menu, status dot, row hover actions, Reply/Archive/AI/... toolbar from one action table, rail and Bucket only when needed, `[ui] layout` switch; palette searches mail, ledger and research |
+| v1.6 Ledger writes on MCP (shipped 1.6.0) | Section 8.4: desk and Ledger-tab writes through the hosted server, deletes on the CLI, refusal falls back, unknown outcomes never re-sent; one live log verified |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
@@ -2129,6 +2158,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.6 | App v1.6.0 (8.4, 5.2, 19): ledger writes through the hosted ledger MCP server when `[ledger] backend = "mcp"`. `ledger_mcp_write.py` maps each argv the two writers build to one write tool; deletes and `projects docs rm` stay on the CLI; a refusal before anything ran falls back to serve/CLI; an unknown outcome is never re-sent. One live log verified (provenance source mcp, client Ultra). |
 | 2026-10-03 | 1.5 | App v1.5.0 (new 7.13; 5.2, 7.5, 13, 19): calm layout, default. Three places (Inbox, Today, Ledger) with links between neighbouring views, filter menu, one status dot with a source menu, rows with Archive and "..." on hover, thread toolbar Reply all (split) / Archive / AI / ..., task toolbar Complete / Log update / AI / ..., rail only while an item is open, possible matches on one line, Bucket hidden when empty, tray while dragging. `static/actions.js` drives the groups and the palette; `[ui] layout = "classic"` or the dot menu brings back every button. Task Block time gets its own action id. Measured on demo data: desk with an email open 69 -> 31 visible controls, thread toolbar 15 -> 5. |
 | 2026-10-03 | 1.4 | App v1.4.0 (8.4, 7.6, 8.8, 5.2, 13, 19): ledger reads through the hosted ledger MCP server with `[ledger] backend = "mcp"`. `ledger_mcp.py` answers every allow-listed read in the CLI's JSON shapes; `doctor` and `gcp audit-report` stay on serve/CLI; unreachable, auth or tool errors fall back to serve/CLI for reads. Graph fills its second hop 8 wide over MCP (about 6 s for 40 heavy neighbors, was 75 s). Ledger tab header says "live via the ledger MCP server". Client fix: a `{"error": ...}` answer inside structured content is now a tool error (it was returned as data). `scripts/ledger_parity.py` (live, read-only): 20 reads matched; dossier 20.1 s -> 1.9 s. |
 | 2026-10-03 | 1.3 | App v1.3.0 (new 8.8; 5.2, 13, 15, 16, 19): client for the hosted ledger and cluster MCP servers. `mcpclient.py` (stdlib): pre-registered program-client sign-in with PKCE, refresh tokens rotated under one lock per server and saved atomically before use, JSON or SSE answers, parallel cap and per-minute budget, unreachable vs unknown failures (writes never re-sent). `ultra auth nexus|ursa [--status|--sign-out]`, doctor lines, one status-bar light per configured server. No reads or writes move yet. |

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.14 of the spec; app at v1.14.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, Home, the personal notes vault, read only, workspaces (Work / Personal), and Life with house sensors and tick-done; see the delivery plan in section 19)
+Status: v1.14 of the spec; app at v1.14.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, Home, the personal notes vault, read only, workspaces (Work / Personal), and Life with house sensors and tick-done; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -1587,6 +1587,16 @@ showing the operator's own life from the vault, read only.
   groups onto the workspace's own Life area keys; `weather_key` picks the place in the
   dashboard's weather block. Route `GET /api/life/house`.
 
+**v1.14.1: Personal's Day.** In a workspace with no ledger and a vault, the Day view (check-in
+plan and end-of-day report, `d`) is built from the notes: overdue, due today and the next
+two weeks of dated to-dos (Life's "Coming up", each with its area icon; click opens the
+note), today's daily-note Log lines, Personal mail that is your move, and the calendar. No
+focus blocks or work-hours maths; "Save to notes" stages the usual vault card. The report
+counts mail, archives and Ultra's vault writes (now in Ultra's journal), lists today's log
+lines, and says "overdue to-dos". A ledger that is off never reads (`Ledger._run` refuses,
+so the task refresh, Ledger tab, graph and Ask cannot reach Nexus from Personal), and a
+task list cached before the ledger was turned off is ignored.
+
 ## 9. Composer and double approval
 
 The operator iterates on drafts many times, then approves twice. The server enforces
@@ -2431,6 +2441,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 |---|---|---|
 | 2026-10-03 | 1.13 | App v1.13.0 (new 8.11; 15, 19): Life, the Personal Ledger place (areas by default Home, Animals, Garden, Vehicles, Family, Spirit, Money, Fun, or a private life.toml; tiles, coming up, today, lately; area pages); session reports ledger/vault; palette Life entries; Nexus-only palette entries hidden in Personal. |
 | 2026-10-03 | 1.14 | App v1.14.0 (8.11, 14, 15, 19): Life tick-done (one-time token, POST /api/life/done, vault_task_done added to the write allow-list) and house sensors (`house.py`, `[house] url` on a private network, four read paths, lines on tiles, GET /api/life/house). |
+| 2026-10-03 | 1.14 | App v1.14.1 (8.11): Personal's Day view from the notes (to-dos, today's log, Save to notes); a ledger that is off never reads; vault writes journalled. |
 | 2026-10-03 | 1.12 | App v1.12.0 (8.10, 19): vault-mcp (own Go server) replaces headless-obsidian-mcp as the default vault server (reads mapped; kind detected from the command); Log and Task in a workspace without a ledger write to the vault through the staged card (Where: daily note, journal topic, task section), allow-list vault_log / vault_log_note / vault_task_add, `[vault] writes`; old 'ledger CLI is not available' message replaced. |
 | 2026-10-03 | 1.11 | App v1.11.0 (new 7.14; 5.2, 7.7, 14, 15, 19): workspaces. Main = today's folders; others in `workspaces/<slug>/` with their own config, style, tokens and state; one Api and Live per workspace, chosen per request by `X-Ultra-Workspace` / `?ws=`; switch next to the brand, `W`, palette; workspace colour on the top bar; `--workspace` on `ultra auth`; mail sign-in message instead of endless Loading; Today draws around a calendar sign-in error. Live: Work and Personal (the notes vault moves to Personal). |
 | 2026-10-03 | 1.10 | App v1.10.0 (new 8.10; 5.2, 14, 19): Home, the personal notes vault, read only. Local stdio MCP server (headless-obsidian-mcp) started with reads only; five allow-listed read tools; Home line on Today for dated todos (overdue and this week), palette notes search, a note reader with Open in Obsidian; `[vault] exclude` hides folders; a Notes status light. |

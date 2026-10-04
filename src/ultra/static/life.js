@@ -9,7 +9,7 @@
 // Reads only; Log and Task open the usual review card (it writes through vault-mcp).
 // Every piece of vault text is escaped before it reaches the page.
 
-import { api, esc, toast } from "./app.js";
+import { api, esc, toast, busy } from "./app.js";
 import { openNote, searchVault } from "./home.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -74,7 +74,8 @@ function wireHead(area) {
 }
 
 function taskRow(t, showArea = false) {
-  return `<li class="day-item lf-task" data-path="${esc(t.path)}" title="${esc(t.path)}${t.line ? ` (line ${esc(t.line)})` : ""}${t.section ? ` - ${esc(t.section)}` : ""}">
+  const box = t.done_token ? `<button class="lf-check" data-done="${esc(t.done_token)}" title="Mark done (asks first; one git commit)" aria-label="Mark done: ${esc(t.text)}"></button>` : "";
+  return `<li class="day-item lf-task" data-path="${esc(t.path)}" title="${esc(t.path)}${t.line ? ` (line ${esc(t.line)})` : ""}${t.section ? ` - ${esc(t.section)}` : ""}">${box}
     ${t.due ? `<span class="badge lf-when ${t.days < 0 ? "lf-bad" : t.days <= 2 ? "lf-warn" : ""}" title="${esc(t.due)}">${esc(when(t))}</span>` : `<span class="badge lf-when lf-none"></span>`}
     ${showArea && t.area !== "other" ? `<span class="lf-ico" aria-hidden="true">${F.icons[t.area] ? esc(F.icons[t.area]) : ICON[t.area] || ""}</span>` : ""}
     <span class="lf-tt">${esc(t.text)}</span></li>`;
@@ -95,6 +96,7 @@ async function showHome() {
       <span class="lf-ico" aria-hidden="true">${a.icon ? esc(a.icon) : ICON[a.key] || ""}</span>
       <b>${esc(a.name)}</b>
       <span class="lf-counts">${a.overdue ? `<span class="tp-chip bad">${a.overdue} overdue</span>` : ""}${a.soon ? `<span class="tp-chip warn">${a.soon} soon</span>` : ""}${!a.overdue && !a.soon ? `<span class="tp-chip ${a.open ? "" : "ok"}">${a.open ? `${a.open} open` : "all clear"}</span>` : ""}</span>
+      <span class="lf-house" data-house="${esc(a.key)}"></span>
       <span class="lf-next dim small-t">${a.next ? `${a.next.due ? `<b class="lf-nd">${esc(nice(a.next.due))}</b> ` : ""}${esc(clip(a.next.text, 64))}` : esc(a.blurb)}</span>
     </button>`).join("");
   const due = d.due || [];
@@ -118,6 +120,7 @@ async function showHome() {
     </div>`;
   wireHead(null);
   wireBody(el);
+  houseLines(el);
   if ($("#lf-more")) $("#lf-more").onclick = (e) => { e.target.previousElementSibling.innerHTML = due.map((t) => taskRow(t, true)).join(""); e.target.remove(); };
   api("/api/vault/status").then((s) => { const x = $("#lf-src"); if (x) x.textContent = s.writes ? "from your notes" : "from your notes (read only)"; x.title = `Obsidian vault: ${s.name}`; }).catch(() => {});
 }
@@ -131,6 +134,7 @@ async function showArea(key) {
   try { a = await api(`/api/life/area/${encodeURIComponent(key)}`); } catch (e) { el.innerHTML = head("Life", true) + `<div class="alert">${esc(e.message)}</div>`; wireHead(null); return; }
   el.innerHTML = head(`<span class="lf-ico" aria-hidden="true">${a.icon ? esc(a.icon) : ICON[a.key] || ""}</span> ${esc(a.name)}`, true) + `
     <div class="dim small-t lf-blurb">${esc(a.blurb)}</div>
+    <div class="lf-house lf-house-wide" data-house="${esc(a.key)}"></div>
     ${a.notes.length ? `<div class="lf-cards">${a.notes.map((n) => `<button class="lf-card" data-open="${esc(n.path)}" title="${esc(n.path)}"><b>${esc(n.label)}</b><span class="dim small-t">${esc(n.path.split("/").slice(0, -1).join(" / "))}</span></button>`).join("")}</div>` : ""}
     <div class="lt-cols">
       <div><div class="tp-head"><span class="label">Open tasks</span><span class="dim small-t">${a.tasks.length}</span></div>
@@ -140,10 +144,44 @@ async function showArea(key) {
     </div>`;
   wireHead(a);
   wireBody(el);
+  houseLines(el);
+}
+
+// v1.14: house sensors (a LAN dashboard, [house] url) as short lines on tiles and areas
+const rank = (l) => (l.level === "bad" ? 2 : l.level === "warn" ? 1 : 0);
+async function houseLines(el) {
+  const slots = [...el.querySelectorAll("[data-house]")]; if (!slots.length) return;
+  let h;
+  try { h = await api("/api/life/house"); } catch { return; }
+  if (!h.enabled) return;
+  if (h.error) { const s = slots.find((x) => x.dataset.house === "home") || slots[0]; s.innerHTML = `<span class="lf-sense warn" title="${esc(h.error)}">sensors unreachable</span>`; return; }
+  const chip = (l) => `<span class="lf-sense ${l.level === "bad" ? "bad" : l.level === "warn" ? "warn" : ""}">${esc(l.text)}</span>`;
+  for (const s of slots) {
+    let lines = (h.areas || {})[s.dataset.house] || [];
+    const wide = s.classList.contains("lf-house-wide");
+    // tiles: warnings first, at most two, the rest behind "+n" (the area page shows all)
+    if (!wide) lines = [...lines].sort((a, b) => rank(b) - rank(a));
+    const shown = wide ? lines : lines.slice(0, 2), more = lines.length - shown.length;
+    s.innerHTML = shown.map(chip).join("") + (more > 0 ? `<span class="lf-sense lf-more-s" title="${esc(lines.slice(2).map((l) => l.text).join(", "))}">+${more}</span>` : "");
+  }
+}
+
+async function tickDone(btn) {
+  const li = btn.closest(".lf-task"); const text = li?.querySelector(".lf-tt")?.textContent || "this task";
+  if (!confirm(`Mark done?\n\n${text}\n\nTicks it in your notes with today's date (one git commit).`)) return;
+  await busy(btn, async () => {
+    try {
+      const r = await api("/api/life/done", { method: "POST", body: { token: btn.dataset.done } });
+      li.classList.add("lf-done"); btn.disabled = true; btn.classList.add("on");
+      toast(`Done. ${r.commit ? `git ${r.commit}` : ""}`.trim(), "ok");
+      setTimeout(() => (F.view === "area" ? showArea(F.area) : showHome()), 900);
+    } catch (e) { toast(e.message, "err"); }
+  });
 }
 
 function wireBody(el) {
   el.onclick = (e) => {
+    const d = e.target.closest("[data-done]"); if (d) { e.stopPropagation(); return tickDone(d); }
     const t = e.target.closest("[data-area]"); if (t) return showArea(t.dataset.area);
     const o = e.target.closest("[data-open]"); if (o) return openNote(o.dataset.open);
     const k = e.target.closest(".lf-task[data-path]"); if (k) return openNote(k.dataset.path);

@@ -148,3 +148,10 @@ binary = "deep-research"
 dashboard_url = ""
 default_depth = 1
 default_breadth = 3
+
+# [house]
+# A home sensor dashboard on the LAN (v1.14, SPEC 8.11): short readings on the Life
+# tiles. Read only; the URL must be on a private network, a tailnet or .local.
+# url = "http://192.168.1.50:8080"
+# areas = { home = "home", animals = "animals", garden = "garden" }
+# weather_key = "home"

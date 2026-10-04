@@ -30,6 +30,7 @@ from ultra.desk import Desk
 from ultra.drafttools import compare, cut_sentences, tidy
 from ultra.graph import Graph
 from ultra.hermes import Hermes
+from ultra.house import House, HouseApi
 from ultra.itemctx import ItemContext
 from ultra.itemdesk import ItemDesk
 from ultra.learn import EditLearner
@@ -241,6 +242,7 @@ class Live:
         self.desk.vault = self.vault
         # v1.13 Life: the Personal Ledger place, by life area, from the vault (SPEC 8.11)
         self.life_api = LifeApi(Life.from_config(self.vault, cfg))
+        self.house_api = HouseApi(House.from_config(cfg))  # v1.14: sensors on Life tiles
         # v1.1 Inbox Tidy: rule-based bulk archive, previewed, one Undo
         self.tidy = Tidy(
             self.store,
@@ -324,6 +326,7 @@ class Live:
         self.cluster_api.register(api)
         self.vault_api.register(api)
         self.life_api.register(api)
+        self.house_api.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)

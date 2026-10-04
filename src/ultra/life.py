@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import secrets
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -194,6 +197,9 @@ class Life:
     areas: tuple[Area, ...] = DEFAULT_AREAS
     skip: tuple[str, ...] = SKIP_TASK_NOTES
     _notes: dict[str, bool] = field(default_factory=dict)
+    # v1.14 tick done: token -> (task path, line, raw text, issued); single use, 10 min
+    _ticks: dict[str, tuple[str, int, str, float]] = field(default_factory=dict)
+    _tick_lock: threading.Lock = field(default_factory=threading.Lock)
 
     @classmethod
     def from_config(cls, vault: Vault, cfg: Any) -> Life:
@@ -239,6 +245,7 @@ class Life:
                     due = ""
             out.append(
                 {
+                    "raw": text,
                     "text": plain(DUE_RE.sub("", text))[:240],
                     "due": due,
                     "days": days,
@@ -250,6 +257,38 @@ class Life:
             )
         out.sort(key=lambda x: (x["due"] or "9999", x["path"], x["line"] or 0))
         return out
+
+    def _with_ticks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Give each shown task a one-time 'done' token (when writes are on) and drop the
+        raw text: the page never sends a path, line or text back, only the token."""
+        now = time.time()
+        out = []
+        with self._tick_lock:
+            for k in [k for k, v in self._ticks.items() if now - v[3] > 600]:
+                self._ticks.pop(k, None)
+            for task in tasks:
+                t = dict(task)
+                raw = t.pop("raw", "")
+                if self.vault.writes and t.get("line"):
+                    tok = secrets.token_urlsafe(9)
+                    self._ticks[tok] = (t["path"], int(t["line"]), raw, now)
+                    t["done_token"] = tok
+                out.append(t)
+            if len(self._ticks) > 2000:  # a page left open and refreshed all day
+                for k in sorted(self._ticks, key=lambda k: self._ticks[k][3])[:1000]:
+                    self._ticks.pop(k, None)
+        return out
+
+    def tick(self, token: str) -> dict[str, Any]:
+        """Mark one open task done (vault_task_done: '- [x] ... checkmark date', one git
+        commit). The server re-checks the line still holds that open task."""
+        with self._tick_lock:
+            got = self._ticks.pop(token, None)
+        if got is None:
+            raise VaultError(409, "this task changed or the page is old; reload Life")
+        path, line, raw, _ = got
+        res = self.vault.write("vault_task_done", {"path": path, "line": line, "text": raw})
+        return {"path": res.get("path"), "commit": res.get("commit"), "line": res.get("line")}
 
     def _recent(self, folder: str, limit: int) -> list[dict[str, Any]]:
         try:
@@ -301,7 +340,9 @@ class Life:
                     "soon": sum(
                         1 for t in mine if t["days"] is not None and 0 <= t["days"] <= SOON
                     ),
-                    "next": next((t for t in mine if t["due"]), None),
+                    "next": next(
+                        ({k: v for k, v in t.items() if k != "raw"} for t in mine if t["due"]), None
+                    ),
                 }
             )
         other = [t for t in tasks if t["area"] == "other"]
@@ -322,7 +363,7 @@ class Life:
         return {
             "today": today,
             "areas": areas,
-            "due": due[:20],
+            "due": self._with_ticks(due[:20]),
             "undated_other": len([t for t in other if not t["due"]]),
             "day": {
                 "daily": daily.get("path") if isinstance(daily, dict) else "",
@@ -359,7 +400,7 @@ class Life:
             "blurb": a.blurb,
             "icon": a.icon,
             "notes": notes,
-            "tasks": tasks,
+            "tasks": self._with_ticks(tasks),
             "recent": list(uniq.values())[:12],
             "log_topic": a.log_topic,
             "search_words": list(a.words[:6]),
@@ -420,6 +461,16 @@ class LifeApi:
     def register(self, api: Any) -> None:
         api.add("GET", r"/api/life", self.r_overview)
         api.add("GET", r"/api/life/area/([a-z]{2,20})", self.r_area)
+        api.add("POST", r"/api/life/done", self.r_done)
+
+    def r_done(self, q: dict, body: Any, m: re.Match[str]) -> dict:
+        tok = str((body or {}).get("token") or "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,40}", tok):
+            raise self._err(VaultError(400, "bad token"))
+        try:
+            return {"ok": True, **self.life.tick(tok)}
+        except VaultError as e:
+            raise self._err(e) from e
 
     def _err(self, e: VaultError) -> Exception:
         from ultra.server import ApiError

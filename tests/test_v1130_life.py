@@ -240,6 +240,7 @@ def test_ui_wiring():
     js = (ROOT / "src/ultra/static/life.js").read_text()
     assert "const useLife = () => !S.ledgerOn && S.vaultHere;" in app
     assert 'pb.textContent = "Life"' in app and "initLife(ledgerHooks)" in app
-    for verb in ('method: "POST"', "vault_log", "write("):
-        assert verb not in js  # the page only reads; writes go through the review card
+    for verb in ("vault_log", "vault_task", "write("):
+        assert verb not in js  # writes: the review card, or the one tick-done route
+    assert js.count('method: "POST"') == 1 and '"/api/life/done"' in js
     assert "esc(t.text)" in js and "esc(r.title)" in js and "esc(a.icon)" in js

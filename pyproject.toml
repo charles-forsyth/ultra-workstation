@@ -1,6 +1,6 @@
 [project]
 name = "ultra-workstation"
-version = "1.13.0"
+version = "1.14.0"
 description = "Ultra AI Workstation Desktop: email, calendar, Slack and a work ledger in one local web workstation, with AI drafting, double-approved sending, and drag-to-log."
 readme = "README.md"
 requires-python = ">=3.12"

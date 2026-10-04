@@ -2794,6 +2794,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | W-2 | Workspace questions | DECIDED (operator, 2026-10-03): personal writes go to the vault ("include writes in personal"); the starting workspace is the last one used in that browser; personal mail stays out of phone alerts for now; AI on personal mail uses the same model as work. |
 | W-3 | Drive edit scope (W3) | OPEN, asked when W3 starts: may Ultra edit any Drive file, or only files it created (`drive.file`)? Browse/open/save in both workspaces is decided. |
 | V-1 | Vault writes Ultra does not offer | By choice: check-ins, Captain's Log and appending to running ledgers (`vault_checkin`, `vault_captains_log`, `vault_append`) stay with the operator's agent; Ultra's allow-list is four tools (8.10). |
+| M-1 | bifrost tool names change to `ursa_*` | PLANNED, not built (nexus `2026-10-04_MCP_Family_Plan.md`, P2): bifrost v0.10.0 drops the old names with no aliases. The Cluster chip (`job_show_any`, `job_explain_any`, `ticket_draft`, `script_check`) and the `ultra-ask` profile's `tools.include` list move to the new names in the same window; Ultra's include-list check falls back to plain Ask if the names don't match. |
 
 ## 21. Change log
 

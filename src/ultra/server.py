@@ -140,6 +140,9 @@ class Api:
             "layout": "classic" if self.cfg.get("ui", "layout", "calm") == "classic" else "calm",
             # v1.11: which workspace answered (the page shows its name and colour)
             "workspace": self.cfg.workspace,
+            # v1.13: the Ledger place shows Nexus when there is a ledger, else Life (the vault)
+            "ledger": bool(self.live and self.live.ledger.enabled) or self.demo,
+            "vault": bool(self.live and self.live.vault.enabled),
             "addresses": sorted(self.cfg.my_addresses)[:4],
         }
 

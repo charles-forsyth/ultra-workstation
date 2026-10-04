@@ -36,6 +36,7 @@ from ultra.learn import EditLearner
 from ultra.ledger import Ledger, LedgerError
 from ultra.ledger_write import LedgerWriter
 from ultra.ledgertab import LedgerTab, LedgerTabWriter
+from ultra.life import Life, LifeApi
 from ultra.lint import ascii_fix, load_style
 from ultra.mail import Mail
 from ultra.mailx import (
@@ -238,6 +239,8 @@ class Live:
         self.vault = Vault(cfg, vault_client(cfg), lambda: dt.datetime.now(self.calendar.tz).date())
         self.vault_api = VaultApi(self.vault, self.store)
         self.desk.vault = self.vault
+        # v1.13 Life: the Personal Ledger place, by life area, from the vault (SPEC 8.11)
+        self.life_api = LifeApi(Life.from_config(self.vault, cfg))
         # v1.1 Inbox Tidy: rule-based bulk archive, previewed, one Undo
         self.tidy = Tidy(
             self.store,
@@ -320,6 +323,7 @@ class Live:
         self.graph.register(api)
         self.cluster_api.register(api)
         self.vault_api.register(api)
+        self.life_api.register(api)
         # triage
         api.add("POST", r"/api/mail/archive", self.r_archive)
         api.add("POST", r"/api/mail/unarchive", self.r_unarchive)

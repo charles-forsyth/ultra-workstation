@@ -17,7 +17,7 @@ const CONN = ["MEMBER_OF", "PI_OF", "LEADS", "SUPPORTS", "OVERSIGHT_BY", "FUNDS"
 
 export function initLedgerTab({ onOpen, onClose }) {
   L.onOpen = onOpen; L.onClose = onClose;
-  $("#btn-ledger")?.addEventListener("click", () => (L.open ? closeLedgerTab() : openLedgerTab()));
+  // v1.13: app.js routes #btn-ledger (Nexus or Life); this file only opens the Nexus tab
 }
 export function ledgerTabOpen() { return L.open; }
 export function closeLedgerTab() {

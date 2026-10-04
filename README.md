@@ -52,6 +52,11 @@ normal config; add another as `~/.config/ultra-workstation/workspaces/<name>/con
 read --workspace <name>` (and modify, send, calendar), then switch with the workspace
 button next to the logo or `W`. Each browser opens in the workspace it used last.
 
+A workspace without a ledger (Personal) gets **Life** in the Ledger's place: your own
+life from your notes vault, by area (home and land, animals, garden, vehicles, family,
+spirit, money, fun), with what is coming up, today's log and recent notes. Log and Task
+there write to the vault through the same review card.
+
 ## Install
 
 ```bash
@@ -224,7 +229,7 @@ keys need an item open. Browser shortcuts (Ctrl+R, Ctrl+F, ...) are left alone.
 | `v` | Graph | | |
 | `/` | search mail | `d` | Day |
 | `Ctrl+K` | command palette | `g` | Today (calendar) |
-| `Esc` | close the open view or dialog | `n` | Ledger tab |
+| `Esc` | close the open view or dialog | `n` | Ledger tab (Life in a workspace without a ledger) |
 | `r` | reply (email, Slack) | `m` | stream: Mine |
 | `a` | reply all | `w` | stream: Waiting |
 | `f` | forward | `T` | stream: Tasks |

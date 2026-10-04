@@ -843,3 +843,36 @@ body[data-wscolor="green"] .topbar { box-shadow: inset 0 -2px 0 var(--green); }
 body[data-wscolor="amber"] .topbar { box-shadow: inset 0 -2px 0 var(--amber); }
 body[data-wscolor="magenta"] .topbar { box-shadow: inset 0 -2px 0 var(--magenta); }
 body[data-wscolor="red"] .topbar { box-shadow: inset 0 -2px 0 var(--red); }
+
+/* v1.13 Life (SPEC 8.11): the Personal Ledger place */
+.lf-today, .lf-due, .lf-recent { margin: 8px 0 14px; }
+.lf-log li { font-size: 12.5px; }
+.lf-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 6px 0 16px; }
+@media (max-width: 1100px) { .lf-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.lf-gap { margin-top: 12px; }
+.lf-cols { gap: 18px; }
+.lf-tile { text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; color: var(--text); font: inherit; min-height: 88px; }
+.lf-tile:hover, .lf-tile:focus-visible { border-color: var(--ws, var(--cyan)); outline: none; }
+.lf-tile b { font-size: 15px; }
+.lf-tile .lf-ico { font-size: 20px; line-height: 1; }
+.lf-counts { display: flex; gap: 4px; flex-wrap: wrap; }
+.lf-next { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.lf-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin: 8px 0 14px; }
+.lf-card { text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; cursor: pointer; color: var(--text); font: inherit; }
+.lf-card:hover, .lf-card:focus-visible { border-color: var(--ws, var(--cyan)); outline: none; }
+.lf-card span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-blurb { margin: 0 0 8px; }
+.lf-task, .lf-rec { cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
+.lf-task:hover .lf-tt, .lf-rec:hover .lf-tt { color: var(--ws, var(--cyan)); }
+.lf-tt { flex: 1; min-width: 0; }
+.lf-ico { font-size: 13px; }
+.lf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+body[data-wscolor="green"] { --ws: var(--green); }
+body[data-wscolor="amber"] { --ws: var(--amber); }
+body[data-wscolor="magenta"] { --ws: var(--magenta); }
+body[data-wscolor="red"] { --ws: var(--red); }
+.lf-when { min-width: 74px; text-align: center; flex: none; }
+.lf-when.lf-bad { color: var(--red); border-color: var(--red); }
+.lf-when.lf-warn { color: var(--amber); border-color: var(--amber); }
+.lf-when.lf-none { visibility: hidden; }
+.lf-nd { font-weight: 600; color: var(--text); }

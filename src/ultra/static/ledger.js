@@ -657,6 +657,7 @@ window.addEventListener("ultra:stage-answer", async (ev) => {
   try {
     CARD = await api("/api/ledger/stage-answer", { method: "POST", body: { action: d.action, text: d.text, key: d.key || "", task: d.task || "", title: d.title || "" } });
   } catch (e) { dlg.hidden = true; toast(e.message, "err"); return; }
+  if (d.where && CARD.target === "vault") CARD.where = d.where;  // v1.13: Life areas preset Where
   renderCard();
 });
 window.addEventListener("ultra:bucket-snippet", (ev) => {

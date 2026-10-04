@@ -10,7 +10,14 @@ import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntit
 import { initTools, setToolsThread, webSearch, explain, researchSearch, launcher, readAloud, audioDialog, listen } from "./tools.js";
 import { initDay, openDay, closeDay, dayOpen } from "./day.js";
 import { initToday, openToday, closeToday, todayOpen } from "./today.js";
-import { initLedgerTab, openLedgerTab, closeLedgerTab, ledgerTabOpen } from "./ltab.js";
+import { initLedgerTab, openLedgerTab as openNexusTab, closeLedgerTab as closeNexusTab, ledgerTabOpen as nexusTabOpen } from "./ltab.js";
+import { initLife, openLife, closeLife, lifeOpen } from "./life.js";
+
+// v1.13: the Ledger place is Nexus where this workspace has a ledger, else Life (the vault)
+const useLife = () => !S.ledgerOn && S.vaultHere;
+const openLedgerTab = (view = null, arg = null) => (useLife() ? openLife() : openNexusTab(view, arg));
+const closeLedgerTab = () => (lifeOpen() ? closeLife() : closeNexusTab());
+const ledgerTabOpen = () => nexusTabOpen() || lifeOpen();
 import { studioStart } from "./studio.js";
 import { initSearch, labelMenu, attHtml, wireAttachments, loadNotes, addHighlight, wireHighlightClicks, exportMenu } from "./mailx.js";
 import { initAsk, openAsk, askButton } from "./ask.js";
@@ -984,12 +991,13 @@ function commands() {
     { t: "New deep research...", run: () => launcher("") },
     { t: "Ask Hermes (no item attached)...", run: () => openAsk({ type: "none" }, "") },
     { t: "Today (calendar)", run: () => openToday() },
-    { t: "Ledger: home", k: "n", run: () => openLedgerTab("home") },
-    { t: "Ledger: task board", run: () => openLedgerTab("tasks") },
-    { t: "Ledger: browse people, labs, projects...", run: () => openLedgerTab("browse") },
-    { t: "Ledger: interactions", run: () => openLedgerTab("interactions") },
-    { t: "Ledger: org tree", run: () => openLedgerTab("org") },
-    { t: "Ledger: health and audit reports", run: () => openLedgerTab("reports") },
+    ...(useLife() ? (S.lifeAreas || []).map((x) => ({ t: `Life: ${x.name}`, run: () => openLife(x.key) })) : []),
+    { t: useLife() ? "Life: home" : "Ledger: home", k: "n", run: () => openLedgerTab("home") },
+    ...(useLife() ? [] : [{ t: "Ledger: task board", run: () => openLedgerTab("tasks") }]),
+    ...(useLife() ? [] : [{ t: "Ledger: browse people, labs, projects...", run: () => openLedgerTab("browse") }]),
+    ...(useLife() ? [] : [{ t: "Ledger: interactions", run: () => openLedgerTab("interactions") }]),
+    ...(useLife() ? [] : [{ t: "Ledger: org tree", run: () => openLedgerTab("org") }]),
+    ...(useLife() ? [] : [{ t: "Ledger: health and audit reports", run: () => openLedgerTab("reports") }]),
     { t: "Search mail...", k: "/", run: () => $("#ms-q")?.focus() },
     ...["mine", "waiting", "all", "tasks", "tickets", "slack", "low"].map((f) => ({ t: `Show ${f}`, run: () => $(`#filter-seg button[data-f="${f}"]`).click() })),
   ];
@@ -1063,6 +1071,12 @@ async function boot() {
   try {
     const s = await api("/api/session");
     TOKEN = s.token; S.tz = s.timezone || "UTC"; S.demo = s.demo; S.slackOn = s.slack; S.aiOn = s.ai;
+    S.ledgerOn = s.ledger !== false; S.vaultHere = !!s.vault;
+    if (useLife()) {  // Personal: the third place is your life, not the work ledger
+      const pb = $('#places button[data-place="ledger"]'); if (pb) { pb.textContent = "Life"; pb.title = "Life: your home, animals, garden, vehicles, family and more, from your notes (n)"; }
+      const lb = $("#btn-ledger"); if (lb) lb.title = "Life: your areas, from your notes (n)";
+      api("/api/life").then((d) => { S.lifeAreas = (d.areas || []).map((x) => ({ key: x.key, name: x.name })); }).catch(() => {});
+    }
     S.version = s.version;
     // a workspace this browser remembers but the server no longer has: back to main
     if (s.workspace && s.workspace.slug !== WS.get() && WS.get() !== "main") WS.set("main");
@@ -1101,10 +1115,13 @@ async function boot() {
     onOpen: () => { if (graphOpen()) closeGraph(); if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
   });
-  initLedgerTab({
+  const ledgerHooks = {
     onOpen: () => { if (graphOpen()) closeGraph(); if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (boardOpen()) closeBoard(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },
-  });
+  };
+  initLedgerTab(ledgerHooks);
+  initLife(ledgerHooks);
+  $("#btn-ledger")?.addEventListener("click", () => (ledgerTabOpen() ? closeLedgerTab() : openLedgerTab()));
   initBoard({
     onOpen: () => { if (graphOpen()) closeGraph(); if (todayOpen()) closeToday(); if (dayOpen()) closeDay(); if (ledgerTabOpen()) closeLedgerTab(); S.key = null; S.sel = -1; renderStream(); },
     onClose: () => { $("#thread").hidden = true; $("#thread").innerHTML = ""; $("#thread-empty").hidden = false; },

@@ -695,30 +695,49 @@ function chipHtml(c, i) {
   </label>`;
 }
 
+function vaultWhere(c, isLog) {
+  // v1.12: where a vault write goes (SPEC 8.10). Log: today's daily note or a journal note.
+  const v = c.vault || {}; const w = c.where || (c.where = isLog ? { kind: "daily" } : { section: "" });
+  const dis = c.state !== "staged" ? "disabled" : "";
+  if (!isLog) {
+    return `<label for="lc-sec">Section</label><select id="lc-sec" ${dis}><option value="">(default: ACTIVE)</option>${(v.sections || []).map((x) => `<option ${x === w.section ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`;
+  }
+  return `<label for="lc-where">Where</label><span class="lc-due"><select id="lc-where" ${dis}>
+      <option value="daily" ${w.kind !== "journal" ? "selected" : ""}>Daily note (a line under Log)</option>
+      ${(v.topics || []).map((t) => `<option value="j:${esc(t)}" ${w.kind === "journal" && w.topic === t ? "selected" : ""}>Journal: ${esc(t)} (its own note)</option>`).join("")}
+    </select>${w.kind === "journal" ? `<input id="lc-title" placeholder="Title" value="${esc(w.title || "")}" ${dis}>` : ""}</span>`;
+}
+
 function renderCard() {
   const c = CARD, dlg = $("#ledger-card");
   const isLog = c.action === "log";
+  const toVault = c.target === "vault";
+  const vName = (c.vault && c.vault.name) || "notes";
   dlg.innerHTML = `<div class="lc-card" role="dialog" aria-modal="true" aria-labelledby="lc-title">
-    <div class="lc-head"><h3 id="lc-title">${isLog ? "Log interaction" : "New task"}</h3>
+    <div class="lc-head"><h3 id="lc-title">${toVault ? (isLog ? "Log to your notes" : "New personal task") : (isLog ? "Log interaction" : "New task")}</h3>
       <span class="dim small-t">${c.items.map((x) => esc(x.subject || x.kind)).join(" + ")}</span>
       <span class="grow"></span><button class="btn tiny ghost" id="lc-x">Close</button></div>
-    ${c.ledger === false ? `<div class="lint error">The ledger CLI is not available; nothing can be written.</div>` : ""}
+    ${c.ledger === false ? `<div class="lint error">This workspace has no ledger to write to (Nexus is off and vault writes are not set up).</div>` : ""}
+    ${toVault ? `<div class="dim small-t">Writes to the ${esc(vName)} vault: added, never overwritten, one git commit.${c.vault?.error ? ` <span class="lint error">${esc(c.vault.error)}</span>` : ""}</div>` : ""}
     <div class="lc-grid">
+      ${toVault ? vaultWhere(c, isLog) : ""}
       ${isLog ? `<label for="lc-date">Date</label><input id="lc-date" value="${esc(c.date)}" title="Local time, YYYY-MM-DD HH:MM">`
+        : toVault ? `<label for="lc-due">Due</label><span class="lc-due"><input type="date" id="lc-due" value="${esc(c.due || "")}" ${c.state !== "staged" ? "disabled" : ""}>
+        <button type="button" class="btn tiny ghost" data-due="0">Today</button><button type="button" class="btn tiny ghost" data-due="1">Tomorrow</button><button type="button" class="btn tiny ghost" data-due="7">+1 week</button><button type="button" class="btn tiny ghost" data-due="">None</button></span>`
         : `<label for="lc-pri">Priority</label><select id="lc-pri">${["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((p) => `<option ${p === c.priority ? "selected" : ""}>${p}</option>`).join("")}</select>
       <label for="lc-due">Due</label><span class="lc-due"><input type="date" id="lc-due" value="${esc(c.due || "")}" ${c.state !== "staged" ? "disabled" : ""}>
         <button type="button" class="btn tiny ghost" data-due="0">Today</button><button type="button" class="btn tiny ghost" data-due="1">Tomorrow</button><button type="button" class="btn tiny ghost" data-due="7">+1 week</button><button type="button" class="btn tiny ghost" data-due="">None</button></span>`}
-      <label>Links</label><div class="chips" id="lc-chips">${c.chips.map(chipHtml).join("") || `<span class="dim small-t">No ledger matches. Add some below.</span>`}</div>
-      <label></label><div class="lc-add"><input id="lc-find" placeholder="Add a link: search the ledger"><div id="lc-found" class="lc-found"></div></div>
+      ${toVault ? "" : `<label>Links</label><div class="chips" id="lc-chips">${c.chips.map(chipHtml).join("") || `<span class="dim small-t">No ledger matches. Add some below.</span>`}</div>
+      <label></label><div class="lc-add"><input id="lc-find" placeholder="Add a link: search the ledger"><div id="lc-found" class="lc-found"></div></div>`}
     </div>
-    ${c.unresolved?.length ? `<div class="dim small-t">Not in the ledger: ${c.unresolved.map((u) => esc(u.name || u.addr)).join(", ")}</div>` : ""}
+    ${!toVault && c.unresolved?.length ? `<div class="dim small-t">Not in the ledger: ${c.unresolved.map((u) => esc(u.name || u.addr)).join(", ")}</div>` : ""}
     <textarea id="lc-text" rows="${isLog ? 9 : 3}" ${c.state !== "staged" ? "disabled" : ""}>${esc(c.text)}</textarea>
     <div class="lc-row">
       <button class="btn small ai" id="lc-ai" ${c.state !== "staged" ? "disabled" : ""}>Rewrite with AI</button>
       <span class="dim small-t" id="lc-count"></span>
       <span class="grow"></span>
       ${c.state === "committed" ? `<button class="btn small primary" id="lc-cancel">Done</button>` : `<button class="btn small" id="lc-cancel">Discard</button>
-      <button class="btn small primary" id="lc-commit" ${c.state !== "staged" || c.ledger === false ? "disabled" : ""}>Commit to ledger</button>`}
+      <button class="btn small primary" id="lc-commit" ${c.state !== "staged" || c.ledger === false ? "disabled" : ""}>${toVault ? "Save to notes" : "Commit to ledger"}</button>`}
     </div>
     <div class="lc-progress" id="lc-progress" hidden></div>
   </div>`;
@@ -738,8 +757,15 @@ function renderCard() {
   dlg.onkeydown = (e) => { if (e.key === "Escape" && CARD?.state !== "committing") close(); };
   const count = () => { $("#lc-count").textContent = `${$("#lc-text").value.length} chars`; };
   $("#lc-text").oninput = count; count();
-  $("#lc-chips").onchange = (e) => { const i = e.target.dataset.chip; if (i != null) CARD.chips[Number(i)].checked = e.target.checked; };
-  $("#lc-chips").onclick = (e) => {
+  if ($("#lc-where")) $("#lc-where").onchange = (e) => {
+    const v = e.target.value; const text = $("#lc-text").value;
+    CARD.where = v === "daily" ? { kind: "daily" } : { kind: "journal", topic: v.slice(2), title: CARD.where?.title || (CARD.items[0]?.subject || "").slice(0, 80) };
+    renderCard(); $("#lc-text").value = text; count();
+  };
+  if ($("#lc-title")) $("#lc-title").oninput = (e) => { CARD.where.title = e.target.value; };
+  if ($("#lc-sec")) $("#lc-sec").onchange = (e) => { CARD.where = { section: e.target.value }; };
+  if ($("#lc-chips")) $("#lc-chips").onchange = (e) => { const i = e.target.dataset.chip; if (i != null) CARD.chips[Number(i)].checked = e.target.checked; };
+  if ($("#lc-chips")) $("#lc-chips").onclick = (e) => {
     const b = e.target.closest("[data-linknow]"); if (!b) return;
     e.preventDefault();
     const ch = CARD.chips[Number(b.dataset.linknow)];
@@ -749,7 +775,7 @@ function renderCard() {
       if (!r.ok) toast(`Still not linked: ${r.output_tail || ""}`, "err");
     });
   };
-  wireFind();
+  if ($("#lc-find")) wireFind();
   $("#lc-ai").onclick = (e) => busy(e.currentTarget, async () => {
     const r = await api("/api/ledger/ai-text", { method: "POST", body: { text: $("#lc-text").value, mode: CARD.action } });
     $("#lc-text").value = r.text; count(); toast(`Rewritten by ${r.model}. Check it before committing.`, "ok");
@@ -791,7 +817,17 @@ async function commit() {
   if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) { toast("The due date must be a full date.", "err"); return; }
   CARD.due = due;
   const body = { card: CARD.id, text, chips, date: $("#lc-date")?.value || "", priority: $("#lc-pri")?.value || "MEDIUM", due };
-  const summary = CARD.action === "log"
+  if (CARD.target === "vault") {
+    const w = CARD.where || {};
+    if (w.kind === "journal" && !(w.title || "").trim()) { toast("A journal note needs a title.", "err"); return; }
+    body.where = w; body.chips = [];
+  }
+  const vw = CARD.where || {};
+  const summary = CARD.target === "vault"
+    ? (CARD.action === "log"
+      ? `Save this to your notes?\n\n${vw.kind === "journal" ? `New ${vw.topic} journal note: ${vw.title}` : `Daily note for ${body.date.slice(0, 10)}, under Log`}\n\n${text.slice(0, 400)}${text.length > 400 ? "..." : ""}`
+      : `Add this personal task?\n\nSection: ${vw.section || "ACTIVE (default)"}\nDue: ${due || "(no due date)"}\n\n${text}`)
+    : CARD.action === "log"
     ? `Write this interaction to the ledger?\n\nDate: ${body.date}\nLinks: ${chips.map((c) => c.name).join(", ") || "(only you)"}\n\n${text.slice(0, 400)}${text.length > 400 ? "..." : ""}`
     : `Add this task (assigned to you)?\n\nPriority: ${body.priority}\nDue: ${due || "(no due date)"}\nLinks: ${chips.map((c) => c.name).join(", ") || "(none)"}\n\n${text}`;
   if (!confirm(summary)) return;
@@ -818,8 +854,12 @@ function pollCommit() {
       const linked = new Set(p.result.linked || []);
       CARD.chips.forEach((c) => { if (c.checked) c.state = linked.has(c.id) ? "linked" : "missing"; });
       renderCard(); showResult();
-      try { await navigator.clipboard.writeText(p.result.id); } catch { /* clipboard blocked */ }
-      toast(`${p.result.kind === "task" ? "Task" : "Interaction"} ${p.result.id.slice(0, 8)} saved. Id copied.`, "ok");
+      if (p.result.path) {
+        toast(`Saved to ${p.result.path}${p.result.commit ? ` (git ${p.result.commit})` : ""}.`, "ok");
+      } else {
+        try { await navigator.clipboard.writeText(p.result.id); } catch { /* clipboard blocked */ }
+        toast(`${p.result.kind === "task" ? "Task" : "Interaction"} ${p.result.id.slice(0, 8)} saved. Id copied.`, "ok");
+      }
       loadBucket();
       document.dispatchEvent(new CustomEvent("ultra:ledger-written"));
     } else {
@@ -835,12 +875,16 @@ function showResult() {
   box.hidden = false;
   const steps = box.innerHTML;
   const missing = (r.missing || []).length;
-  box.innerHTML = (r.id
+  box.innerHTML = (r.id && r.path
+    ? `<div class="lc-done ok">Saved to <span class="mono">${esc(r.path)}</span>${r.line ? ` (line ${esc(r.line)})` : ""}
+        ${r.commit ? `<br>One git commit: <span class="mono">${esc(r.commit)}</span>. Undo with git revert if needed.` : ""}
+        ${r.open_url ? `<br><a href="${esc(r.open_url)}">Open in Obsidian</a>` : ""}</div>`
+    : r.id
     ? `<div class="lc-done ${missing ? "warn" : "ok"}">${r.kind === "task" ? "Task" : "Interaction"} <span class="mono">${esc(r.id)}</span>
         ${missing ? `<br>${missing} link(s) missing: use Link now on the red chips.` : "<br>All links confirmed by read-back."}
         ${r.ai_error ? "<br>The ledger's summarizer failed, so the full text is the summary." : ""}
         ${(r.extra || []).length ? `<br>The ledger also linked: ${r.extra.map((x) => esc(x.name)).join(", ")}. Check these are right.` : ""}
         ${r.summary ? `<br><span class="dim">Ledger summary: ${esc(r.summary)}</span>` : ""}</div>`
-    : `<div class="lc-done bad">Not saved. ${esc(r.error || "")}${r.output ? `<pre>${esc(r.output)}</pre>` : ""}<br>Nothing was retried, so there is no duplicate. Check the ledger before trying again.</div>`)
+    : `<div class="lc-done bad">Not saved. ${esc(r.error || "")}${r.output ? `<pre>${esc(r.output)}</pre>` : ""}<br>Nothing was retried, so there is no duplicate. Check ${CARD.target === "vault" ? "the note" : "the ledger"} before trying again.</div>`)
     + (steps.includes("step") ? `<details><summary class="dim small-t">steps</summary>${steps.replace(/<div class="lc-done[\s\S]*$/, "")}</details>` : "");
 }

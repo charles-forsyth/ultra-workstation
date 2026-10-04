@@ -234,9 +234,10 @@ class Live:
         # v1.8 cluster facts in the mail loop: bifrost read tools only (SPEC 8.9)
         self.cluster = Cluster(self.mcp.get("ursa"))
         self.cluster_api = ClusterApi(self.cluster, self.store)
-        # v1.10 Home: the personal notes vault, read only (SPEC 8.10)
+        # v1.10 Home: the personal notes vault (SPEC 8.10); v1.12 Log/Task writes when no ledger
         self.vault = Vault(cfg, vault_client(cfg), lambda: dt.datetime.now(self.calendar.tz).date())
         self.vault_api = VaultApi(self.vault, self.store)
+        self.desk.vault = self.vault
         # v1.1 Inbox Tidy: rule-based bulk archive, previewed, one Undo
         self.tidy = Tidy(
             self.store,

@@ -21,7 +21,7 @@ export const KEYS = [
   ["v", "Graph: your ledger neighborhood", "Views", "any"],
   ["d", "Day: check-in plan and end-of-day report", "Views", "any"],
   ["g", "Today: calendar", "Views", "any"],
-  ["n", "Ledger tab", "Views", "any"],
+  ["n", "Ledger tab (Life in Personal)", "Views", "any"],
   ["m", "Stream: Mine", "Stream", "any"],
   ["w", "Stream: Waiting", "Stream", "any"],
   ["T", "Stream: Tasks", "Stream", "any"],

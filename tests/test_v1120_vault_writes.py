@@ -212,9 +212,7 @@ def test_card_targets_the_vault_when_there_is_no_ledger(fake):
         {}, {"text": "Swapped the furnace filter", "allow_unlinked": True, "title": "Note"}, None
     )
     assert card["target"] == "vault" and card["ledger"] is True
-    assert (
-        card["vault"]["topics"] == ["Homestead", "Garden"] and card["vault"]["name"] == "Notes"
-    )
+    assert card["vault"]["topics"] == ["Homestead", "Garden"] and card["vault"]["name"] == "Notes"
     desk.r_commit(
         {},
         {

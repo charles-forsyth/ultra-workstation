@@ -138,9 +138,14 @@ def test_reads_map_to_vault_mcp_tools(fake):
 def test_write_allow_list_and_via(fake):
     make, log = fake
     v = make()
-    assert v.writes and WRITE_TOOLS == {"vault_log", "vault_log_note", "vault_task_add"}
+    assert v.writes and WRITE_TOOLS == {
+        "vault_log",
+        "vault_log_note",
+        "vault_task_add",
+        "vault_task_done",
+    }
     assert not (WRITE_TOOLS & READ_TOOLS)
-    for bad in ("vault_append", "vault_task_done", "vault_checkin", "write_note", "delete_note"):
+    for bad in ("vault_append", "vault_checkin", "vault_captains_log", "write_note", "delete_note"):
         with pytest.raises(VaultError, match="not a write Ultra makes"):
             v.write(bad, {"text": "x"})
     r = v.write("vault_log", {"text": "Fed the hens", "date": "2026-10-03"})

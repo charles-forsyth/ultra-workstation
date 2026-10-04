@@ -876,3 +876,21 @@ body[data-wscolor="red"] { --ws: var(--red); }
 .lf-when.lf-warn { color: var(--amber); border-color: var(--amber); }
 .lf-when.lf-none { visibility: hidden; }
 .lf-nd { font-weight: 600; color: var(--text); }
+
+/* v1.14: tick done, house sensors */
+.lf-check { flex: none; width: 15px; height: 15px; border: 1.5px solid var(--text); opacity: .7; border-radius: 4px; background: transparent; cursor: pointer; padding: 0; margin: 2px 2px 0 0; align-self: flex-start; }
+.lf-check:hover, .lf-check:focus-visible { opacity: 1; border-color: var(--ws, var(--cyan)); background: color-mix(in srgb, var(--ws, var(--cyan)) 18%, transparent); outline: none; }
+.lf-check.on { background: var(--ws, var(--cyan)); border-color: var(--ws, var(--cyan)); }
+.lf-done .lf-tt { text-decoration: line-through; color: var(--dim); }
+.lf-house { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; margin: 2px 0; }
+.lf-house:empty { display: none; }
+.lf-house-wide { flex-direction: row; flex-wrap: wrap; gap: 2px 14px; }
+.lf-house-wide { margin: 0 0 10px; }
+.lf-sense { font: 11.5px var(--sans); color: var(--text); opacity: .85; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.lf-sense::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+.lf-sense.warn { color: var(--amber); opacity: 1; }
+.lf-sense.warn::before { background: var(--amber); }
+.lf-sense.bad { color: var(--red); opacity: 1; font-weight: 600; }
+.lf-sense.bad::before { background: var(--red); }
+.lf-sense.lf-more-s { color: var(--dim); }
+.lf-sense.lf-more-s::before { display: none; }

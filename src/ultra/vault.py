@@ -45,7 +45,7 @@ READ_TOOLS = frozenset(
     | {"vault_search", "vault_read", "vault_tasks", "vault_recent", "vault_status", "vault_day"}
 )
 # v1.12: the only tools write() may call, and only on vault-mcp (append or create)
-WRITE_TOOLS = frozenset({"vault_log", "vault_log_note", "vault_task_add"})
+WRITE_TOOLS = frozenset({"vault_log", "vault_log_note", "vault_task_add", "vault_task_done"})
 TASKS_NOTE = "01 - Hubs/Tasks and Todos.md"
 TTL = 60  # seconds: notes change, but not within one look
 DUE_RE = re.compile(r"(?:\U0001F4C5|\bdue:?)\s*(\d{4}-\d{2}-\d{2})")

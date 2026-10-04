@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.13 of the spec; app at v1.13.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, Home, the personal notes vault, read only, and workspaces (Work / Personal); see the delivery plan in section 19)
+Status: v1.14 of the spec; app at v1.14.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, Home, the personal notes vault, read only, workspaces (Work / Personal), and Life with house sensors and tick-done; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -210,6 +210,7 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 | `ledger_mcp.py` | ledger reads through the hosted MCP server, answered in the CLI's JSON shapes (8.4, v1.4) |
 | `ledger_mcp_write.py` | ledger writes through the hosted MCP server: argv -> write tool, refusal vs unknown outcome (8.4, v1.6) |
 | `cluster.py` | cluster facts in the mail loop: job-id detection, bifrost read tools only, Cluster chip routes (8.9, v1.8) |
+| `house.py` | House sensors on Life tiles: read-only LAN dashboard client (8.11, v1.14) |
 | `life.py` | Life: areas, task filing, overview and area pages from the vault (8.11) |
 | `vault.py` | Home: the personal notes vault over a local stdio MCP server, read tools only, todos, search, note reader (8.10, v1.10) |
 | `ledgertab.py` | Ledger tab routes |
@@ -1563,6 +1564,29 @@ showing the operator's own life from the vault, read only.
 - Tests: `tests/test_v1130_life.py` (areas, filing rules, plain text, overview, area page,
   reads only, routes, UI wiring).
 
+**v1.14 additions.**
+
+- *Tick done.* Each task Life shows (when the vault takes writes) carries a one-time token
+  instead of anything the page could rewrite. A small box before the task asks "Mark
+  done?" and posts only the token to `POST /api/life/done`; the server looks up the path,
+  line and exact text it issued (single use, 10 minutes) and calls vault-mcp
+  `vault_task_done`, which re-checks that line still holds that open task, ticks it with
+  today's date, and makes one git commit. A changed note or an old page is refused with
+  "reload Life". `vault_task_done` joins the Ultra write allow-list; nothing else does.
+- *House sensors* (`house.py`). With `[house] url = "http://<lan host>:<port>"` a workspace
+  reads four JSON documents from a home sensor dashboard (`/api/coop/thermal`,
+  `/api/freeze`, `/api/coop`, `/api/status`) and shows short lines on the tiles: coop
+  temperature, waterer ice risk and the night sentry on Animals; frost outlook on Garden
+  (and the house tile on a hard freeze); outside temperature and any stale sensor on the
+  house tile. Tiles show at most two lines, warnings first, the area page all of them.
+  GET only, those four paths only, 4-second timeout, two-minute cache; the URL must be on
+  a private network or a tailnet (`100.64/10`) or `.local`, never loopback. Values are
+  reduced to numbers and fixed upper-case words before reaching the page. A dashboard
+  that does not answer reads "sensors unreachable", never a stale or guessed value.
+  `[house] areas = {home = "...", animals = "...", garden = "..."}` maps the three
+  groups onto the workspace's own Life area keys; `weather_key` picks the place in the
+  dashboard's weather block. Route `GET /api/life/house`.
+
 ## 9. Composer and double approval
 
 The operator iterates on drafts many times, then approves twice. The server enforces
@@ -2085,7 +2109,7 @@ All JSON. Writes (every non-GET) need `X-Ultra-Token` from `GET /api/session` an
 `Content-Type: application/json` (12.1). Long calls return a job id that the page polls.
 There is no SSE stream and no generic jobs route; each feature has its own job route.
 Path parameters are shown as `<name>`; the server matches each with a strict pattern.
-166 route paths as of v1.13 (`tests/test_v101_spec.py` fails if one is added without a row
+168 route paths as of v1.14 (`tests/test_v101_spec.py` fails if one is added without a row
 here).
 
 **Core** (server.py)
@@ -2096,6 +2120,8 @@ here).
 | GET | `/api/session` | CSRF token, operator, time zone, which sources are on, this workspace (7.14) |
 | GET | `/api/life` | Life home: areas, coming up, today, lately (8.11) |
 | GET | `/api/life/area/<key>` | one Life area: key notes, tasks, recent notes (8.11) |
+| POST | `/api/life/done` | tick one shown task done by its one-time token (8.11, v1.14) |
+| GET | `/api/life/house` | house sensor lines for the Life tiles (8.11, v1.14) |
 | GET | `/api/workspaces` | every workspace: slug, name, colour (7.14) |
 
 **Stream, threads, status** (live.py)
@@ -2373,6 +2399,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.7 Calm, part 2 (shipped 1.7.0) | Section 7.13: Board full width, Today plan strip, Ledger summary line and a shorter tab strip, Tidy suggestion, Log offer after archiving READY |
 | v1.8 Cluster facts in mail (shipped 1.8.0) | Section 8.9: job ids in support mail show a Cluster chip with the job's facts, findings, log end and a reply draft from bifrost; script check; cluster line on Today; read tools only |
 | v1.13 Life (shipped 1.13.0) | Section 8.11: Personal's Ledger place is Life, the operator's areas from the vault |
+| v1.14 Life: sensors and tick done (shipped 1.14.0) | Section 8.11: house sensor lines on tiles; tick a task done from Life |
 | v1.12 Personal vault writes (shipped 1.12.0) | Section 8.10: vault-mcp as the vault server; Personal Log and Task write to the notes vault (daily note, journal note, task) with the staged card |
 | v1.11 Workspaces (shipped 1.11.0) | Section 7.14: Work and Personal, each a whole Ultra (own mail, calendar, ledger, history, sign-ins); switch, `W`, per-browser memory |
 | v1.10 Home (shipped 1.10.0) | Section 8.10: the personal notes vault over a local MCP server, read only: Home line on Today, notes search, note reader |
@@ -2403,6 +2430,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | Date | Version | Change |
 |---|---|---|
 | 2026-10-03 | 1.13 | App v1.13.0 (new 8.11; 15, 19): Life, the Personal Ledger place (areas by default Home, Animals, Garden, Vehicles, Family, Spirit, Money, Fun, or a private life.toml; tiles, coming up, today, lately; area pages); session reports ledger/vault; palette Life entries; Nexus-only palette entries hidden in Personal. |
+| 2026-10-03 | 1.14 | App v1.14.0 (8.11, 14, 15, 19): Life tick-done (one-time token, POST /api/life/done, vault_task_done added to the write allow-list) and house sensors (`house.py`, `[house] url` on a private network, four read paths, lines on tiles, GET /api/life/house). |
 | 2026-10-03 | 1.12 | App v1.12.0 (8.10, 19): vault-mcp (own Go server) replaces headless-obsidian-mcp as the default vault server (reads mapped; kind detected from the command); Log and Task in a workspace without a ledger write to the vault through the staged card (Where: daily note, journal topic, task section), allow-list vault_log / vault_log_note / vault_task_add, `[vault] writes`; old 'ledger CLI is not available' message replaced. |
 | 2026-10-03 | 1.11 | App v1.11.0 (new 7.14; 5.2, 7.7, 14, 15, 19): workspaces. Main = today's folders; others in `workspaces/<slug>/` with their own config, style, tokens and state; one Api and Live per workspace, chosen per request by `X-Ultra-Workspace` / `?ws=`; switch next to the brand, `W`, palette; workspace colour on the top bar; `--workspace` on `ultra auth`; mail sign-in message instead of endless Loading; Today draws around a calendar sign-in error. Live: Work and Personal (the notes vault moves to Personal). |
 | 2026-10-03 | 1.10 | App v1.10.0 (new 8.10; 5.2, 14, 19): Home, the personal notes vault, read only. Local stdio MCP server (headless-obsidian-mcp) started with reads only; five allow-listed read tools; Home line on Today for dated todos (overdue and this week), palette notes search, a note reader with Open in Obsidian; `[vault] exclude` hides folders; a Notes status light. |

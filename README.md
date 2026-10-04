@@ -2,9 +2,11 @@
 
 A local web workstation for email, calendar, Slack and a work ledger in one window.
 Read, triage, ask, draft with AI, revise, approve twice, send, then log and link the
-conversation in the ledger.
+conversation in the ledger. Since v1.11 it can also hold a second, personal workspace:
+personal mail and calendar, your notes vault, and **Life**, a page for your home,
+animals, garden, vehicles, family and the rest of your life.
 
-Status: v1.2.1. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
+Status: v1.14.1. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
 delivery plan, section 21 the change log).
 
 Nothing in this repo contains credentials or personal data. Runtime config and tokens
@@ -22,7 +24,10 @@ folder.
 - **Today** (`g`). Your calendar: drag an item onto a time to block it, meeting prep,
   find a time, RSVP.
 - **Day** (`d`). A morning check-in plan and an end-of-day report from what you did.
+  In a personal workspace both are built from your notes (to-dos, today's log).
 - **Ledger tab** (`n`). Search people, labs, projects and tasks; reviewed writes.
+- **Life** (`n` in a personal workspace). Your areas of life from your notes vault,
+  with house-sensor readings and one-click "done" on to-dos (see Workspaces below).
 - **Graph** (`v`). Your ledger neighborhood: people, labs, projects and their links.
   Click to open a record, double-click to center on it, drag an item onto a node to
   put both in the bucket.
@@ -52,10 +57,29 @@ normal config; add another as `~/.config/ultra-workstation/workspaces/<name>/con
 read --workspace <name>` (and modify, send, calendar), then switch with the workspace
 button next to the logo or `W`. Each browser opens in the workspace it used last.
 
-A workspace without a ledger (Personal) gets **Life** in the Ledger's place: your own
-life from your notes vault, by area (home and land, animals, garden, vehicles, family,
-spirit, money, fun), with what is coming up, today's log and recent notes. Log and Task
-there write to the vault through the same review card.
+A workspace without a ledger (Personal) is built around your notes vault instead:
+
+- **Life** takes the Ledger's place: one tile per area of your life (by default home,
+  animals, garden, vehicles, family, spirit, money, fun), each with what is overdue,
+  what is coming up and the next dated to-do; then everything due in the next two
+  weeks, what you logged today, and recent journal notes and check-ins. Click an area
+  for its key notes, its open to-dos and what was written lately. Your own areas, key
+  notes and folders go in a private `life.toml` next to that workspace's config (SPEC
+  8.11.1 has the format).
+- **Done in one click.** Each to-do has a box: confirm, and it is ticked in the note
+  with today's date as one git commit. If the note changed since the page loaded, it
+  refuses and asks you to reload.
+- **House sensors (optional).** With `[house] url` pointing at a small sensor dashboard
+  on your LAN, the tiles show readings such as the coop temperature, waterer ice risk,
+  a frost warning and stale sensors (read only, private addresses only).
+- **Log and Task** (`l`, `t`) write to the vault through the same review card: a timed
+  line in that day's daily note, a journal note under a topic, or a to-do with a due
+  date. Nothing is overwritten; each write is one git commit.
+- **Day** (`d`) plans your personal day from the notes, and the end-of-day report
+  saves back to them.
+
+A workspace with the ledger turned off never reads the ledger, so work tasks cannot
+show up in the personal one.
 
 ## Install
 
@@ -101,7 +125,8 @@ paths are set in `[google]` of `config.toml`.
 | AI summary, drafting, web search, audio | `GEMINI_API_KEY` in `~/.config/ultra-workstation/.env` |
 | Slack read and reply | Claude Code with a Slack connector (`claude` on PATH) |
 | Ledger, link chips, tasks | the `nexus` CLI (`nexus serve` makes it fast) |
-| Home (notes) | a local MCP server over your Obsidian vault (`[vault]`; e.g. headless-obsidian-mcp), read only: dated todos on Today, notes search, a note reader (v1.10) |
+| Notes vault (Home, Life) | a local MCP server over your Obsidian vault (`[vault]`). With vault-mcp (a small Go server: append-or-create writes, one git commit each) you get dated to-dos on Today, notes search, a note reader, Life, and Log / Task / done writes in a workspace without a ledger. headless-obsidian-mcp works for reading only (v1.10-v1.14) |
+| House sensors on Life | a JSON sensor dashboard on your LAN (`[house] url`, private address, tailnet or `.local`) (v1.14) |
 | Ask Hermes | the `hermes` CLI. With `[hermes] profile` set to a Hermes profile whose ledger and cluster MCP servers are limited to read tools, Ask can look things up itself (v1.9) |
 | Research | the `deep-research` CLI |
 | Hosted ledger / cluster MCP servers (v1.3) | `[mcp.nexus]` / `[mcp.ursa]` in config (URL and the program client id from the server's admin), then `ultra auth nexus` / `ultra auth ursa` once. `[ledger] backend = "mcp"` (v1.4) reads the ledger through it: a person's full history in about 2 s instead of 20. From v1.6 it writes through it too (deletes still need the `nexus` CLI) With `[mcp.ursa]`, a job id in support mail shows a Cluster chip: the job's state, the cause, the end of its log and a draft reply (v1.8) |
@@ -238,11 +263,11 @@ keys need an item open. Browser shortcuts (Ctrl+R, Ctrl+F, ...) are left alone.
 | `h` | Ask Hermes | `?` | keyboard help |
 | `e` | archive / complete task / mark Slack done | `Ctrl+Enter` | Ask (in the Ask box) |
 | `b` | add to bucket | | |
-| `l` | log it in the ledger | | |
-| `t` | make a ledger task | | |
+| `l` | log it in the ledger (or the notes vault in Personal) | | |
+| `t` | make a ledger task (or a to-do in the notes) | | |
 
-No key sends anything: email and Slack need two approvals, and ledger writes open a
-card first. Archive has Undo.
+No key sends anything: email and Slack need two approvals, and ledger and vault writes
+open a card first. Archive has Undo.
 
 ## Commands
 
@@ -253,18 +278,22 @@ card first. Archive has Undo.
 | `ultra serve` | run in the foreground (Ctrl-C to stop) |
 | `ultra doctor` | check config, permissions, tokens, tools, keys (prints no secrets) |
 | `ultra remote` | addresses other devices can open |
-| `ultra auth google --capability C` | mint a Google token (read, modify, send, calendar) |
-| `ultra auth nexus` / `ultra auth ursa` | sign in to a hosted MCP server; `--status` shows who, `--sign-out` forgets it |
+| `ultra auth google --capability C [--workspace W]` | mint a Google token (read, modify, send, calendar), for the main or another workspace |
+| `ultra auth nexus` / `ultra auth ursa` `[--workspace W]` | sign in to a hosted MCP server; `--status` shows who, `--sign-out` forgets it |
 | `ultra purge --audio / --uploads / --attachments` | delete local copies |
 | `ultra config init` / `ultra config path` | write example config / show the folders |
 
 ## Configuration
 
 - `config.toml`: your addresses, time zone, token paths, VIP list, ticket patterns,
-  AI model, ledger and Hermes settings, remote networks. `ultra config init` copies
+  AI model, ledger and Hermes settings, remote networks, workspace name and colour,
+  notes vault (`[vault]`) and house sensors (`[house]`). `ultra config init` copies
   the annotated example (`src/ultra/config.example.toml`).
 - `style.toml`: outgoing text rules (ASCII level, forbidden patterns, signature).
 - `.env`: `GEMINI_API_KEY` for AI features (optional).
+- `life.toml` (optional, per workspace): your Life areas, key notes and folders.
+- Another workspace: the same files under
+  `~/.config/ultra-workstation/workspaces/<name>/`, with its own `tokens/`.
 
 ## Development
 

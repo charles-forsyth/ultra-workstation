@@ -1,13 +1,13 @@
 [project]
 name = "ultra-workstation"
 version = "1.14.1"
-description = "Ultra AI Workstation Desktop: email, calendar, Slack and a work ledger in one local web workstation, with AI drafting, double-approved sending, and drag-to-log."
+description = "Ultra AI Workstation Desktop: email, calendar, Slack and a work ledger in one local web workstation, with AI drafting, double-approved sending and drag-to-log; plus a personal workspace with your notes vault and Life."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Charles Forsyth" }]
-keywords = ["email", "calendar", "slack", "workstation", "dashboard", "gemini", "crm"]
+keywords = ["email", "calendar", "slack", "workstation", "dashboard", "gemini", "crm", "obsidian", "mcp"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Web Environment",

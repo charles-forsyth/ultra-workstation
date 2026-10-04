@@ -135,12 +135,17 @@ budget_seconds = 300
 # server over it and shows dated todos on Today, palette search, a note reader.
 # v1.12: with vault-mcp (a small Go server; append-or-create writes, one git commit each),
 # Log and Task in a workspace without a ledger write to the vault (SPEC 8.10).
+# v1.13-v1.14: in a workspace with `[ledger] enabled = false`, the vault also drives Life
+# (the Ledger's place; areas in a private life.toml next to this file, SPEC 8.11), Life's
+# one-click "done" on to-dos, and the personal Day view.
 # path = "~/Notes"
 # name = "Notes"                       # Obsidian vault name, for "Open in Obsidian" links
 # command = "~/.local/bin/vault-mcp"   # or "node" + args = [".../headless-obsidian-mcp/dist/index.js"] (reads only)
 # args = []
 # writes = true                        # false: start vault-mcp read-only
-# exclude = ["_archive", "Templates"]  # folders hidden from the Home line and search
+# author = "Ada Example"               # git author for vault writes ("Ada Example (via Ultra)")
+# exclude = ["_archive", "Templates"]  # folders hidden from the Home line, Life and search
+# timeout = 30                         # seconds per vault call
 
 [research]
 enabled = true
@@ -152,6 +157,8 @@ default_breadth = 3
 # [house]
 # A home sensor dashboard on the LAN (v1.14, SPEC 8.11): short readings on the Life
 # tiles. Read only; the URL must be on a private network, a tailnet or .local.
+# Four GET paths only (/api/coop/thermal, /api/freeze, /api/coop, /api/status), cached
+# two minutes; numbers and fixed status words reach the page, nothing else.
 # url = "http://192.168.1.50:8080"
-# areas = { home = "home", animals = "animals", garden = "garden" }
-# weather_key = "home"
+# areas = { home = "home", animals = "animals", garden = "garden" }   # sensor groups -> your Life area keys
+# weather_key = "home"                 # which place in the dashboard's weather block

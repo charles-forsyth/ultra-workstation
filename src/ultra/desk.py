@@ -59,8 +59,11 @@ class Desk:
         me_netid: str = "",
         ai: Any = None,
         operator: str = "",
+        vault: Any = None,
     ):
         self.store = store
+        # v1.12: with no ledger but vault writes on, Log and Task go to the notes vault
+        self.vault = vault
         self.rules = rules
         self.ledger = ledger
         self.writer = writer
@@ -265,7 +268,7 @@ class Desk:
             raise _bad(str(e)) from e
         card["from_bucket"] = from_bucket
         self.stager.annotate(card["id"], from_bucket=from_bucket)
-        card["ledger"] = self.ledger.enabled
+        self._target(card)
         return card
 
     def r_stage_briefing(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -307,7 +310,7 @@ class Desk:
         card["text"] = text
         self.stager.annotate(card["id"], from_bucket=False)
         card["from_bucket"] = False
-        card["ledger"] = self.ledger.enabled
+        self._target(card)
         return card
 
     def r_stage_answer(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -354,7 +357,7 @@ class Desk:
             card["text"] = text
         self.stager.annotate(card["id"], from_bucket=False, source="hermes")
         card["from_bucket"] = False
-        card["ledger"] = self.ledger.enabled
+        self._target(card)
         return card
 
     def r_stage_meeting(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -400,7 +403,7 @@ class Desk:
         card["text"] = "\n".join(lines)
         self.stager.annotate(card["id"], from_bucket=False)
         card["from_bucket"] = False
-        card["ledger"] = self.ledger.enabled
+        self._target(card)
         return card
 
     def r_stage_task_log(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -445,7 +448,7 @@ class Desk:
         card = self.stager.stage("log", items)
         card["text"] = f"Progress on task: {items[0]['subject']}\n\n"
         card["from_bucket"] = False
-        card["ledger"] = self.ledger.enabled
+        self._target(card)
         return card
 
     def r_ai_text(self, q: dict, body: Any, m: re.Match[str]) -> dict:
@@ -481,6 +484,8 @@ class Desk:
         date = str(b.get("date") or "")
         priority = str(b.get("priority") or "MEDIUM")
         due = str(b.get("due") or "").strip()
+        raw_where = b.get("where")
+        where: dict[str, Any] = raw_where if isinstance(raw_where, dict) else {}
         try:
             card = self.stager.claim(cid)
         except LookupError as e:
@@ -506,14 +511,36 @@ class Desk:
                 due = check_due(due)
             else:
                 due = ""
+            if card.get("target") == "vault":
+                where = _check_where(card["action"], where)
         except WriteError as e:
             self.stager.release(cid)
             raise _bad(str(e)) from e
         progress = {"card": cid, "state": "running", "steps": [], "started": time.time()}
+        if card.get("target") == "vault":
+            with self.cl:
+                self.commits[cid] = progress
+            self.pool.submit(self._vault_run, card, text, date, due, where, progress)
+            return {"card": cid, "state": "running"}
         with self.cl:
             self.commits[cid] = progress
         self.pool.submit(self._commit_run, card, text, date, priority, links, progress, due)
         return {"card": cid, "state": "running"}
+
+    def _vault_target(self) -> bool:
+        return (not self.ledger.enabled) and bool(self.vault is not None and self.vault.writes)
+
+    def _target(self, card: dict[str, Any]) -> None:
+        """Say on the card where Commit writes: the ledger, the notes vault, or nowhere."""
+        if self._vault_target():
+            card["ledger"] = True
+            card["target"] = "vault"
+            card["vault"] = self.vault.write_options()
+            card["vault"]["name"] = self.vault.name
+        else:
+            card["ledger"] = self.ledger.enabled
+            card["target"] = "ledger" if self.ledger.enabled else "none"
+        self.stager.annotate(card["id"], target=card["target"])
 
     def _step(self, progress: dict[str, Any], text: str, ok: bool | None = None) -> None:
         with self.cl:
@@ -545,6 +572,69 @@ class Desk:
         # publish "done" last, so anyone who sees it also sees the cleared bucket
         with self.cl:
             progress.update({"state": "done" if result.get("id") else "failed", "result": result})
+
+    def _vault_run(
+        self,
+        card: dict[str, Any],
+        text: str,
+        date: str,
+        due: str,
+        where: dict[str, Any],
+        progress: dict[str, Any],
+    ) -> None:
+        """One write to the notes vault (vault-mcp: append or create, one git commit).
+        Never retried: a failure is shown with the server's message."""
+        try:
+            day, _, hm = date.partition(" ")
+            if card["action"] == "log" and where.get("kind") == "journal":
+                self._step(progress, f"Writing a {where['topic']} journal note...")
+                r = self.vault.write(
+                    "vault_log_note",
+                    {"topic": where["topic"], "title": where["title"], "text": text, "date": day},
+                )
+            elif card["action"] == "log":
+                self._step(progress, f"Adding to the {day} daily note...")
+                r = self.vault.write("vault_log", {"text": text, "date": day, "time": _clock(hm)})
+            else:
+                self._step(progress, "Adding the task..." + (f" (due {due})" if due else ""))
+                args: dict[str, Any] = {"text": text}
+                if due:
+                    args["due"] = due
+                if where.get("section"):
+                    args["section"] = where["section"]
+                r = self.vault.write("vault_task_add", args)
+            commit = str(r.get("commit") or "")
+            self._step(
+                progress,
+                f"Saved to {r['path']}" + (f" (git {commit})" if commit else ""),
+                True,
+            )
+            if not commit:
+                self._step(progress, str(r.get("message") or "No git commit was made."), None)
+            result: dict[str, Any] = {
+                "id": commit or r["path"],
+                "kind": "note" if card["action"] == "log" else "vault-task",
+                "path": r["path"],
+                "commit": commit,
+                "line": r.get("line"),
+                "open_url": self._open_url(r["path"]),
+                "linked": [],
+                "missing": [],
+            }
+        except Exception as e:  # noqa: BLE001 - shown on the card, never retried
+            result = {"id": None, "error": str(e)[:500]}
+            self._step(progress, f"Stopped: {e}", False)
+        self.stager.finish(card["id"], result)
+        if result.get("id") and card.get("from_bucket"):
+            self.store.bucket_clear()
+        with self.cl:
+            progress.update({"state": "done" if result.get("id") else "failed", "result": result})
+
+    def _open_url(self, path: str) -> str:
+        from ultra.vault import obsidian_url
+
+        name = getattr(self.vault, "name", "")
+        return obsidian_url(name, path) if name else ""
 
     def _commit_log(
         self,
@@ -688,3 +778,32 @@ class Desk:
 
     def r_journal(self, q: dict, body: Any, m: re.Match[str]) -> dict:
         return {"entries": self.store.journal_recent(30, "ledger_")}
+
+
+def _clock(hm: str) -> str:
+    """'14:05' -> '2:05 PM' (the daily note's time style); '' stays ''."""
+    m = re.match(r"^(\d{1,2}):(\d{2})$", hm or "")
+    if not m:
+        return ""
+    h, mi = int(m.group(1)), m.group(2)
+    return f"{(h % 12) or 12}:{mi} {'AM' if h < 12 else 'PM'}"
+
+
+def _check_where(action: str, where: dict[str, Any]) -> dict[str, Any]:
+    """Where a vault write goes. Log: daily note (default) or a journal note with a
+    topic and title. Task: an optional section of the tasks note."""
+    if action == "task":
+        sec = str(where.get("section") or "").strip()[:120]
+        return {"section": sec}
+    kind = str(where.get("kind") or "daily")
+    if kind == "daily":
+        return {"kind": "daily"}
+    if kind != "journal":
+        raise WriteError("where.kind must be daily or journal")
+    topic = str(where.get("topic") or "").strip()
+    title = ascii_fix(str(where.get("title") or "")).strip()
+    if not re.match(r"^[A-Za-z][A-Za-z -]{0,40}$", topic):
+        raise WriteError("pick a journal topic")
+    if not title or len(title) > 120:
+        raise WriteError("a journal note needs a short title (up to 120 characters)")
+    return {"kind": "journal", "topic": topic, "title": title}

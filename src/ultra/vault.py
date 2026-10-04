@@ -1,4 +1,12 @@
-"""Home: the personal notes vault, read only (SPEC 8.10, v1.10).
+"""Home: the personal notes vault (SPEC 8.10, v1.10; writes v1.12).
+
+v1.12: the default server is vault-mcp (the operator's own Go server; `kind =
+"vault-mcp"`, detected from the command name). Reads map onto its tools
+(`vault_search`, `vault_read`, `vault_tasks`, `vault_status`); the Log and Task card in a
+workspace without Nexus writes through `write()`, which allows only `vault_log`,
+`vault_log_note` and `vault_task_add` (append or create, one git commit each, done by
+the server). `writes = false` in `[vault]` starts the server read-only. The older
+headless-obsidian-mcp (`kind = "headless"`) still works for reads, as below.
 
 Ultra runs a local MCP server over the operator's Obsidian vault (`[vault]` in config,
 by default `headless-obsidian-mcp`, a stdio server that reads the markdown on disk) and
@@ -34,7 +42,11 @@ from ultra.config import Config, expand
 
 READ_TOOLS = frozenset(
     {"search_notes_ranked", "read_notes", "list_tasks", "list_recent_notes", "get_vault_stats"}
+    | {"vault_search", "vault_read", "vault_tasks", "vault_recent", "vault_status", "vault_day"}
 )
+# v1.12: the only tools write() may call, and only on vault-mcp (append or create)
+WRITE_TOOLS = frozenset({"vault_log", "vault_log_note", "vault_task_add"})
+TASKS_NOTE = "01 - Hubs/Tasks and Todos.md"
 TTL = 60  # seconds: notes change, but not within one look
 DUE_RE = re.compile(r"(?:\U0001F4C5|\bdue:?)\s*(\d{4}-\d{2}-\d{2})")
 PATH_RE = re.compile(r"^[^\x00]{1,400}$")
@@ -142,6 +154,8 @@ class StdioMcp:
         )
         if res.get("isError"):
             raise VaultError(400, text[:300] or f"{tool} failed")
+        if isinstance(res.get("structuredContent"), dict):
+            return res["structuredContent"]
         try:
             return json.loads(text)
         except ValueError:
@@ -157,21 +171,40 @@ class StdioMcp:
                 pass
 
 
+def server_kind(sec: dict[str, Any]) -> str:
+    """vault-mcp (the operator's server) or headless (headless-obsidian-mcp)."""
+    k = str(sec.get("kind") or "").strip()
+    if k in ("vault-mcp", "headless"):
+        return k
+    return "vault-mcp" if Path(str(sec.get("command") or "")).name == "vault-mcp" else "headless"
+
+
+def writes_on(sec: dict[str, Any]) -> bool:
+    return server_kind(sec) == "vault-mcp" and sec.get("writes", True) is not False
+
+
 def client_from_config(cfg: Config) -> StdioMcp | None:
     sec = cfg.section("vault")
     if not sec.get("path") or sec.get("enabled", True) is False:
         return None
     vault = expand(str(sec["path"]))
-    command = str(sec.get("command") or "node")
+    command = str(expand(str(sec.get("command") or "node")))
     args = [
         str(expand(str(a))) if str(a).startswith("~") else str(a) for a in sec.get("args") or []
     ]
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", ""),
-        "OBSIDIAN_VAULT_PATH": str(vault),
-        "OBSIDIAN_TOOLS": "reads",  # always: Ultra never asks for the write tools
     }
+    if server_kind(sec) == "vault-mcp":
+        env["VAULT_PATH"] = str(vault)
+        if sec.get("author"):
+            env["VAULT_AUTHOR"] = str(sec["author"])  # git author name; vault-mcp has a default
+        if not writes_on(sec):
+            env["VAULT_READ_ONLY"] = "1"  # the server then lists no write tools at all
+    else:
+        env["OBSIDIAN_VAULT_PATH"] = str(vault)
+        env["OBSIDIAN_TOOLS"] = "reads"  # always: Ultra never asks for its write tools
     return StdioMcp([command, *args], env, timeout=float(sec.get("timeout", 30)))
 
 
@@ -193,6 +226,9 @@ class Vault:
             str(x).strip("/") + "/" for x in sec.get("exclude") or [] if str(x).strip("/")
         ]
         self.today_fn = today_fn or dt.date.today
+        self.kind = server_kind(sec)
+        self.writes = self.enabled and writes_on(sec)
+        self.via = str(sec.get("via") or "Ultra")
         self.lock = threading.Lock()
         self.cache: dict[tuple[str, str], tuple[float, Any]] = {}
         self.state: dict[str, Any] = {"ok": None, "error": "", "at": None}
@@ -228,9 +264,11 @@ class Vault:
         q = (q or "").strip()
         if not q:
             raise VaultError(400, "empty search")
-        res = self._call(
-            "search_notes_ranked", {"query": q[:300], "limit": min(max(limit, 1), 50) + 10}
-        )
+        n = min(max(limit, 1), 50) + 10
+        if self.kind == "vault-mcp":
+            res = self._call("vault_search", {"query": q[:300], "limit": n})
+        else:
+            res = self._call("search_notes_ranked", {"query": q[:300], "limit": n})
         rows = res.get("results", []) if isinstance(res, dict) else []
         out = [
             {
@@ -249,6 +287,16 @@ class Vault:
             raise VaultError(400, "bad note path")
         if self._hidden(path):
             raise VaultError(404, "that note is hidden from Ultra ([vault] exclude)")
+        if self.kind == "vault-mcp":
+            n = self._call("vault_read", {"path": path})
+            if not isinstance(n, dict) or not n.get("path"):
+                raise VaultError(404, "note not found")
+            return {
+                "path": str(n["path"]),
+                "contents": str(n.get("contents", ""))[:200_000],
+                "tags": [],
+                "open_url": obsidian_url(self.name, str(n["path"])) if self.name else "",
+            }
         res = self._call("read_notes", {"paths": [path]})
         notes = res.get("notes", []) if isinstance(res, dict) else []
         if not notes:
@@ -264,7 +312,10 @@ class Vault:
 
     def todos(self) -> dict[str, Any]:
         """Open dated todos: overdue and due within a week, plus the undated count."""
-        res = self._call("list_tasks", {"status": ["open"], "limit": 0})
+        if self.kind == "vault-mcp":
+            res = self._call("vault_tasks", {})
+        else:
+            res = self._call("list_tasks", {"status": ["open"], "limit": 0})
         rows = res.get("results", []) if isinstance(res, dict) else []
         today = self.today_fn()
         dated: list[dict[str, Any]] = []
@@ -299,13 +350,51 @@ class Vault:
 
     def health(self) -> dict[str, Any]:
         try:
-            s = self._call("get_vault_stats", {}, ttl=300)
+            s = self._call(
+                "vault_status" if self.kind == "vault-mcp" else "get_vault_stats", {}, ttl=300
+            )
             return {"ok": True, "notes": s.get("notes") if isinstance(s, dict) else None}
         except VaultError as e:
             return {"ok": False, "error": str(e)[:200]}
 
     def status(self) -> dict[str, Any]:
-        return {"enabled": self.enabled, "name": self.name, **self.state}
+        return {
+            "enabled": self.enabled,
+            "name": self.name,
+            "kind": self.kind,
+            "writes": self.writes,
+            **self.state,
+        }
+
+    # -- writes (v1.12): the Log and Task card in a workspace without Nexus
+    def write(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        """One write through vault-mcp. Never retried: an unknown outcome is reported,
+        and the server's own git log is the record of what happened."""
+        if tool not in WRITE_TOOLS:
+            raise VaultError(400, f"{tool} is not a write Ultra makes")
+        if not self.writes or self.client is None:
+            raise VaultError(403, "vault writes are off ([vault] writes, or not vault-mcp)")
+        res = self.client.call(tool, {**args, "via": self.via})
+        with self.lock:
+            self.cache.clear()  # todos and search may have changed
+        if not isinstance(res, dict) or not res.get("path"):
+            raise VaultError(502, f"{tool} returned no result")
+        return res
+
+    def write_options(self) -> dict[str, Any]:
+        """What the card's Where picker offers: Journal topics and task sections."""
+        topics: list[str] = []
+        sections: list[str] = []
+        try:
+            st = self._call("vault_status", {}, ttl=300)
+            topics = [str(t) for t in (st.get("log_topics") or [])] if isinstance(st, dict) else []
+            n = self._call("vault_read", {"path": TASKS_NOTE}, ttl=60)
+            for line in str(n.get("contents", "") if isinstance(n, dict) else "").splitlines():
+                if line.startswith("## ") and "COMPLETED" not in line.upper():
+                    sections.append(line[3:].strip())
+        except VaultError as e:
+            return {"topics": topics, "sections": sections, "error": str(e)[:200]}
+        return {"topics": topics, "sections": sections}
 
 
 class VaultApi:

@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.11 of the spec; app at v1.11.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, Home, the personal notes vault, read only, and workspaces (Work / Personal); see the delivery plan in section 19)
+Status: v1.12 of the spec; app at v1.12.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, Home, the personal notes vault, read only, and workspaces (Work / Personal); see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -1500,6 +1500,33 @@ needed) and talks to it with a small stdio MCP client in `vault.py`.
   read tools only, `OBSIDIAN_TOOLS=reads`, path checks, exclude, crash and restart, cache,
   not configured, missing binary, UI wiring).
 
+**v1.12: vault-mcp and writes.** The default server is now vault-mcp, the operator's own
+small Go MCP server for the vault (a separate private repo; stdio, no network). Ultra
+detects it from the command name (or `kind = "vault-mcp"`) and maps its reads onto
+`vault_search`, `vault_read`, `vault_tasks` and `vault_status`; headless-obsidian-mcp
+(`kind = "headless"`) still works for reads. vault-mcp writes only by appending to or
+creating a note, one git commit each (author "<operator> (via Ultra)"), and follows the
+vault's own conventions note for where things go.
+
+- **Log and Task in a workspace without a ledger** (Personal) write to the vault. The
+  same staged card and confirm step as a ledger write, with a **Where** picker instead of
+  link chips and priority: Log goes to that day's daily note as a timed line under
+  `## Log` (the day and time come from the card's Date, as for ledger logs), or to a
+  journal note `Journal/<Topic>/YYYY-MM-DD_<Title>.md` (linked from the day); Task goes to
+  the tasks note, under a chosen section (default: the one whose name starts with ACTIVE)
+  with an optional due date. The result shows the note path, line, git commit and an
+  Open in Obsidian link. Never retried.
+- **Allow-list:** Ultra calls only `vault_log`, `vault_log_note` and `vault_task_add`;
+  other vault-mcp writes (tick done, append, check-in) are not reachable from the page.
+  `[vault] writes = false` starts the server read-only (it then lists no write tools)
+  and the card says the workspace has nothing to write to. A workspace with a ledger
+  (Work) keeps writing to the ledger.
+- Tests: `tests/test_v1120_vault_writes.py` (fake vault-mcp over the real transport:
+  read mapping, write allow-list, `via`, writes off, Where options, Desk stage -> commit
+  for daily, journal and task, spent card, ledger precedence; plus an end-to-end test
+  that runs the real vault-mcp binary against a throwaway git vault when it is
+  installed).
+
 ## 9. Composer and double approval
 
 The operator iterates on drafts many times, then approves twice. The server enforces
@@ -2307,6 +2334,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.6 Ledger writes on MCP (shipped 1.6.0) | Section 8.4: desk and Ledger-tab writes through the hosted server, deletes on the CLI, refusal falls back, unknown outcomes never re-sent; one live log verified |
 | v1.7 Calm, part 2 (shipped 1.7.0) | Section 7.13: Board full width, Today plan strip, Ledger summary line and a shorter tab strip, Tidy suggestion, Log offer after archiving READY |
 | v1.8 Cluster facts in mail (shipped 1.8.0) | Section 8.9: job ids in support mail show a Cluster chip with the job's facts, findings, log end and a reply draft from bifrost; script check; cluster line on Today; read tools only |
+| v1.12 Personal vault writes (shipped 1.12.0) | Section 8.10: vault-mcp as the vault server; Personal Log and Task write to the notes vault (daily note, journal note, task) with the staged card |
 | v1.11 Workspaces (shipped 1.11.0) | Section 7.14: Work and Personal, each a whole Ultra (own mail, calendar, ledger, history, sign-ins); switch, `W`, per-browser memory |
 | v1.10 Home (shipped 1.10.0) | Section 8.10: the personal notes vault over a local MCP server, read only: Home line on Today, notes search, note reader |
 | v1.9 Ask that looks things up (shipped 1.9.0) | Section 7.12: `[hermes] profile`, a read-only Hermes profile with the ledger and cluster read tools, checked before each use, falls back to the old Ask |
@@ -2335,6 +2363,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-03 | 1.12 | App v1.12.0 (8.10, 19): vault-mcp (own Go server) replaces headless-obsidian-mcp as the default vault server (reads mapped; kind detected from the command); Log and Task in a workspace without a ledger write to the vault through the staged card (Where: daily note, journal topic, task section), allow-list vault_log / vault_log_note / vault_task_add, `[vault] writes`; old 'ledger CLI is not available' message replaced. |
 | 2026-10-03 | 1.11 | App v1.11.0 (new 7.14; 5.2, 7.7, 14, 15, 19): workspaces. Main = today's folders; others in `workspaces/<slug>/` with their own config, style, tokens and state; one Api and Live per workspace, chosen per request by `X-Ultra-Workspace` / `?ws=`; switch next to the brand, `W`, palette; workspace colour on the top bar; `--workspace` on `ultra auth`; mail sign-in message instead of endless Loading; Today draws around a calendar sign-in error. Live: Work and Personal (the notes vault moves to Personal). |
 | 2026-10-03 | 1.10 | App v1.10.0 (new 8.10; 5.2, 14, 19): Home, the personal notes vault, read only. Local stdio MCP server (headless-obsidian-mcp) started with reads only; five allow-listed read tools; Home line on Today for dated todos (overdue and this week), palette notes search, a note reader with Open in Obsidian; `[vault] exclude` hides folders; a Notes status light. |
 | 2026-10-03 | 1.9.1 | App v1.9.1 (7.7, 7.13): both layouts stay for good, switchable both ways: "Calm layout" button in the classic top bar (there was no visible way back from classic, only the palette), `L` toggles, the dot-menu and palette entries show the key. |

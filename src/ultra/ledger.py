@@ -101,6 +101,10 @@ class Ledger:
         self.serve = ServeClient(cfg)
 
     def _run(self, args: list[str], timeout: int = 120) -> Any:
+        # A workspace with the ledger off (Personal) never reads it, whoever asks: the
+        # task refresh, the Ledger tab, the graph and Ask all come through here (v1.14.1).
+        if not self.enabled:
+            raise LedgerError("the ledger is off in this workspace")
         key = tuple(a for a in args[:2] if not a.startswith("-"))
         if key not in READ_COMMANDS and key[:1] not in READ_COMMANDS:
             raise LedgerError(f"not an allowed read command: {' '.join(args[:2])}")

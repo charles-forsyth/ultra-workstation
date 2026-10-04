@@ -216,6 +216,7 @@ def obsidian_url(vault_name: str, path: str) -> str:
 
 class Vault:
     def __init__(self, cfg: Config, client: StdioMcp | None, today_fn: Any = None):
+        self.store: Any = None  # set by the app: vault writes go in Ultra's journal
         self.client = client
         self.enabled = client is not None
         sec = cfg.section("vault")
@@ -379,6 +380,11 @@ class Vault:
             self.cache.clear()  # todos and search may have changed
         if not isinstance(res, dict) or not res.get("path"):
             raise VaultError(502, f"{tool} returned no result")
+        if self.store is not None:  # the day report reads Ultra's journal (v1.14.1)
+            try:
+                self.store.journal(tool, str(res.get("path")), True, {"commit": res.get("commit")})
+            except Exception:  # noqa: BLE001, S110 - the note is written; the journal is a nicety
+                pass
         return res
 
     def write_options(self) -> dict[str, Any]:

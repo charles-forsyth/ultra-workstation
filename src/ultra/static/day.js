@@ -1,10 +1,11 @@
 // Day view (v0.9): the morning check-in plan and the end-of-day report.
 // Reads only. Suggested blocks open the normal block card (nothing is created until you
-// press Add to calendar there); the report saves to the ledger only through a staged log
-// card you review and commit.
+// press Add to calendar there); the report saves to the ledger (Personal: the notes) only
+// through a staged log card you review and commit.
 
 import { api, esc, toast, busy, copyText, WS } from "./app.js";
 import { askButton, openAsk } from "./ask.js";
+import { openNote } from "./home.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const D = { open: false, tab: "plan", day: null, onOpen: null, onClose: null, plan: null, report: null };
@@ -64,29 +65,41 @@ function wireHead() {
 
 const hm = (m) => { const h = Math.floor(m / 60), mm = m % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, "0")}${h < 12 ? "am" : "pm"}`; };
 const tOf = (iso) => { try { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; } };
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const dShort = (d) => { const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(d || "")); return m ? `${MON[Number(m[2]) - 1]} ${Number(m[3])}` : ""; };
 const pri = (p) => `<span class="pri ${esc(String(p || "").toLowerCase())}">${esc(String(p || "").slice(0, 1))}</span>`;
 
 function renderPlan() {
   const p = D.plan, th = $("#thread");
   const sec = (title, body, n = null) => body ? `<section class="day-sec"><div class="label">${title}${n != null ? ` <span class="dim">${n}</span>` : ""}</div>${body}</section>` : "";
   const items = (xs) => xs.length ? `<ul class="day-list">${xs.map((i) => `<li class="day-item" data-key="${esc(i.key)}"><span class="src">${esc(i.source)}</span> <b>${esc(i.from || "")}</b> ${esc(i.subject || "")} ${(i.badges || []).map((b) => `<span class="badge">${esc(b)}</span>`).join(" ")}${i.waiting_days ? ` <span class="badge wait">${esc(i.waiting_days)}d</span>` : ""}</li>`).join("")}</ul>` : "";
-  const tasks = (xs) => xs.length ? `<ul class="day-list">${xs.map((t) => `<li class="day-item" data-key="t-${esc(t.id)}">${pri(t.priority)} ${esc(t.summary)} <span class="dim small-t">${esc(t.status)}${t.due_date ? ` &middot; due ${esc(String(t.due_date).slice(0, 10))}` : ""}</span></li>`).join("")}</ul>` : "";
+  const P = !!p.personal;
+  const tasks = (xs) => xs.length ? `<ul class="day-list">${xs.map((t) => P
+    ? `<li class="day-item" data-note="${esc(t.path || "")}" title="${esc(t.path || "")}">${esc(t.summary)}${t.due_date ? ` <span class="dim small-t">${esc(dShort(t.due_date))}</span>` : ""}</li>`
+    : `<li class="day-item" data-key="t-${esc(t.id)}">${pri(t.priority)} ${esc(t.summary)} <span class="dim small-t">${esc(t.status)}${t.due_date ? ` &middot; due ${esc(String(t.due_date).slice(0, 10))}` : ""}</span></li>`).join("")}</ul>` : "";
+  const nt = p.notes || {};
+  const logged = P ? sec("Logged today", (nt.log || []).length ? `<ul class="day-list">${nt.log.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<div class="dim small-t">Nothing in today's daily note yet.</div>`) : "";
   th.innerHTML = head() + `
     ${(p.warnings || []).map((w) => `<div class="warnline">${esc(w)}</div>`).join("")}
-    <div class="day-sum">${p.meetings.length} meetings (${(p.meeting_minutes / 60).toFixed(1)} h) &middot; ${p.free.reduce((a, f) => a + f.minutes, 0)} min free in work hours &middot; ${p.mine_count} items are your move &middot; ${p.open_tasks} open tasks</div>
+    <div class="day-sum">${P
+      ? `${p.meetings.length} on the calendar &middot; ${p.mine_count} emails are your move &middot; ${p.overdue.length} overdue &middot; ${p.due_today.length} due today &middot; ${p.top_tasks.length} coming up`
+      : `${p.meetings.length} meetings (${(p.meeting_minutes / 60).toFixed(1)} h) &middot; ${p.free.reduce((a, f) => a + f.minutes, 0)} min free in work hours &middot; ${p.mine_count} items are your move &middot; ${p.open_tasks} open tasks`}</div>
     <div class="pacts"><button class="btn small ai" id="day-note">AI read of the day</button><button class="btn small" id="day-copy">Copy plan</button><button class="btn small" id="day-listen">Listen</button>${askButton("btn small ai")}</div>
     <div id="day-note-out"></div>
-    ${sec("Meetings", p.meetings.length ? `<ul class="day-list">${p.meetings.map((m) => `<li>${esc(tOf(m.start))}-${esc(tOf(m.end))} <b>${esc(m.summary)}</b>${m.attendees > 1 ? ` <span class="dim small-t">${m.attendees} people</span>` : ""}${m.response === "needsAction" ? ` <span class="badge warn">not answered</span>` : ""}${m.mine ? ` <span class="badge dim">your block</span>` : ""}</li>`).join("")}</ul>` : `<div class="dim small-t">No meetings.</div>`)}
-    ${sec("Suggested focus blocks", p.blocks.length ? `<ul class="day-list">${p.blocks.map((b, i) => `<li>${esc(b.label)} ${esc(b.title)} <button class="btn tiny" data-block="${i}" title="Open the block card for this slot (nothing is added until you confirm there)">Block it</button></li>`).join("")}</ul><div class="dim small-t">Free: ${p.free.map((f) => esc(f.label)).join(", ")}</div>` : (p.free.length ? `<div class="dim small-t">Free: ${p.free.map((f) => esc(f.label)).join(", ")}</div>` : `<div class="dim small-t">No free time left in work hours.</div>`))}
-    ${sec("Your move", items(p.mine) || `<div class="dim small-t">Nothing waiting on you.</div>`, p.mine_count)}
-    ${sec("Overdue tasks", tasks(p.overdue), p.overdue.length || null)}
+    ${sec(P ? "On the calendar" : "Meetings", p.meetings.length ? `<ul class="day-list">${p.meetings.map((m) => `<li>${esc(tOf(m.start))}-${esc(tOf(m.end))} <b>${esc(m.summary)}</b>${m.attendees > 1 ? ` <span class="dim small-t">${m.attendees} people</span>` : ""}${m.response === "needsAction" ? ` <span class="badge warn">not answered</span>` : ""}${m.mine ? ` <span class="badge dim">your block</span>` : ""}</li>`).join("")}</ul>` : `<div class="dim small-t">${P ? "Nothing on the calendar." : "No meetings."}</div>`)}
+    ${P ? "" : sec("Suggested focus blocks", p.blocks.length ? `<ul class="day-list">${p.blocks.map((b, i) => `<li>${esc(b.label)} ${esc(b.title)} <button class="btn tiny" data-block="${i}" title="Open the block card for this slot (nothing is added until you confirm there)">Block it</button></li>`).join("")}</ul><div class="dim small-t">Free: ${p.free.map((f) => esc(f.label)).join(", ")}</div>` : (p.free.length ? `<div class="dim small-t">Free: ${p.free.map((f) => esc(f.label)).join(", ")}</div>` : `<div class="dim small-t">No free time left in work hours.</div>`))}
+    ${sec(P ? "Email that is your move" : "Your move", items(p.mine) || `<div class="dim small-t">Nothing waiting on you.</div>`, p.mine_count)}
+    ${sec(P ? "Overdue" : "Overdue tasks", tasks(p.overdue), p.overdue.length || null)}
     ${sec("Due today", tasks(p.due_today), p.due_today.length || null)}
-    ${sec("High-priority tasks", tasks(p.top_tasks), p.top_tasks.length || null)}
+    ${sec(P ? "Coming up (two weeks)" : "High-priority tasks", tasks(p.top_tasks), p.top_tasks.length || null)}
+    ${logged}
     ${sec("Waiting on others (3+ days)", items(p.waiting), p.waiting.length || null)}`;
   wireHead();
   th.onclick = (e) => {
     const b = e.target.closest("[data-block]");
     if (b) { const x = p.blocks[Number(b.dataset.block)]; window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: x.key, subject: x.title.replace(/^Focus: /, ""), day: p.day, startMin: x.start, minutes: x.end - x.start } })); return; }
+    const n = e.target.closest(".day-item[data-note]");
+    if (n) { if (n.dataset.note) openNote(n.dataset.note); return; }
     const li = e.target.closest(".day-item[data-key]");
     if (li) { closeDay(); D.openItem?.(li.dataset.key); }
   };
@@ -105,10 +118,11 @@ function renderPlan() {
 
 function renderReport() {
   const r = D.report, th = $("#thread");
-  const sections = ["Sent", "Ledger", "Triage", "Calendar", "Research", "Other"].filter((s) => (r.sections[s] || []).length);
+  const P = !!r.personal;
+  const sections = (P ? ["Sent", "Notes", "Triage", "Calendar"] : ["Sent", "Ledger", "Triage", "Calendar", "Research", "Other"]).filter((s) => (r.sections[s] || []).length);
   th.innerHTML = head() + `
-    <div class="day-sum">${r.day} &middot; ${r.counts.sent || 0} sent &middot; ${r.counts.archive || 0} archived &middot; ${r.counts.ledger_log || 0} logged &middot; ${r.counts.ledger_task_status || 0} task changes${r.failures ? ` &middot; <span class="badge warn">${r.failures} failed actions</span>` : ""}</div>
-    <div class="pacts"><button class="btn small" id="rep-copy">Copy</button><button class="btn small" id="rep-listen">Listen</button>${askButton("btn small ai")}<button class="btn small primary" id="rep-log" title="Save as a ledger log (you review it on the card first)">Save to ledger</button></div>
+    <div class="day-sum">${r.day} &middot; ${r.counts.sent || 0} sent &middot; ${r.counts.archive || 0} archived &middot; ${P ? `${(r.notes?.log || []).length} lines in today's note &middot; ${r.counts.vault_task_done || 0} to-dos done` : `${r.counts.ledger_log || 0} logged &middot; ${r.counts.ledger_task_status || 0} task changes`}${r.failures ? ` &middot; <span class="badge warn">${r.failures} failed actions</span>` : ""}</div>
+    <div class="pacts"><button class="btn small" id="rep-copy">Copy</button><button class="btn small" id="rep-listen">Listen</button>${askButton("btn small ai")}<button class="btn small primary" id="rep-log" title="${P ? "Save to your notes (you review it on the card first)" : "Save as a ledger log (you review it on the card first)"}">${P ? "Save to notes" : "Save to ledger"}</button></div>
     <textarea id="rep-text" rows="14" class="rep-text">${esc(r.text)}</textarea>
     <div class="dim small-t">Edit freely; Copy, Listen and Save use what is in the box.</div>
     ${sections.map((s) => `<section class="day-sec"><div class="label">${s} <span class="dim">${r.sections[s].length}</span></div><ul class="day-list">${r.sections[s].map((x) => `<li><span class="mono dim small-t">${esc(x.time)}</span> ${esc(x.text)}${x.ok ? "" : ` <span class="badge warn">failed</span>`}</li>`).join("")}</ul></section>`).join("") || `<div class="dim">Nothing in Ultra's journal for today yet.</div>`}`;

@@ -238,10 +238,13 @@ class Live:
         self.cluster_api = ClusterApi(self.cluster, self.store)
         # v1.10 Home: the personal notes vault (SPEC 8.10); v1.12 Log/Task writes when no ledger
         self.vault = Vault(cfg, vault_client(cfg), lambda: dt.datetime.now(self.calendar.tz).date())
+        self.vault.store = self.store
         self.vault_api = VaultApi(self.vault, self.store)
         self.desk.vault = self.vault
         # v1.13 Life: the Personal Ledger place, by life area, from the vault (SPEC 8.11)
         self.life_api = LifeApi(Life.from_config(self.vault, cfg))
+        if not self.ledger.enabled and self.vault.enabled:  # v1.14.1: Personal's day
+            self.day.life_fn = self.life_api.life.overview
         self.house_api = HouseApi(House.from_config(cfg))  # v1.14: sensors on Life tiles
         # v1.1 Inbox Tidy: rule-based bulk archive, previewed, one Undo
         self.tidy = Tidy(
@@ -455,6 +458,8 @@ class Live:
         return task_rows((hit or [[]])[0] or [], self.store)
 
     def _open_tasks_cached(self) -> dict[str, dict[str, Any]]:
+        if not self.ledger.enabled:  # never a leftover copy from before the ledger was off
+            return {}
         hit = self.store.cache_get("tasks:open")
         rows: list[dict[str, Any]] = (hit or [[]])[0] or []
         return {t["id"]: t for t in rows if t.get("status") != "DONE"}

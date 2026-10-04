@@ -1,6 +1,6 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.14 of the spec; app at v1.14.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, Home, the personal notes vault, read only, workspaces (Work / Personal), and Life with house sensors and tick-done; see the delivery plan in section 19)
+Status: v1.15 of the spec; app at v1.14.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, the personal notes vault with reads and append-only writes through vault-mcp, workspaces (Work / Personal), Life with house sensors and tick-done, and the personal Day view; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
 Last updated: 2026-10-03
@@ -127,6 +127,8 @@ As built (v1.0). One Python process; the page is static files plus JSON calls.
        |-- Board (board.py)        court columns, Watching, Nudge
        |-- Ask (ask.py, hermes.py) Ask Hermes, read-only, answers into cards
        |-- Tools (tools.py)        research panel, web search, explain, AI audio
+       |-- Home (vault.py)         notes vault: Home line, search, reader, vault writes (8.10)
+       |-- Life (life.py, house.py) Personal's Ledger place, tick done, house sensors (8.11)
        |
        |   adapters
        |-- mail.py, mailx.py   -> Gmail API (one token per capability, google_auth.py)
@@ -137,9 +139,17 @@ As built (v1.0). One Python process; the page is static files plus JSON calls.
        |                          or the `nexus` CLI; writes only through allow-listed CLI commands
        |-- hermes.py           -> `hermes chat` (read-only toolsets, --source ultra)
        |-- research.py         -> `deep-research` CLI
+       |-- vault.py            -> vault-mcp (or headless-obsidian-mcp) child process over
+       |                          stdio: allow-listed reads, four allow-listed writes
+       |-- house.py            -> a home sensor dashboard on the LAN, four GET paths
+       |-- mcpclient.py        -> hosted ledger and cluster MCP servers (8.8)
        |-- ai.py, audio.py     -> Gemini (google-genai), on demand only; ffmpeg for MP3
        |-- rules.py            -> court, tickets, noise, done signals (no AI)
        `-- store.py            -> SQLite state.db (section 6)
+
+Workspaces (7.14): the server holds one route table (`Api`) and one `Live` (every
+adapter above) per workspace, built on first use and chosen per request by the
+`X-Ultra-Workspace` header or `?ws=`; the diagram is one workspace.
 
 Long calls (Slack refresh, Full context, Ask, audio, ledger commits) run in threads and
 return a job id; the page polls the matching `.../job/<id>` or commit route. Demo mode
@@ -164,6 +174,9 @@ Runtime layout (outside the repo):
         attachments/draft-<id>/  files attached to drafts (mode 700)
         research-uploads/        thread text sent to a research run when ticked (mode 700)
         hermes/                  per-Ask query files, deleted after each run (mode 700)
+    ~/.config/ultra-workstation/workspaces/<slug>/     another workspace's config (7.14):
+                                 config.toml, style.toml, tokens/, vip.txt, life.toml, .env
+    ~/.local/share/ultra-workstation/workspaces/<slug>/  its state.db, audio/, attachments/, ...
 
 `remote.key` may exist on installs that ran v0.5.0-v0.5.1 (the old remote access key).
 Nothing reads it since v0.5.2; it is safe to delete.
@@ -238,7 +251,8 @@ Tests live in `tests/test_v*.py`, one file per release or feature.
 ## 6. Data model (local store)
 
 SQLite `state.db` (store.py creates the core tables; the module that owns a feature
-creates its own). Stream items, threads and people are not tables: they are rebuilt
+creates its own). Each workspace (7.14) has its own `state.db` with the same schema; no
+row is shared between workspaces. Stream items, threads and people are not tables: they are rebuilt
 from the sources and kept in `kv_cache`.
 
 | Table | Owner | Purpose | Key fields |
@@ -262,7 +276,14 @@ from the sources and kept in `kv_cache`.
 `slackdone:` (Slack Mark done), `tasks:` (ledger tasks in the stream), `snooze:` (task
 snooze on this laptop), `watch:` (Board Watching flag), `draft` (Draft Studio gathers),
 `person:` / `tree:` / `lt:` / `catalog:` / `graph:` (ledger reads), `cal:` (calendar), `research:`,
-`audio:`, `search:`.
+`audio:`, `search:`. In a workspace whose ledger is off, a leftover `tasks:open` row is
+ignored (v1.14.1, 7.14).
+
+Journal actions added for the vault (v1.14.1): `vault_log`, `vault_log_note`,
+`vault_task_add`, `vault_task_done` (target = note path, detail = git commit). The notes
+vault itself (8.10) is not part of the store: its files and git history are the record.
+
+Life's tick tokens and the house-sensor cache (8.11) live in memory too.
 
 Staged ledger cards and commit progress live in memory (desk.py), so a card that was
 not committed is gone after a restart; nothing half-written is left in the ledger.
@@ -531,7 +552,13 @@ four columns. Code: `board.py`, `static/board.js`; tests `tests/test_v015_board.
   Slack posted, archived, logged, task and block changes, research, audio) plus what is
   still open; editable, and saved to the ledger through the normal staged log card.
 
-### 7.5 Command palette (Ctrl-K)
+
+- *Personal Day (v1.14.1).* In a workspace with no ledger and a notes vault, the
+  check-in plan and the end-of-day report come from the notes instead: overdue, due
+  today and coming-up to-dos, today's daily-note log, personal mail and the calendar;
+  no focus blocks or work hours; "Save to notes". Full description in 8.11.7.
+- *Home line (v1.10)* on Today, above the plan strip: dated vault todos, overdue and the
+  next 7 days (8.10).### 7.5 Command palette (Ctrl-K)
 
 - As built: word-match over commands (views, compose, Tidy, refresh, bucket Log/Task,
   ledger tab pages, mail search, web and research search, new research, stream
@@ -590,12 +617,13 @@ one.
 | Enter | open the selected item | o / v | Board / Graph |
 | / | search mail | d | Day |
 | Ctrl-K | palette | g | Today |
-| Esc | close the open view or dialog | n | Ledger tab |
+| Esc | close the open view or dialog | n | Ledger tab (Life in a workspace without a ledger, 8.11) |
 | r / a / f | reply / reply all / forward (item) | m / w / T | stream Mine / Waiting / Tasks |
 | s | AI summary (item) | R | refresh mail and Slack |
 | h | Ask Hermes (item) | ? | keyboard help |
 | e | archive / complete task / Slack done (item) | Ctrl-Enter | Ask (in the Ask box) |
-| b / l / t | bucket / log / task (item) | | |
+| b / l / t | bucket / log / task (item; to the vault in Personal, 8.10) | L | switch layout calm / classic (v1.9.1) |
+| W | switch workspace (v1.11, 7.14) | | |
 
 Keys fire only outside text boxes and when no dialog is open. Any key with Ctrl, Alt or
 Meta is left to the browser (so Ctrl-R reloads, never replies), except Ctrl-K.
@@ -1022,45 +1050,115 @@ status, so a menu entry built from the id would have set the task BLOCKED.
   more threads (`GET /api/mail/tidy/count`, read only, no token); archiving a READY
   thread offers "Log it" (the staged card, as always).
 
-### 7.14 Workspaces: Work and Personal (v1.11)
+### 7.14 Workspaces: Work and Personal (v1.11; v1.13-v1.14.1 additions)
 
-Two (or more) whole Ultras in one server, switched like the layout: each workspace has
-its own mail, calendar, ledger, history, drafts, VIP list, style and sign-ins. The main
-workspace is today's folders, so nothing moves. Every other workspace is a folder:
+Two (or more) whole Ultras in one server, switched like the layout. A workspace is a
+complete, separate set of sources, state and sign-ins: its own mail, calendar, ledger
+side, history, drafts, VIP list, style rules, Tidy rules, signature and tokens. Nothing
+one workspace reads or writes is visible to another. The intended use is one operator
+with two lives: Work (work mail and calendar, the work ledger, Slack, tickets, the
+cluster) and Personal (personal mail and calendar, the notes vault, the home).
 
-    ~/.config/ultra-workstation/workspaces/<slug>/config.toml   (and style.toml, tokens/, vip.txt)
-    ~/.local/share/ultra-workstation/workspaces/<slug>/         (state.db, attachments, audio, hermes)
+**Folders.** The main workspace is the folders Ultra has always used, so an install that
+never makes a second workspace sees no change. Every other workspace is a folder pair:
 
-- `[workspace] name` and `color` (cyan, green, amber, magenta, red) in each config; the
-  main one defaults to "Main", cyan.
-- **Switch.** A workspace button next to the brand (shown when there is more than one),
-  `W` for the next one, and palette entries. The choice is per browser
-  (`localStorage ultra.workspace`); Ultra opens in the last one used there. The brand
-  mark, the switch's dot and a line under the top bar take the workspace colour.
-- **Routing.** Every request carries `X-Ultra-Workspace` (links and media that cannot
-  set headers carry `?ws=`). The server keeps one Api per workspace, each with its own
-  Live, built on first use; the main one is built at start. An unknown or malformed
-  name is a 404; a remembered workspace that no longer exists sends the page back to
-  main.
-- **What never crosses.** Each workspace's Config knows its own folders, and everything
-  that reads or writes a file goes through them: the state store, MCP tokens
-  (`tokens/mcp-<name>.json`), style.toml (lint, signature, learned rules), attachments,
-  audio, Hermes query files, research uploads. Google API clients are cached per token
-  file. The Gemini key may be set per workspace (`.env` in its folder); the main `.env`
-  is the fallback. The draft-sources generic-word list is process-wide and set from the
-  main workspace only.
-- **CLI.** `ultra auth google|nexus|ursa --workspace <slug>` signs that workspace in.
-- **Mail not signed in** shows "Mail needs signing in" with the exact command, not an
-  endless "Loading"; Today draws the day around a calendar sign-in message.
-- Live set-up (operator, 2026-10-03): Work = the main folders (work mail and calendar,
-  Nexus, Slack, tickets, cluster); Personal = personal Gmail and calendar (W1, pending an
-  OAuth client in the personal Google Cloud project), no Nexus, Slack or tickets, the
-  notes vault (8.10) as its ledger side. Next: W1 personal Google sign-in, W2 the vault as
-  Personal's Ledger place, W3 Google Drive (browse, open, insert, attach, save) in both,
-  W4 vault writes from Personal Log and Task.
+    ~/.config/ultra-workstation/workspaces/<slug>/
+        config.toml        that workspace's config (same format as section 13)
+        style.toml         its outgoing-text rules, signature and learned rules (10, 9.8)
+        tokens/            its Google tokens and MCP tokens (mode 700, files 600)
+        vip.txt            its VIP senders (optional)
+        life.toml          v1.13: its Life areas (8.11; private, optional)
+        .env               optional GEMINI_API_KEY for this workspace only
+    ~/.local/share/ultra-workstation/workspaces/<slug>/
+        state.db           its own SQLite store (section 6), WAL, mode 600
+        audio/ attachments/ research-uploads/ hermes/    as in section 5, per workspace
+
+`<slug>` is lower-case letters, digits and dashes (`^[a-z0-9][a-z0-9-]{0,30}$`); `main`
+is reserved for the main workspace. A folder without a `config.toml`, or with one that
+does not parse, is skipped from the list (and logged), never fatal.
+
+**Name and colour.** `[workspace] name` and `color` (one of cyan, green, amber, magenta,
+red) in each config. Defaults: the main one is "Main" in cyan; another is its slug
+title-cased in green. The live set-up names the main one "Work".
+
+**Switching.**
+
+- A workspace button sits next to the brand when there is more than one workspace; it
+  opens a short menu of them. `W` moves to the next one; the palette lists the others
+  ("Switch to the Personal workspace").
+- The choice is per browser: `localStorage ultra.workspace`. Ultra opens in the last
+  workspace used in that browser, so a phone and the laptop can sit in different ones.
+  A remembered workspace that no longer exists sends the page back to main.
+- The brand mark, the switch's dot and a 2 px line under the top bar take the
+  workspace colour (`body[data-wscolor]`, `--ws`; the main colour cyan draws no extra
+  line), so it is always clear which one is showing. Life's tick boxes use the same
+  colour.
+- Switching saves the choice and reloads the page, so every view starts from the new
+  workspace; drafts and staged cards stay with the workspace that made them.
+
+**Routing.** Every API request carries `X-Ultra-Workspace: <slug>`; links and media
+that cannot set headers (agenda `.ics`, journal `.csv`, audio, attachment previews,
+downloads) carry `?ws=<slug>`, added by one page helper (`WS.url`), and a test fails if
+a raw `/api/` link in the static files skips it. The server keeps one `Api` per
+workspace, each with its own `Live` (every adapter), built on first use; the main one
+is built at start. An unknown or malformed name is a 404; a workspace whose config
+fails to load answers 500 with the reason and leaves the others running. The CSRF token
+(12.1) is shared by the process, so one page can use any workspace it can name.
+
+**What never crosses.** Each workspace's `Config` knows its own folders and every file
+access goes through them: the state store, MCP tokens (`tokens/mcp-<name>.json`),
+`style.toml`, attachments, audio, Hermes query files and research uploads. Google API
+clients are cached per token file, so two workspaces never share a client or an
+account. The Gemini key may be set per workspace (`.env` in its folder); the main `.env`
+is the fallback. One thing is process-wide: the Draft Studio generic-word list
+(`[draft] generic_words`), set from the main workspace only.
+
+**Sources a workspace does not have.** A source that is off or not configured in a
+workspace is absent there, not broken:
+
+- No ledger (`[ledger] enabled = false`): no Ledger tab, no tasks in the stream, no
+  ledger chips or Full context, and no ledger reads at all (v1.14.1: `Ledger._run`
+  refuses with "the ledger is off in this workspace", and a task list cached before the
+  ledger was switched off is ignored). With a notes vault, the third place is Life
+  (8.11), Log and Task write to the vault (8.10), and the Day view is built from the
+  notes (7.4, 8.11).
+- No Slack, tickets or cluster: their filters, chips, lights and Today lines are hidden.
+- Mail or calendar not signed in: the stream says "Mail needs signing in" with the
+  exact `ultra auth google --capability <c> --workspace <slug>` command (never an
+  endless "Loading"); Today draws the day around a calendar sign-in message, and the
+  Home line and plan strip still show. The plan strip hides when there is neither a
+  ledger nor mail to plan from.
+
+**CLI.** `ultra auth google [--capability read|modify|send|calendar] --workspace <slug>`
+and `ultra auth nexus|ursa --workspace <slug>` sign that workspace in; tokens land in
+its `tokens/`. The OAuth client file is per workspace too (`[google] oauth_client` in
+that workspace's config, for example its own `tokens/oauth_client.json`), so a personal
+Google account can use a personal Google Cloud project's client while Work keeps its
+own.
+
+**Live set-up (operator, 2026-10-03).**
+
+| | Work (main folders, cyan) | Personal (`workspaces/personal`, green) |
+|---|---|---|
+| Mail and calendar | work Google account | personal Google account (own OAuth client in a personal Cloud project; read, modify, send, calendar tokens) |
+| Ledger place | Ledger tab (the work ledger over its hosted MCP server, 8.4/8.8) | Life (8.11) from the notes vault |
+| Log / Task | ledger writes (8.4) | vault writes through vault-mcp (8.10) |
+| Day view | work plan (meetings, focus blocks, ledger tasks) | personal plan from the notes (8.11) |
+| Slack, tickets, cluster | on | off |
+| Notes vault | off | on, writes on |
+| House sensors | off | on (`[house]`, 8.11) |
+| Ask Hermes | read-only profile with ledger and cluster reads (7.12) | plain Ask |
+| Alerts to the operator's phone | as before | none for personal mail (operator's choice) |
+
+The personal Google consent screen is in Testing (publishing was blocked by the
+console), so its refresh tokens lapse after 7 days and the four sign-ins are redone
+until it is published (open item W-1, section 20).
+
 - Tests: `tests/test_v1110_workspaces.py` (own folders, bad and missing names, broken
   configs skipped, tokens and store per workspace, routing by header and query through
-  the real HTTP handler, demo has one, every raw `/api/` link carries the workspace).
+  the real HTTP handler, demo has one workspace, every raw `/api/` link carries the
+  workspace); `tests/test_v1141_personal_day.py` (a ledger that is off never reads;
+  leftover task cache ignored).
 
 ## 8. Adapters
 
@@ -1472,130 +1570,298 @@ read tiers only. `cluster.py`; tests `tests/test_v180_cluster.py`.
 - **Measured live** (2026-10-03): a failed job's card with findings, log and draft in
   1.4 s; `script_check` 0.3 s.
 
-### 8.10 Home: the personal notes vault (v1.10)
+### 8.10 Home: the personal notes vault (v1.10; writes v1.12; vault-mcp)
 
-The personal side of the house: the operator's Obsidian vault (markdown on disk), read
-only. Ultra starts a local MCP server over it (`[vault]` in config; by default
-`headless-obsidian-mcp`, a stdio server that reads the files directly, no Obsidian app
-needed) and talks to it with a small stdio MCP client in `vault.py`.
+The personal side of the house: the operator's Obsidian vault (plain markdown files in a
+local git repo). Ultra never opens the files itself. It starts a local MCP server over
+the vault as a child process (stdio, no network, no login) and talks to it with a small
+newline-delimited JSON-RPC client in `vault.py` (`StdioMcp`). The notes stay the record:
+there is no database or index to drift, and Obsidian keeps working as before.
 
-- **Read only, twice.** The server is always started with `OBSIDIAN_TOOLS=reads`, so its
-  write tools are not listed or callable; and Ultra's allow-list names five read tools
-  (`search_notes_ranked`, `read_notes`, `list_tasks`, `list_recent_notes`,
-  `get_vault_stats`). The page has no write route for the vault.
-- **What stays hidden.** Anything the server cannot see (a symlink out of the vault such
-  as a linked work folder, dot folders), plus the folders in `[vault] exclude` (archive,
-  templates) from the Home line, search and the reader. Note paths are checked (no
-  `..`, no absolute paths).
-- **Home line on Today** (both layouts; shown only when something is due): open
-  checkbox todos with a due date (a calendar emoji then `YYYY-MM-DD`, as the Tasks plugin writes, or `due: YYYY-MM-DD`), overdue first,
-  then due within 7 days, at most five lines; each opens its note. Undated todos are
-  counted, not listed.
-- **Search** from the palette ("Search my notes for ...") or the Home line: ranked
-  full-text, opens a reader. The reader renders through `renderMd` (escapes first), with
-  Copy text and Open in Obsidian (`obsidian://open` link).
-- **Status.** A "Notes" light joins the MCP lights; the server starts on first use
-  (about 0.6 s) and later calls take tens of milliseconds. A crash is an error and the
-  next call starts a fresh process.
+**Which server.** Two are supported; `[vault] kind` picks one, or it is detected from
+the command name.
+
+| | vault-mcp (default since v1.12) | headless-obsidian-mcp (v1.10) |
+|---|---|---|
+| What | the operator's own small Go server (separate private repo, official Go MCP SDK) | a third-party Node stdio server |
+| Reads | `vault_status`, `vault_search`, `vault_read`, `vault_day`, `vault_tasks`, `vault_recent` | `get_vault_stats`, `search_notes_ranked`, `read_notes`, `list_tasks`, `list_recent_notes` |
+| Writes | append or create only, one git commit per write (below) | none (started with `OBSIDIAN_TOOLS=reads`) |
+| Environment Ultra passes | `VAULT_PATH`, `VAULT_AUTHOR` (optional), `VAULT_READ_ONLY=1` when writes are off | `OBSIDIAN_VAULT_PATH`, `OBSIDIAN_TOOLS=reads` |
+
+The child gets only `PATH`, `HOME` and those variables, never Ultra's keys. One process
+serves the workspace; it starts on first use (about 0.6 s) and later calls take tens of
+milliseconds. A crash or timeout (`[vault] timeout`, default 30 s) is an error for that
+call and the next call starts a fresh process.
+
+**vault-mcp's own guards** (enforced by the server, so they hold for every client,
+including the operator's agent):
+
+- *Append or create only.* No tool deletes, moves or overwrites. Before saving, the
+  server checks that every old line survives; the one allowed in-place change is
+  ticking a task done (`- [ ]` to `- [x]` plus a done date).
+- *One git commit per write*, of only that note (nothing else in the working tree is
+  swept in), author "<operator> (via <client>)"; Ultra's client name is "Ultra"
+  (`[vault] via`).
+- *Stale-write guard:* a write can carry the hash `vault_read` returned and fails if the
+  note changed meanwhile (for example, open in Obsidian).
+- *Hidden:* symlinks are never followed (a linked work folder stays invisible), dot
+  folders, the archive, tools and templates folders, and code folders kept in the vault.
+- *The vault's conventions note decides where things go:* daily notes
+  `Daily Notes/YYYY-MM-DD_Daily_Schedule.md` with a `## Log` section, check-ins
+  `Daily Notes/Check-ins/YYYY-MM-DD_Checkin_<Part>.md`, the Captain's Log
+  `Daily Notes/Captains Log/`, dated topic logs `Journal/<Topic>/YYYY-MM-DD_<Title>.md`
+  (topics such as Homestead, Garden, Maintenance, Health, Travel; listed by
+  `vault_status`), tasks in the hubs' tasks note.
+- `-read-only` (`VAULT_READ_ONLY=1`) removes the write tools from the tool list
+  entirely.
+
+**Ultra's allow-lists** (defence in depth on top of the server's):
+
+- Reads: `Vault._call` refuses any tool not in `READ_TOOLS` (the eleven read tools above,
+  both servers). Results are cached 60 s per (tool, arguments), so the page trails
+  Obsidian by at most a minute; key-note existence checks are cached 10 minutes.
+- Writes: `Vault.write` refuses any tool not in `WRITE_TOOLS` = `vault_log`,
+  `vault_log_note`, `vault_task_add` (v1.12) and `vault_task_done` (v1.14, only through
+  Life's tick token, 8.11). `vault_checkin`, `vault_captains_log` and `vault_append` are
+  not reachable from Ultra. Writes are never retried; a failure or unknown outcome is
+  shown with the server's message and the vault's git log is the record. Every
+  successful write clears the read cache and (v1.14.1) is recorded in Ultra's journal
+  (`vault_log`, `vault_log_note`, `vault_task_add`, `vault_task_done`, target = note
+  path, detail = commit), so the end-of-day report can count it. The journal never
+  holds the note text.
+
+**What stays hidden.** Anything the server cannot see, plus the folders in
+`[vault] exclude` (for example the archive and templates) from the Home line, Life,
+search and the reader. Note paths are checked (no `..`, no absolute paths, no NUL,
+at most 400 characters); a hidden note is refused with 404.
+
+**Reads in the page.**
+
+- *Home line on Today* (both layouts, shown only when something is due): open checkbox
+  todos with a due date (a calendar emoji then `YYYY-MM-DD`, as the Tasks plugin
+  writes, or `due: YYYY-MM-DD`), overdue first, then due within 7 days, at most five
+  lines; each opens its note. Undated todos are counted, not listed.
+- *Search* from the palette ("Search my notes for ...") and Life's search box: ranked
+  full-text (every word must match, title matches first), opens the reader.
+- *Reader:* the note rendered through `renderMd` (escapes everything first), with Copy
+  text and Open in Obsidian (`obsidian://open?vault=<name>&file=<path>`). Read only.
+- *Status:* a "Notes" light joins the MCP lights (last call ok / error / never).
+
+**Writes: Log and Task in a workspace without a ledger (v1.12).** When a workspace has
+no ledger and `[vault] writes` is on (Personal), the same Log (`l`) and Task (`t`) card
+used for ledger writes writes to the vault instead. The card says where: "Writes to the
+<name> vault: added, never overwritten, one git commit." The staged-card flow is
+unchanged (stage, review and edit, confirm, one commit, progress, result); the card has
+a **Where** picker instead of link chips and priority:
+
+| Action | Where | vault-mcp tool | Result in the vault |
+|---|---|---|---|
+| Log | Daily note (default) | `vault_log` (text, date, time) | `- h:mm AM text` under `## Log` in that day's daily note (created if the day has none). Day and time come from the card's Date (the mail's date by default, as for ledger logs). |
+| Log | Journal: <Topic> + title | `vault_log_note` (topic, title, text, date) | a new note `Journal/<Topic>/YYYY-MM-DD_<Title>.md`, linked from that day's daily note (two commits: note, then link). Never replaces an existing note. |
+| Task | a section of the tasks note (default: the first `##` heading that starts with ACTIVE) | `vault_task_add` (text, section, due) | `- [ ] text <calendar emoji> YYYY-MM-DD` under that section. Due buttons: Today, Tomorrow, +1 week, or a date. |
+
+The server checks the Where fields again (`_check_where`: kind daily or journal; topic
+letters, spaces and dashes up to 40; title 1-120 characters, ASCII-fixed). The result
+shows the note path, the line, the git commit and an Open in Obsidian link. A staged
+card is single use. The end-of-day report's "Save to notes" (8.11, v1.14.1) and Life's
++ Log / + Task use the same card. A workspace with a ledger (Work) always writes to the
+ledger, even if it also has a vault. `[vault] writes = false` starts vault-mcp
+read-only and the card says the workspace has nothing to write to.
+
 - Routes: `GET /api/vault/status`, `/api/vault/home`, `/api/vault/search?q=`,
-  `/api/vault/note?path=`.
+  `/api/vault/note?path=`; writes go through the desk's stage and commit routes (14).
 - Tests: `tests/test_v1100_vault.py` (a fake stdio server drives the real transport:
-  read tools only, `OBSIDIAN_TOOLS=reads`, path checks, exclude, crash and restart, cache,
-  not configured, missing binary, UI wiring).
+  read tools only, `OBSIDIAN_TOOLS=reads`, path checks, exclude, crash and restart,
+  cache, not configured, missing binary, UI wiring); `tests/test_v1120_vault_writes.py`
+  (fake vault-mcp over the real transport: read mapping, write allow-list, `via`, writes
+  off, Where options, Desk stage -> commit for daily, journal and task, spent card,
+  ledger precedence; plus an end-to-end test that runs the real vault-mcp binary against
+  a throwaway git vault when it is installed).
 
-**v1.12: vault-mcp and writes.** The default server is now vault-mcp, the operator's own
-small Go MCP server for the vault (a separate private repo; stdio, no network). Ultra
-detects it from the command name (or `kind = "vault-mcp"`) and maps its reads onto
-`vault_search`, `vault_read`, `vault_tasks` and `vault_status`; headless-obsidian-mcp
-(`kind = "headless"`) still works for reads. vault-mcp writes only by appending to or
-creating a note, one git commit each (author "<operator> (via Ultra)"), and follows the
-vault's own conventions note for where things go.
+### 8.11 Life: the Personal Ledger place (v1.13; sensors and tick done v1.14; Day v1.14.1)
 
-- **Log and Task in a workspace without a ledger** (Personal) write to the vault. The
-  same staged card and confirm step as a ledger write, with a **Where** picker instead of
-  link chips and priority: Log goes to that day's daily note as a timed line under
-  `## Log` (the day and time come from the card's Date, as for ledger logs), or to a
-  journal note `Journal/<Topic>/YYYY-MM-DD_<Title>.md` (linked from the day); Task goes to
-  the tasks note, under a chosen section (default: the one whose name starts with ACTIVE)
-  with an optional due date. The result shows the note path, line, git commit and an
-  Open in Obsidian link. Never retried.
-- **Allow-list:** Ultra calls only `vault_log`, `vault_log_note` and `vault_task_add`;
-  other vault-mcp writes (tick done, append, check-in) are not reachable from the page.
-  `[vault] writes = false` starts the server read-only (it then lists no write tools)
-  and the card says the workspace has nothing to write to. A workspace with a ledger
-  (Work) keeps writing to the ledger.
-- Tests: `tests/test_v1120_vault_writes.py` (fake vault-mcp over the real transport:
-  read mapping, write allow-list, `via`, writes off, Where options, Desk stage -> commit
-  for daily, journal and task, spent card, ledger precedence; plus an end-to-end test
-  that runs the real vault-mcp binary against a throwaway git vault when it is
-  installed).
+Work's third place is the ledger: people, labs, projects, tasks. A workspace with no
+ledger but a notes vault (Personal) gets **Life** in the same place: the same button
+(relabelled "Life"), the same key (`n`), the same palette slot. It shows the operator's
+own life from the vault, organised by area: the home and land, the animals, the garden,
+the vehicles, family, spiritual life, money and fun. The page is built from reads; the
+only writes it can start are the usual staged Log and Task cards (8.10) and ticking one
+task done with a one-time token (below).
 
-### 8.11 Life: the Personal Ledger place (v1.13)
+#### 8.11.1 Areas
 
-Work's third place is the ledger (Nexus). A workspace with no ledger but a notes vault
-(Personal) gets **Life** instead: the same button, key (`n`) and place, labelled Life,
-showing the operator's own life from the vault, read only.
+An area is a part of life with its own notes, folders, tasks and journal topic.
 
-- **Areas:** generic defaults in `life.py` (Home, Animals, Garden, Vehicles, Family,
-  Spirit, Money, Fun); the operator's own list lives in a private `life.toml` next to the
-  workspace config (`[[area]]` key, name, icon, blurb, notes, folders, words, log_topic;
-  `skip_tasks` for checklists that are not todos). Each area names its key notes (shown
-  as cards; a missing note is skipped), the folders whose notes and tasks belong to it,
-  and words that file a task under it. A bad file falls back to the defaults.
-- **Filing a task:** the first area whose folder holds the task's note; else whose word
-  is the task's "Prefix:" ("Garlic: ..." is Garden); else whose word
-  appears in the text; else "other". Checkbox lines in daily notes (and notes listed in
-  `skip_tasks`) are schedules, not todos, and are left out, as are hidden folders.
-- **Home:** one tile per area (overdue and soon counts, the next dated task), then
-  Coming up (overdue and the next 14 days, six shown, Show all) beside Today (the lines
-  under `## Log` in today's daily note, check-ins, Captain's Log) and Lately (journal
-  notes and check-ins, newest by the date in the file name).
-- **Area page:** key-note cards, open tasks, recently written notes; every item opens
-  the read-only note reader (8.10).
-- **+ Log / + Task** open the usual staged card, which writes through vault-mcp (8.10
-  v1.12). The page itself never writes.
-- Task text is shown plain: wiki links become their label, markdown emphasis and empty
-  "( )" asides are dropped; all vault text is escaped.
-- Reads: `vault_tasks`, `vault_recent`, `vault_day`, `vault_read` (key notes, cached ten
-  minutes); otherwise the vault client's 60 s cache, so Life trails Obsidian by at most a
-  minute.
-- Routes: `GET /api/life`, `GET /api/life/area/<key>`. `/api/session` now says whether
-  the workspace has a ledger and a vault.
-- Tests: `tests/test_v1130_life.py` (areas, filing rules, plain text, overview, area page,
-  reads only, routes, UI wiring).
+| Field | Meaning |
+|---|---|
+| `key` | id, 2-20 lower-case letters (used in routes and the palette) |
+| `name`, `icon`, `blurb` | tile title (up to 40), an emoji (up to 4 characters), one line (up to 200) |
+| `notes` | key notes shown as cards on the area page: `[["<path without .md>", "<label>"], ...]`; a missing note is skipped, never an error |
+| `folders` | folders (or single notes) whose tasks and recent notes belong to the area |
+| `words` | words that file a task under the area (see filing) and seed the area's search |
+| `log_topic` | the Journal topic preselected when Log is pressed on the area page |
 
-**v1.14 additions.**
+- **Defaults** (in `life.py`, generic because the repo is public): Home, Animals,
+  Garden, Vehicles, Family, Spirit, Money, Fun, with generic folders
+  (`Journal/Homestead`, `Journal/Garden`, ...) and words.
+- **The operator's own list** lives in a private `life.toml` next to the workspace's
+  config, never in the repo: `[[area]]` tables in display order, plus
+  `skip_tasks = [...]` for notes whose checkboxes are routines, not to-dos (for
+  example a daily chore checklist). A missing file means the defaults; a bad file (bad
+  key, duplicate key, no areas, TOML error) falls back to the defaults and logs why.
+- Live: eight areas with the operator's own names and icons (the homestead, animals,
+  garden, vehicles, family, spirit, money, fun), each naming its hub notes, asset
+  folders and journal topics.
 
-- *Tick done.* Each task Life shows (when the vault takes writes) carries a one-time token
-  instead of anything the page could rewrite. A small box before the task asks "Mark
-  done?" and posts only the token to `POST /api/life/done`; the server looks up the path,
-  line and exact text it issued (single use, 10 minutes) and calls vault-mcp
-  `vault_task_done`, which re-checks that line still holds that open task, ticks it with
-  today's date, and makes one git commit. A changed note or an old page is refused with
-  "reload Life". `vault_task_done` joins the Ultra write allow-list; nothing else does.
-- *House sensors* (`house.py`). With `[house] url = "http://<lan host>:<port>"` a workspace
-  reads four JSON documents from a home sensor dashboard (`/api/coop/thermal`,
-  `/api/freeze`, `/api/coop`, `/api/status`) and shows short lines on the tiles: coop
-  temperature, waterer ice risk and the night sentry on Animals; frost outlook on Garden
-  (and the house tile on a hard freeze); outside temperature and any stale sensor on the
-  house tile. Tiles show at most two lines, warnings first, the area page all of them.
-  GET only, those four paths only, 4-second timeout, two-minute cache; the URL must be on
-  a private network or a tailnet (`100.64/10`) or `.local`, never loopback. Values are
-  reduced to numbers and fixed upper-case words before reaching the page. A dashboard
-  that does not answer reads "sensors unreachable", never a stale or guessed value.
-  `[house] areas = {home = "...", animals = "...", garden = "..."}` maps the three
-  groups onto the workspace's own Life area keys; `weather_key` picks the place in the
-  dashboard's weather block. Route `GET /api/life/house`.
+#### 8.11.2 Tasks: what counts and where it is filed
 
-**v1.14.1: Personal's Day.** In a workspace with no ledger and a vault, the Day view (check-in
-plan and end-of-day report, `d`) is built from the notes: overdue, due today and the next
-two weeks of dated to-dos (Life's "Coming up", each with its area icon; click opens the
-note), today's daily-note Log lines, Personal mail that is your move, and the calendar. No
-focus blocks or work-hours maths; "Save to notes" stages the usual vault card. The report
-counts mail, archives and Ultra's vault writes (now in Ultra's journal), lists today's log
-lines, and says "overdue to-dos". A ledger that is off never reads (`Ledger._run` refuses,
-so the task refresh, Ledger tab, graph and Ask cannot reach Nexus from Personal), and a
-task list cached before the ledger was turned off is ignored.
+Tasks come from `vault_tasks` (open checkbox lines across the vault, with path, line,
+section and text).
+
+- **Left out:** checkbox lines in daily notes (`Daily Notes/`; those are the day's
+  schedule, not to-dos), notes listed in `skip_tasks`, and hidden or excluded folders.
+- **Due date:** the calendar emoji or `due:` followed by `YYYY-MM-DD`; `days` is the
+  difference from today in the workspace's time zone (negative = overdue).
+- **Filing, first match wins, areas in order:**
+  1. the first area one of whose `folders` holds the task's note;
+  2. else the first area whose word is the task's "Prefix:" (text before a colon in the
+     first 30 characters: "Coop: test the waterer" is filed by "coop");
+  3. else the first area whose word appears as a whole word in the text;
+  4. else "other" (counted, not shown on a tile).
+- **Shown text is plain:** `[[Note|label]]` becomes the label, `[[path/Note_Name]]`
+  becomes "Note Name", `( [[Note]] )` asides, markdown emphasis and empty brackets are
+  dropped, the due marker is removed (the date shows separately). Up to 240 characters.
+  All vault text is escaped in the page.
+
+#### 8.11.3 The Life home
+
+Top to bottom:
+
+1. **Header:** "Life from your notes", a notes search box (Enter searches the vault,
+   8.10), **+ Log**, **+ Task**, refresh, Close.
+2. **Area tiles**, four per row (two below 1100 px wide): icon and name; status pills ("1
+   overdue" red, "3 soon" amber, "7 open", or "all clear"); up to two house-sensor lines
+   (8.11.6); then the next dated task ("Oct 1 Coop: ...") or the blurb. Click opens the
+   area page.
+3. **Coming up:** every dated task overdue or due within 14 days, soonest first, six
+   shown with "Show all N". Each row: a tick box (8.11.5), a fixed-width due pill
+   ("2d overdue" red; "today", "tomorrow", "in 2d" amber; later ones plain "in 5d"), the
+   area icon, the task text (wrapping with a hanging indent). Click opens the note.
+4. **Today** (`vault_day` for today): the lines under `## Log` in today's daily note (the
+   last eight), links to today's check-ins and Captain's Log, and a Daily note link.
+5. **Lately:** journal notes and check-ins, newest first by the date in the file name
+   (file times move with every checkout or reorganisation, so they are only a
+   tie-break), with friendly titles ("Evening check-in", "Bed prep").
+
+#### 8.11.4 An area page
+
+Back to Life, icon and name, the blurb, all of the area's house-sensor lines, then:
+
+- **Key notes** as cards (label and folder); click opens the reader.
+- **Open tasks** of the area (dated first, then undated), each with its tick box.
+- **Recently written:** up to 12 notes from the area's folders (key notes left out),
+  newest first.
+- **+ Log** opens the Log card with Where preset to the area's journal topic;
+  **+ Task** opens the Task card. Both are the normal staged cards (8.10).
+
+#### 8.11.5 Tick a task done (v1.14)
+
+- When the vault takes writes, every task Life sends to the page carries a
+  `done_token` (random, 12 URL-safe characters) instead of anything the page could
+  rewrite. The server keeps token -> (note path, line, exact raw line text, issued
+  time). Tokens are single use, live 10 minutes, and are capped (oldest dropped past
+  2,000), so a page left open all day cannot grow memory without bound. The raw text
+  never goes to the page.
+- The tick box asks "Mark done? <task> Ticks it in your notes with today's date (one
+  git commit)." Yes posts only `{token}` to `POST /api/life/done` (CSRF as every
+  write). The server checks the token's shape, pops it, and calls `vault_task_done`
+  with the path, line and raw text. vault-mcp re-reads the note and refuses if that
+  line no longer holds that open task (edited in Obsidian, moved, already done), so a
+  stale page can never tick the wrong line. On success the row is struck through, a
+  toast shows the commit, and the page reloads.
+- An unknown, used or expired token answers 409 "this task changed or the page is old;
+  reload Life". A malformed token is 400. Nothing is retried.
+- Result in the note: `- [x] <text> <calendar emoji> <due> <check mark emoji> YYYY-MM-DD`,
+  one commit "Done: <text>" by "<operator> (via Ultra)". Recorded in Ultra's journal.
+
+#### 8.11.6 House sensors (v1.14, `house.py`)
+
+Some homes run a small sensor dashboard on the LAN. With `[house] url` set, Life shows a
+few readings from it on the tiles.
+
+- **Reads:** exactly four GET paths, JSON only, 4-second timeout, at most 2 MB each,
+  cached two minutes per workspace: `/api/coop/thermal` (roost temperature, waterer
+  ice risk), `/api/freeze` (lowest temperature in the next 24, 48 and 72 hours),
+  `/api/coop` (past sunset, night sentry armed), `/api/status` (outdoor weather by
+  place, stale-sensor flags). Any other path is refused in code. One failed document
+  drops only its lines.
+- **Allowed URLs:** `http` or `https`, no user or password, no path, query or fragment;
+  host a private address (10/8, 172.16/12, 192.168/16), the tailnet range 100.64/10, or
+  a `.local` name. Loopback is refused (Ultra must not be pointed at itself). Anything
+  else disables the feature with "[house] url is not on a private network".
+- **What reaches the page:** numbers (rounded) and fixed upper-case status words only;
+  any other value (strings, markup, booleans where numbers belong) is dropped, so the
+  page never shows text from the dashboard. Lines are built server-side:
+
+| Group | Line | Level |
+|---|---|---|
+| animals | "coop 42 F" (shown with a degree sign) | warn at 34 F or below |
+| animals | "waterer ice risk low/moderate/high" | ok / warn / bad |
+| animals | "night sentry armed" / "NOT armed" (only after sunset) | ok / bad |
+| garden | "freeze within 24 h, low 30 F" (first window at or below 32 F) | bad |
+| garden | "near freezing in 3 days, low 33 F" (72 h low at or below 36 F) | warn |
+| garden | "3-day low 45 F" | ok |
+| home | the same freeze line, only when it is a hard freeze | bad |
+| home | "outside 49 F" (skipped when the weather reading is stale) | ok |
+| home | "basement sensor stale 25 h" (an ambient sensor marked stale) | warn |
+
+- **Mapping:** `[house] areas = {home = "<area key>", animals = "...", garden = "..."}`
+  maps the three groups onto the workspace's own Life keys; `weather_key` names the
+  place in the dashboard's weather block (default: the first place with a temperature).
+- **Display:** a coloured dot then the text (green ok, amber warn, red bad); tiles show
+  at most two lines, warnings first, with "+N" for the rest (hover lists them); the
+  area page shows all of them in a row. If no document answers, the house tile says
+  "sensors unreachable", never an old or guessed value. Work has no `[house]` and never
+  asks.
+
+#### 8.11.7 Personal Day: check-in plan and end-of-day report (v1.14.1)
+
+The Day view (`d`, 7.4) in a workspace with no ledger and a vault is built from the
+notes instead of the work ledger (`Day.life_fn` = Life's overview).
+
+- **Check-in plan:** summary line ("N on the calendar, N emails are your move, N
+  overdue, N due today, N coming up"); On the calendar (declined events left out);
+  Email that is your move; Overdue; Due today; Coming up (two weeks); Logged today
+  (today's `## Log` lines, long lines cut at a word with "..."). Task rows carry their
+  area icon and a short date; click opens the note. No focus blocks and no work-hours
+  maths. The copied and spoken text uses the same words ("Overdue:", "Coming up:",
+  "Logged today:"); the AI read of the day is asked to plan "their personal day (home,
+  family, errands)".
+- **End-of-day report:** "Mail and notes: sent N emails, archived N, N notes written
+  from Ultra"; On the calendar; Logged today; then Sent, Notes (vault writes from the
+  journal), Triage and Calendar sections; "Still open: N emails are my move; N overdue
+  to-dos." Internal events (queued sends, audio) are left out. **Save to notes** stages
+  the usual vault Log card (daily note or a journal note).
+- If the vault does not answer, the plan says "Notes unavailable: ..." and still shows
+  mail and calendar. Work's Day view is unchanged.
+
+#### 8.11.8 Routes, data and tests
+
+- Routes: `GET /api/life` (home), `GET /api/life/area/<key>` (one area; unknown key
+  404), `POST /api/life/done` (tick by token), `GET /api/life/house` (sensor lines, or
+  `{"enabled": false}`). `/api/session` reports `ledger` and `vault` so the page knows
+  to show Life; the palette gains "Life: <area>" entries and drops the ledger-only ones.
+- Data: nothing new on disk. Tick tokens and the sensor cache live in memory; reads use
+  the vault client's cache (8.10).
+- Tests: `tests/test_v1130_life.py` (default and private areas, bad files, filing
+  rules, plain text and titles, overview, area page, reads only, routes, UI wiring);
+  `tests/test_v1140_house_and_tick.py` (allowed URLs, lines and levels, odd values
+  dropped, cache and partial failure, area map and weather key, unreachable, tick
+  token single use and shape, no tokens with writes off, and an end-to-end tick
+  through the real vault-mcp on a throwaway git vault, including a changed line being
+  refused); `tests/test_v1141_personal_day.py` (personal plan never asks the ledger,
+  work plan unchanged, notes down is a warning, report words, clipped log lines, page
+  words).
 
 ## 9. Composer and double approval
 
@@ -1950,6 +2216,12 @@ Low priority row. VIP list overrides noise.
 - Every state-changing request needs a CSRF token (random per server start, delivered
   in the page, sent as the `X-Ultra-Token` header, compared in constant time). GET
   requests never change state.
+- Outbound from the server (v1.10-v1.14): the vault server is a local child process over
+  stdio with no network; the house-sensor reader (8.11.6) makes GETs only, to four fixed
+  paths, only on a private, tailnet or `.local` host (never loopback, never a public
+  address), 4-second timeout.
+- Workspaces (7.14) share the process, the CSRF token and the remote allow-list; they do
+  not share state, tokens or Google clients.
 - Content-Security-Policy: `default-src 'self'; script-src 'self'; style-src 'self';
   frame-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self';
   object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
@@ -1968,6 +2240,11 @@ Low priority row. VIP list overrides noise.
 - The Gemini key is read from `~/.config/ultra-workstation/.env` (mode 600). It is
   never written to the store, logs, journal, or the page.
 - Claude Code handles its own Slack authorization; the app stores nothing for Slack.
+- Each workspace has its own `tokens/` folder (same modes) and may have its own OAuth
+  client file and `.env` (7.14). A personal Google account is signed in with a client
+  from a personal Cloud project, never the work one.
+- The vault server holds no credential; it gets only `PATH`, `HOME` and the vault path
+  (8.10). The house sensor reader sends no credential.
 
 ### 12.3 Data at rest
 
@@ -1975,6 +2252,12 @@ Low priority row. VIP list overrides noise.
   metadata, draft text, audio of mail, attached files and per-Ask query files; mode
   600 files in mode 700 folders. Archive undo is a token held by the page (Undo in
   the toast), not a file.
+- Per workspace (7.14): each has its own `state.db` and data folders under
+  `workspaces/<slug>/`, same modes.
+- The notes vault (8.10) is the operator's own git repo; Ultra adds to it only through
+  vault-mcp (append or create, one commit each) and never copies note text into
+  `state.db` or the journal (journal rows carry the note path and commit only). Vault
+  read results live only in the in-memory 60 s cache.
 - `ultra.log` holds actions and errors only: no message bodies, no draft text, no
   tokens. Subjects are truncated to 40 characters in logs. A redaction filter masks
   anything that looks like a key or token.
@@ -1991,7 +2274,9 @@ Low priority row. VIP list overrides noise.
   `sandbox=""` via `srcdoc`, block remote images unless loaded per message.
 - Links open in a new tab with `rel="noopener noreferrer"`.
 - Slack and ledger text is inserted as text, never as HTML. Markdown (AI summaries,
-  reports) goes through `renderMd`, which escapes everything first (5.1).
+  reports, vault notes in the reader) goes through `renderMd`, which escapes everything
+  first (5.1). Vault task text, titles and log lines on Life and the Day view are
+  escaped; house-sensor values reach the page only as numbers and fixed words (8.11.6).
 - Email and Slack content passed to a model is wrapped as quoted data with an
   instruction that it is not instructions. Model output can only fill cards; it has no
   path to an action (section 9.5).
@@ -2010,11 +2295,21 @@ Low priority row. VIP list overrides noise.
   numbers in a format the regex accepts).
 - Screenshots in docs use a demo mode (`ultra start --demo`) that serves synthetic
   data, never real mail.
+- Personal specifics never enter the repo (v1.13-v1.14): the operator's Life areas,
+  key notes and place names live in a private `life.toml`; the sensor dashboard's
+  address, area map and weather place in the workspace's private `config.toml`. The
+  repo's defaults are generic and tests use placeholder addresses (`192.168.1.50`) and
+  invented notes; `check-private.sh` blocks the operator's place and family names.
 
 ## 13. Configuration (`config.toml`)
 
 Shipped as `config.example.toml` with placeholders; the real file lives only in
-`~/.config/ultra-workstation/`.
+`~/.config/ultra-workstation/` (and, for another workspace, in
+`~/.config/ultra-workstation/workspaces/<slug>/config.toml`, same format, 7.14).
+
+    [workspace]                           # v1.11 (7.14)
+    name = "Work"                         # shown in the top bar and the switch
+    color = "cyan"                        # cyan, green, amber, magenta, red
 
     [operator]
     name = "Ada Example"
@@ -2041,6 +2336,9 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
     personal_block_visibility = "private"
 
     [ledger]
+    enabled = true                        # false in a workspace with no ledger (Personal):
+                                          # no ledger reads at all; Life, vault Log/Task and
+                                          # the personal Day view take over when a vault is set
     binary = "nexus"
     org_email_domain = "example.org"
     netid_from_local_part = true
@@ -2112,6 +2410,39 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
     url = "https://cluster-mcp.example.org/mcp"
     client_id = "cluster-ultra"
     # parallel = 2, per_min = 100, timeout = 120
+
+    [vault]                               # the notes vault (8.10, v1.10; writes v1.12)
+    path = "~/Notes"                      # the vault folder (a git repo for writes)
+    name = "Notes"                        # Obsidian vault name, for Open in Obsidian links
+    command = "~/.local/bin/vault-mcp"    # or "node" + args for headless-obsidian-mcp
+    args = []
+    # kind = "vault-mcp"                  # or "headless"; detected from the command name
+    writes = true                         # vault-mcp only; false starts it read-only
+    # author = "Ada Example"              # git author name (vault-mcp has a default)
+    # via = "Ultra"                       # "(via Ultra)" in commit authors
+    exclude = ["_archive", "Templates"]   # hidden from Home line, Life, search, reader
+    # timeout = 30                        # seconds per call
+    # enabled = true
+
+    [house]                               # home sensor dashboard on the LAN (8.11.6, v1.14)
+    url = "http://192.168.1.50:8080"      # private, tailnet or .local host only; no path
+    areas = { home = "home", animals = "animals", garden = "garden" }   # groups -> Life keys
+    weather_key = "home"                  # the place in its weather block (default: first)
+    # enabled = true
+
+Life areas (8.11.1) are not in `config.toml` but in a private `life.toml` next to it:
+
+    skip_tasks = ["01 - Hubs/Chore_Checklist"]   # notes whose checkboxes are routines
+
+    [[area]]
+    key = "home"                          # 2-20 lower-case letters
+    name = "Home"
+    icon = "<emoji>"
+    blurb = "The house and the land."
+    notes = [["01 - Hubs/Home_MOC", "Home hub"], ["Assets/House/Furnace", "Furnace"]]
+    folders = ["Assets/House", "Journal/Homestead"]
+    words = ["coop", "furnace", "roof"]
+    log_topic = "Homestead"
 
 ## 14. HTTP API (server)
 
@@ -2343,6 +2674,18 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 - MCP servers (8.8, v1.3): one light per configured server; "sign in" (amber) with the
   `ultra auth <name>` command on hover when no token is saved, red with the error when a
   call or the 10-minute health read failed.
+- Notes vault (8.10): a "Notes" light. A vault server that cannot start, crashes or
+  times out is an error on that call (shown where the call was made: Home line, Life,
+  reader, card); the next call starts a fresh process. A vault write that fails says
+  so on the card with the server's message ("Nothing was retried, so there is no
+  duplicate. Check the note before trying again.").
+- Life (8.11): an unreadable vault shows the error in place of the page; a missing key
+  note is skipped silently; a stale tick answers "reload Life"; a sensor dashboard
+  that does not answer reads "sensors unreachable".
+- Workspaces (7.14): an unknown workspace is a 404 and the page falls back to main; a
+  workspace whose config fails to load answers 500 with the reason, the rest keep
+  working; a source that needs a sign-in shows the exact `ultra auth ... --workspace`
+  command.
 - No retries on writes, ever. Reads are not retried either (a failed read shows its
   error and the next poll or Refresh tries again); only AI audio retries a failed
   chunk, up to 3 times.
@@ -2359,6 +2702,10 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | Ledger log commit + read-back | 15-30 s (CLI-bound), progress shown |
 | Slack refresh | 20-90 s in background |
 | AI draft | 5-20 s |
+| Vault server start (first call) | about 0.6 s; later calls tens of ms (8.10) |
+| Life home, cached reads | under 1 s (vault reads cached 60 s; sensors 2 min) |
+| Tick done (vault_task_done + git commit) | about 1 s |
+| Switch workspace | one page reload; a workspace's first request builds its adapters |
 
 ## 18. Testing
 
@@ -2371,7 +2718,14 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 - Security tests: loopback/Host/Origin/CSRF rejections, CSP header present, sandboxed
   iframe attributes, no inline scripts in static files.
 - Private-data tests: `check-private.sh` in the local gauntlet; gitleaks in CI.
-- Browser smoke test (Playwright, optional, local only) against `--demo`.
+- Browser smoke test (Playwright, optional, local only) against `--demo`. For features
+  that need real data shapes (workspaces, Life, vault writes, sensors), a throwaway
+  server on another port runs on a copy of the config and data folders and a fresh
+  clone of the vault, so no real note or account is written; the clone is deleted
+  afterwards.
+- End-to-end tests run the real vault-mcp binary (when installed) against a throwaway
+  git vault: writes land where the conventions say, one commit each, author "(via
+  Ultra)", and a changed line refuses a tick.
 - Local gauntlet before any push: `uv run ruff check . --fix`, `uv run ruff format .`,
   `uv run mypy src`, `uv run pytest`, `scripts/check-private.sh`. CI repeats the first
   four plus `ruff format --check`, `uv lock --check` and gitleaks.
@@ -2408,12 +2762,14 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.6 Ledger writes on MCP (shipped 1.6.0) | Section 8.4: desk and Ledger-tab writes through the hosted server, deletes on the CLI, refusal falls back, unknown outcomes never re-sent; one live log verified |
 | v1.7 Calm, part 2 (shipped 1.7.0) | Section 7.13: Board full width, Today plan strip, Ledger summary line and a shorter tab strip, Tidy suggestion, Log offer after archiving READY |
 | v1.8 Cluster facts in mail (shipped 1.8.0) | Section 8.9: job ids in support mail show a Cluster chip with the job's facts, findings, log end and a reply draft from bifrost; script check; cluster line on Today; read tools only |
-| v1.13 Life (shipped 1.13.0) | Section 8.11: Personal's Ledger place is Life, the operator's areas from the vault |
-| v1.14 Life: sensors and tick done (shipped 1.14.0) | Section 8.11: house sensor lines on tiles; tick a task done from Life |
-| v1.12 Personal vault writes (shipped 1.12.0) | Section 8.10: vault-mcp as the vault server; Personal Log and Task write to the notes vault (daily note, journal note, task) with the staged card |
-| v1.11 Workspaces (shipped 1.11.0) | Section 7.14: Work and Personal, each a whole Ultra (own mail, calendar, ledger, history, sign-ins); switch, `W`, per-browser memory |
-| v1.10 Home (shipped 1.10.0) | Section 8.10: the personal notes vault over a local MCP server, read only: Home line on Today, notes search, note reader |
 | v1.9 Ask that looks things up (shipped 1.9.0) | Section 7.12: `[hermes] profile`, a read-only Hermes profile with the ledger and cluster read tools, checked before each use, falls back to the old Ask |
+| v1.10 Home (shipped 1.10.0) | Section 8.10: the personal notes vault over a local MCP server, read only: Home line on Today, notes search, note reader |
+| v1.11 Workspaces (shipped 1.11.0) | Section 7.14: Work and Personal, each a whole Ultra (own mail, calendar, ledger, history, sign-ins); switch, `W`, per-browser memory. Personal Google sign-in (W1) done the same day with a personal Cloud project's OAuth client |
+| v1.12 Personal vault writes (shipped 1.12.0) | Section 8.10: vault-mcp as the vault server; Personal Log and Task write to the notes vault (daily note, journal note, task) with the staged card |
+| v1.13 Life (shipped 1.13.0) | Section 8.11: Personal's Ledger place is Life, the operator's areas from the vault (tiles, coming up, today, lately, area pages); companion vault-mcp 0.1.1 (recent notes by the date in the name) |
+| v1.14 Life: sensors and tick done (shipped 1.14.0) | Section 8.11.5-8.11.6: house sensor lines on tiles; tick a task done from Life with a one-time token |
+| v1.14.1 Personal Day (shipped 1.14.1) | Sections 8.11.7, 7.14: the Day view in Personal is built from the notes; a ledger that is off never reads (fixes work tasks showing in Personal) |
+| Next: W3 Drive | Google Drive in both workspaces: browse, open, insert a link, attach to a draft, save a draft attachment or note to Drive. Open question W-3 (edit scope) |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
 ## 20. Open items
@@ -2434,14 +2790,19 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | H-1 | Gmail/Calendar tools in Ask Hermes | DECIDED (operator, 2026-10-01): not offered. Ultra sends the item and its ledger context, which covers the questions Ask is for. Cause of the earlier "did not connect": v0.13.0 passed `-t mcp-google_workspace`, but `-t` starts MCP servers by their config key (`google_workspace`), so the server never started. Under the right name all 35 tools load, including send_email, reply_email and three delete tools, none annotated read-only, so it cannot be allowed as is. A read-only route, if wanted later: a separate Hermes profile for Ultra with that server's `tools.include` limited to the read tools, sharing the operator's memory and sessions. |
 | R-1 | deep-research `--json` | DONE: deep-research v0.36.0 adds `--json` to every command (PR #142). |
 | R-2 | Research context from mail | DECIDED: allowed when the operator ticks "Include this thread" for that run; unticked by default. |
+| W-1 | Personal Google consent screen stays in Testing | OPEN. The console's Publish button stayed disabled ("complete your configuration on the Branding page") although the required fields are filled; Google probably wants a home page or privacy-policy URL. Until it is published, the Personal refresh tokens lapse 7 days after sign-in (first lapse around 2026-10-10) and the four `ultra auth google --capability ... --workspace personal` sign-ins are redone. |
+| W-2 | Workspace questions | DECIDED (operator, 2026-10-03): personal writes go to the vault ("include writes in personal"); the starting workspace is the last one used in that browser; personal mail stays out of phone alerts for now; AI on personal mail uses the same model as work. |
+| W-3 | Drive edit scope (W3) | OPEN, asked when W3 starts: may Ultra edit any Drive file, or only files it created (`drive.file`)? Browse/open/save in both workspaces is decided. |
+| V-1 | Vault writes Ultra does not offer | By choice: check-ins, Captain's Log and appending to running ledgers (`vault_checkin`, `vault_captains_log`, `vault_append`) stay with the operator's agent; Ultra's allow-list is four tools (8.10). |
 
 ## 21. Change log
 
 | Date | Version | Change |
 |---|---|---|
-| 2026-10-03 | 1.13 | App v1.13.0 (new 8.11; 15, 19): Life, the Personal Ledger place (areas by default Home, Animals, Garden, Vehicles, Family, Spirit, Money, Fun, or a private life.toml; tiles, coming up, today, lately; area pages); session reports ledger/vault; palette Life entries; Nexus-only palette entries hidden in Personal. |
-| 2026-10-03 | 1.14 | App v1.14.0 (8.11, 14, 15, 19): Life tick-done (one-time token, POST /api/life/done, vault_task_done added to the write allow-list) and house sensors (`house.py`, `[house] url` on a private network, four read paths, lines on tiles, GET /api/life/house). |
+| 2026-10-03 | 1.15 | Docs only (app still v1.14.1), audited against the code. 7.14 rewritten in full (folders, slug rule, switching, routing and `WS.url`, what never crosses, sources a workspace lacks, per-workspace OAuth client, live Work/Personal table); 8.10 rewritten (server comparison table, vault-mcp's own guards, Ultra's read and write allow-lists, journal rows for vault writes, Where table for Log and Task); 8.11 split into 8.11.1-8.11.8 (area fields, task filing rules, home layout, area page, tick-done token lifecycle, sensor reads, allowed URLs and the line/level table, personal Day); 5 adds Home, Life, vault, house and MCP adapters and workspace folders; 6 per-workspace stores, vault journal actions, in-memory tokens; 7.4 personal Day and Home line; 7.7 adds `L` and `W`; 12 outbound calls, per-workspace credentials, vault data at rest, escaping, private Life and sensor config; 13 adds `[workspace]`, `[ledger] enabled`, `[vault]`, `[house]` and `life.toml`; 16 vault, Life and workspace errors; 17 vault and Life timings; 18 throwaway-copy browser runs and vault-mcp end-to-end tests; 19 reordered with v1.14.1 and W3; 20 adds W-1 (Google publishing), W-2, W-3 (Drive scope), V-1; change log reordered newest first. |
 | 2026-10-03 | 1.14 | App v1.14.1 (8.11): Personal's Day view from the notes (to-dos, today's log, Save to notes); a ledger that is off never reads; vault writes journalled. |
+| 2026-10-03 | 1.14 | App v1.14.0 (8.11, 14, 15, 19): Life tick-done (one-time token, POST /api/life/done, vault_task_done added to the write allow-list) and house sensors (`house.py`, `[house] url` on a private network, four read paths, lines on tiles, GET /api/life/house). |
+| 2026-10-03 | 1.13 | App v1.13.0 (new 8.11; 15, 19): Life, the Personal Ledger place (areas by default Home, Animals, Garden, Vehicles, Family, Spirit, Money, Fun, or a private life.toml; tiles, coming up, today, lately; area pages); session reports ledger/vault; palette Life entries; Nexus-only palette entries hidden in Personal. |
 | 2026-10-03 | 1.12 | App v1.12.0 (8.10, 19): vault-mcp (own Go server) replaces headless-obsidian-mcp as the default vault server (reads mapped; kind detected from the command); Log and Task in a workspace without a ledger write to the vault through the staged card (Where: daily note, journal topic, task section), allow-list vault_log / vault_log_note / vault_task_add, `[vault] writes`; old 'ledger CLI is not available' message replaced. |
 | 2026-10-03 | 1.11 | App v1.11.0 (new 7.14; 5.2, 7.7, 14, 15, 19): workspaces. Main = today's folders; others in `workspaces/<slug>/` with their own config, style, tokens and state; one Api and Live per workspace, chosen per request by `X-Ultra-Workspace` / `?ws=`; switch next to the brand, `W`, palette; workspace colour on the top bar; `--workspace` on `ultra auth`; mail sign-in message instead of endless Loading; Today draws around a calendar sign-in error. Live: Work and Personal (the notes vault moves to Personal). |
 | 2026-10-03 | 1.10 | App v1.10.0 (new 8.10; 5.2, 14, 19): Home, the personal notes vault, read only. Local stdio MCP server (headless-obsidian-mcp) started with reads only; five allow-listed read tools; Home line on Today for dated todos (overdue and this week), palette notes search, a note reader with Open in Obsidian; `[vault] exclude` hides folders; a Notes status light. |

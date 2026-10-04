@@ -37,16 +37,16 @@ DOCS: dict[str, Any] = {
 @pytest.mark.parametrize(
     ("url", "ok"),
     [
-        ("http://192.168.1.240:8080", True),
+        ("http://192.168.1.50:8080", True),
         ("http://10.0.0.5", True),
         ("http://100.100.1.2:8080", True),  # tailnet (CGNAT range)
         ("http://core.local:8080/", True),
         ("http://8.8.8.8", False),
         ("https://example.com", False),
         ("http://127.0.0.1:7440", False),  # never Ultra itself
-        ("http://192.168.1.240:8080/api/x", False),
-        ("http://user:pw@192.168.1.240", False),
-        ("ftp://192.168.1.240", False),
+        ("http://192.168.1.50:8080/api/x", False),
+        ("http://user:pw@192.168.1.50", False),
+        ("ftp://192.168.1.50", False),
         ("not a url", False),
     ],
 )
@@ -109,7 +109,7 @@ def test_readings_cache_partial_failure_and_area_map():
             raise OSError("down")
         return DOCS[p]
 
-    h = House("http://192.168.1.240:8080", fetch=fetch, areas={"animals": "flock"})
+    h = House("http://192.168.1.50:8080", fetch=fetch, areas={"animals": "flock"})
     r = h.readings()
     assert r["ok"] is True and "flock" in r["areas"] and "animals" not in r["areas"]
     assert "home" not in r["areas"]  # its only document (status) failed: no line, not a guess
@@ -121,19 +121,19 @@ def test_all_down_says_unreachable_and_public_url_is_refused():
     def down(p: str) -> Any:
         raise OSError("no route")
 
-    r = House("http://192.168.1.240:8080", fetch=down).readings()
+    r = House("http://192.168.1.50:8080", fetch=down).readings()
     assert r["ok"] is False and r["error"] == "sensors unreachable" and r["areas"] == {}
     pub = House("https://example.com", fetch=lambda p: DOCS[p])
     assert pub.enabled is False and pub.readings()["ok"] is False
     with pytest.raises(ValueError):
-        House("http://192.168.1.240")._fetch("/api/cameras/arm")  # only the four read paths
+        House("http://192.168.1.50")._fetch("/api/cameras/arm")  # only the four read paths
 
 
 def test_house_api_off_and_on():
     assert HouseApi(None).r_house({}, None, None) == {"enabled": False}  # type: ignore[arg-type]
-    h = House("http://192.168.1.240:8080", fetch=lambda p: DOCS[p])
+    h = House("http://192.168.1.50:8080", fetch=lambda p: DOCS[p])
     assert HouseApi(h).r_house({}, None, None)["enabled"] is True  # type: ignore[arg-type]
-    cfg = SimpleNamespace(get=lambda s, k, d=None: {"url": "http://192.168.1.240:8080"}.get(k, d))
+    cfg = SimpleNamespace(get=lambda s, k, d=None: {"url": "http://192.168.1.50:8080"}.get(k, d))
     assert House.from_config(cfg) is not None
 
 

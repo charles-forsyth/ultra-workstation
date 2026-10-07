@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ultra AI Workstation Desktop - local email, calendar and ledger</title>
+    <meta name="description" content="Ultra is a local web workstation for email, calendar, Slack and a work ledger in one window. Read, triage, draft with AI, approve twice, send, then log the conversation in the ledger.">
+    <meta name="theme-color" content="#0a110d">
+    <link rel="canonical" href="https://charles-forsyth.github.io/ultra-workstation/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Ultra AI Workstation Desktop">
+    <meta property="og:description" content="A local web workstation for email, calendar, Slack and a work ledger in one window, with AI drafting, double-approved sending and drag-to-log.">
+    <meta property="og:url" content="https://charles-forsyth.github.io/ultra-workstation/">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <link rel="stylesheet" href="site.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-left">
+          <a class="brand" href="https://charles-forsyth.github.io/">Charles Forsyth</a>
+          <span class="crumb">Projects</span>
+        </div>
+        <span class="topbar-project">ultra-workstation</span>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-grid">
+          <div>
+            <p class="kicker">Local web workstation &middot; v1.14.1</p>
+            <h1 id="page-title">Ultra AI Workstation Desktop</h1>
+            <p class="tagline">Email, calendar, Slack and a work ledger in one window.</p>
+            <p class="pitch">Read, triage, ask, draft with AI, revise, <strong>approve twice</strong>, send, then log and link the conversation in the ledger.</p>
+            <p class="pitch">It runs on your own machine, listens on 127.0.0.1 by default, and keeps config and tokens outside the repo. Since v1.11 it can also hold a second, personal workspace built around your notes vault.</p>
+            <ul class="meta-row" aria-label="Project facts">
+              <li>Python 3.12+</li>
+              <li>stdlib HTTP server</li>
+              <li>vanilla JS, no build step</li>
+              <li>MIT</li>
+            </ul>
+            <div class="cta-buttons">
+              <a class="btn btn-primary" href="https://github.com/charles-forsyth/ultra-workstation"><i class="fa-brands fa-github" aria-hidden="true"></i> View on GitHub</a>
+              <a class="btn btn-secondary" href="https://github.com/charles-forsyth/ultra-workstation/releases/tag/v1.14.1"><i class="fa-solid fa-tag" aria-hidden="true"></i> Release v1.14.1</a>
+              <a class="btn btn-ghost" href="#quick-start"><i class="fa-solid fa-play" aria-hidden="true"></i> Get started</a>
+            </div>
+          </div>
+
+          <figure class="mock-figure">
+            <div class="mock" role="img" aria-label="Illustrative layout of the Ultra calm layout: top bar with Inbox, Today and Ledger, a stream list, an open conversation with a draft awaiting approval, and a context rail with a bucket. Placeholder content only.">
+              <div class="mock-top">
+                <span class="mock-logo">ultra</span>
+                <span class="mock-tab on">Inbox</span>
+                <span class="mock-tab">Today</span>
+                <span class="mock-tab">Ledger</span>
+                <span class="mock-search">Ctrl+K</span>
+                <span class="mock-status"></span>
+              </div>
+              <div class="mock-body">
+                <div class="mock-list">
+                  <div class="mock-filters"><span class="on">Mine</span><span>Waiting</span><span>Tasks</span><span>All</span></div>
+                  <div class="mock-row sel"><b>Project update</b><span>Email &middot; your move</span></div>
+                  <div class="mock-row"><b>Weekly sync</b><span>Calendar &middot; 10:00</span></div>
+                  <div class="mock-row"><b>Ticket reply</b><span>Ticket mail &middot; assigned</span></div>
+                  <div class="mock-row"><b>Quick question</b><span>Slack &middot; waiting</span></div>
+                  <div class="mock-row"><b>Follow up on notes</b><span>Ledger task &middot; open</span></div>
+                </div>
+                <div class="mock-read">
+                  <span class="subj">Project update</span>
+                  <div class="bar w90"></div>
+                  <div class="bar w75"></div>
+                  <div class="bar w60"></div>
+                  <div class="bar w40"></div>
+                  <div class="mock-draft"><b>Draft v2</b> - AI output is only ever a draft.</div>
+                  <div class="mock-actions"><span>Reply all</span><span>Archive</span><span>AI</span><span class="go">Approve 1 of 2</span></div>
+                </div>
+                <div class="mock-rail">
+                  <span class="lbl">On this thread</span>
+                  <span class="chip">Person A</span>
+                  <span class="chip">Person B</span>
+                  <span class="chip">Lab record</span>
+                  <div class="bucket">Bucket: Log / Task</div>
+                </div>
+              </div>
+            </div>
+            <figcaption class="mock-caption">CSS illustration of the calm layout, placeholder text only. Not a screenshot.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="features-title">
+        <div class="container">
+          <p class="section-label">What it does</p>
+          <h2 id="features-title">One stream, sorted by whose move it is</h2>
+          <p class="section-lead">Email, ServiceNow ticket mail, Slack conversations and open ledger tasks land in one Desk stream, sorted by rules (not AI) into Mine, Waiting, Tasks and All. Every view has a key.</p>
+          <div class="card-grid">
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-inbox" aria-hidden="true"></i></div>
+              <h3>Desk</h3>
+              <p>One stream of email, ticket mail, Slack and open ledger tasks. A context rail shows everyone on the conversation from the ledger.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-table-columns" aria-hidden="true"></i></div>
+              <h3>Board <span class="key">o</span></h3>
+              <p>My court, Waiting on (grouped by person, with Nudge), Watching (park an item until a date) and Done today.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-regular fa-calendar" aria-hidden="true"></i></div>
+              <h3>Today <span class="key">g</span></h3>
+              <p>Your calendar: drag an item onto a time to block it, meeting prep, find a time, RSVP. Ultra only changes blocks it created.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-sun" aria-hidden="true"></i></div>
+              <h3>Day <span class="key">d</span></h3>
+              <p>A morning check-in plan and an end-of-day report built from what you did.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-book" aria-hidden="true"></i></div>
+              <h3>Ledger and Graph <span class="key">n</span> <span class="key">v</span></h3>
+              <p>Search people, labs, projects and tasks with reviewed writes. The Graph shows your ledger neighborhood and their links.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-fill-drip" aria-hidden="true"></i></div>
+              <h3>The bucket</h3>
+              <p>Drag a conversation, person, lab or snippet into the bucket, then Log or Task. Commit runs the ledger CLI and reads the record back.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-comments" aria-hidden="true"></i></div>
+              <h3>Ask Hermes <span class="key">h</span></h3>
+              <p>Ask your Hermes agent about what is on screen. It runs read-only; answers become a reply draft, log card, task card or bucket snippet.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-broom" aria-hidden="true"></i></div>
+              <h3>Tidy the inbox</h3>
+              <p>Previews a bulk archive with a reason on every row. It only removes the Inbox label, never deletes, and one Undo puts it all back.</p>
+            </article>
+          </div>
+          <p class="note">Also included: research search and launch through the <code>deep-research</code> CLI (a new run only starts from the launcher after an estimate), read aloud in the browser voice, and optional AI audio summaries.</p>
+        </div>
+      </section>
+
+      <section class="section section-light" id="workspaces" aria-labelledby="workspaces-title">
+        <div class="container">
+          <p class="section-label">Workspaces (v1.11+)</p>
+          <h2 id="workspaces-title">Work and Personal, kept apart</h2>
+          <p class="section-lead">One Ultra can hold several workspaces, each with its own mail, calendar, ledger, history and sign-ins. Switch with the workspace button or <code>W</code>. A workspace with the ledger turned off never reads the ledger, so work tasks cannot show up in the personal one.</p>
+          <div class="card-grid">
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-leaf" aria-hidden="true"></i></div>
+              <h3>Life</h3>
+              <p>Takes the Ledger's place in a workspace without a ledger: one tile per area of life, each with what is overdue, coming up and the next dated to-do.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-regular fa-square-check" aria-hidden="true"></i></div>
+              <h3>Done in one click</h3>
+              <p>Ticking a to-do updates the note with today's date as one git commit. If the note changed since the page loaded, it refuses and asks you to reload.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></div>
+              <h3>Log and Task to notes</h3>
+              <p>Writes go to the vault through the same review card. Nothing is overwritten; each write is one git commit.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-temperature-half" aria-hidden="true"></i></div>
+              <h3>House sensors (optional)</h3>
+              <p>With a small sensor dashboard on your local network, Life tiles show readings. Read only, private addresses only.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="how-it-works" aria-labelledby="how-title">
+        <div class="container">
+          <p class="section-label">How it works</p>
+          <h2 id="how-title">One Python process, static page, JSON calls</h2>
+          <p class="section-lead">The CLIs and APIs are the source of truth; the app is a view plus a staging area. Every write is a call to Gmail, Calendar, Slack (via Claude Code) or the ledger CLI, and every write is read back to confirm it landed.</p>
+          <div class="arch" role="group" aria-label="Architecture diagram">
+            <div class="arch-col">
+              <div class="arch-box hub">
+                <h3>Browser</h3>
+                <p>Vanilla JS modules, no build step. Talks JSON over HTTP; every write carries a per-start CSRF token.</p>
+              </div>
+            </div>
+            <div class="arch-arrow"><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i></div>
+            <div class="arch-col">
+              <div class="arch-box hub">
+                <h3>ultra server</h3>
+                <ul>
+                  <li>stdlib ThreadingHTTPServer + guard</li>
+                  <li>Desk, Board, Today, Day, Ledger tab</li>
+                  <li>Draft Studio and double approval</li>
+                  <li>Rules engine: court, tickets, noise (no AI)</li>
+                  <li>SQLite state store with a write journal</li>
+                </ul>
+              </div>
+            </div>
+            <div class="arch-arrow"><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i></div>
+            <div class="arch-col">
+              <div class="arch-box">
+                <h3>Google</h3>
+                <p>Gmail and Calendar APIs, one token per capability.</p>
+              </div>
+              <div class="arch-box">
+                <h3>Local CLIs</h3>
+                <p><code>nexus</code> (ledger), <code>claude</code> (Slack), <code>hermes</code>, <code>deep-research</code>.</p>
+              </div>
+              <div class="arch-box">
+                <h3>Optional</h3>
+                <p>Gemini (on demand), notes vault MCP server, hosted MCP servers.</p>
+              </div>
+            </div>
+          </div>
+          <p class="arch-caption">Long calls (Slack refresh, Ask, audio, ledger commits) run in threads and return a job id the page polls. Each optional tool is checked by <code>ultra doctor</code>; a missing one hides its feature and nothing else breaks. Demo mode registers the same routes over synthetic data and never touches a real account.</p>
+        </div>
+      </section>
+
+      <section class="section section-light" id="safety" aria-labelledby="safety-title">
+        <div class="container">
+          <p class="section-label">Safety</p>
+          <h2 id="safety-title">Nothing is sent without two clicks on two screens</h2>
+          <ol class="steps">
+            <li><strong>Draft</strong>AI output, including Ask Hermes answers and Board nudges, only ever becomes a new draft version.</li>
+            <li><strong>Approve (1 of 2)</strong>Locks the exact text. Any later edit sends it back to Draft.</li>
+            <li><strong>Review and send (2 of 2)</strong>Shows the final message, recipients and warnings.</li>
+            <li><strong>Short delay</strong>Sends after a delay you can cancel. Slack posts are read back and compared.</li>
+          </ol>
+          <ul class="principles">
+            <li><strong>Server-side checks</strong>The server refuses to send if the approval token is unknown, used or expired, or if the stored message no longer matches what you approved.</li>
+            <li><strong>Least privilege per action</strong>Four separate Google tokens (read, modify, send, calendar), each granted or revoked on its own.</li>
+            <li><strong>Archive, never delete</strong>The app has no trash, delete or mark-as-read action. Archive has Undo.</li>
+            <li><strong>No background AI</strong>Models run only when a button is pressed. Model output can only fill cards; it has no path to an action.</li>
+            <li><strong>Loopback by default</strong>Listens on 127.0.0.1 only (port 7440). Remote mode admits only your local network and your own Tailscale devices; everything else is refused.</li>
+            <li><strong>Untrusted content as text</strong>Email HTML is converted to text, so no remote image or tracking pixel loads. Strict Content-Security-Policy.</li>
+            <li><strong>Allow-listed ledger writes</strong>The ledger adapter runs only allow-listed commands, passes entities as full UUIDs and sends text on stdin.</li>
+            <li><strong>Safe to publish</strong>No credentials or personal data in the repo. CI runs a secrets scan; tests use synthetic fixtures only.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="quick-start" aria-labelledby="qs-title">
+        <div class="container">
+          <p class="section-label">Quick start</p>
+          <h2 id="qs-title">Install and run</h2>
+          <p class="section-lead">Installs as a <code>uv</code> tool. Try it first with <code>--demo</code>: synthetic data, nothing real is read or sent.</p>
+          <div class="qs-grid">
+            <div>
+              <div class="code-block">
+                <p class="code-label">Install and first run</p>
+                <button class="copy-btn" type="button" data-target="code-install" aria-label="Copy install commands">Copy</button>
+                <pre><code id="code-install">uv tool install "git+https://github.com/charles-forsyth/ultra-workstation.git[google]"
+ultra config init        <span class="c"># writes config.toml and style.toml (never overwrites)</span>
+ultra doctor             <span class="c"># checks setup without printing secrets</span>
+ultra start --demo       <span class="c"># synthetic data, nothing real is read or sent</span>
+ultra start              <span class="c"># your own accounts</span>
+ultra open</code></pre>
+              </div>
+              <p class="note">Pin a release with <code>...ultra-workstation.git@vX.Y.Z[google]</code>. To upgrade, run the install again with <code>--force</code>, then <code>ultra restart</code>.</p>
+            </div>
+            <div>
+              <div class="code-block">
+                <p class="code-label">Google access: one token per capability</p>
+                <button class="copy-btn" type="button" data-target="code-auth" aria-label="Copy Google auth commands">Copy</button>
+                <pre><code id="code-auth">ultra auth google --capability read
+ultra auth google --capability modify
+ultra auth google --capability send
+ultra auth google --capability calendar</code></pre>
+              </div>
+              <div class="code-block">
+                <p class="code-label">Phone and other devices</p>
+                <button class="copy-btn" type="button" data-target="code-remote" aria-label="Copy remote access commands">Copy</button>
+                <pre><code id="code-remote">ultra restart --host 0.0.0.0
+ultra remote              <span class="c"># prints the addresses to open on the device</span></code></pre>
+              </div>
+            </div>
+          </div>
+
+          <h3>Optional tools</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th scope="col">Feature</th><th scope="col">Needs</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>AI summary, drafting, web search, audio</td><td><code>GEMINI_API_KEY</code> in the config folder's <code>.env</code></td></tr>
+                <tr><td>Slack read and reply</td><td>Claude Code with a Slack connector (<code>claude</code> on PATH)</td></tr>
+                <tr><td>Ledger, link chips, tasks</td><td>the <code>nexus</code> CLI (<code>nexus serve</code> makes it fast)</td></tr>
+                <tr><td>Notes vault (Home, Life)</td><td>a local MCP server over your Obsidian vault</td></tr>
+                <tr><td>Ask Hermes</td><td>the <code>hermes</code> CLI</td></tr>
+                <tr><td>Research</td><td>the <code>deep-research</code> CLI</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-light" id="links" aria-labelledby="links-title">
+        <div class="container">
+          <p class="section-label">Links</p>
+          <h2 id="links-title">Read more</h2>
+          <div class="link-grid">
+            <a href="https://github.com/charles-forsyth/ultra-workstation/blob/main/README.md"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> README</a>
+            <a href="https://github.com/charles-forsyth/ultra-workstation/blob/main/SPEC.md"><i class="fa-solid fa-sitemap" aria-hidden="true"></i> Specification</a>
+            <a href="https://github.com/charles-forsyth/ultra-workstation/blob/main/SPEC.md#21-change-log"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Change log</a>
+            <a href="https://github.com/charles-forsyth/ultra-workstation/blob/main/src/ultra/config.example.toml"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Example config</a>
+            <a href="https://github.com/charles-forsyth/ultra-workstation/releases"><i class="fa-solid fa-tags" aria-hidden="true"></i> Releases</a>
+            <a href="https://github.com/charles-forsyth/ultra-workstation/issues"><i class="fa-solid fa-circle-dot" aria-hidden="true"></i> Issues</a>
+            <a href="https://github.com/charles-forsyth/ultra-workstation/blob/main/LICENSE"><i class="fa-solid fa-scale-balanced" aria-hidden="true"></i> MIT License</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Built by <a href="https://charles-forsyth.github.io/">Charles Forsyth</a>, UC Riverside.</p>
+      <p>Released under the <a href="https://github.com/charles-forsyth/ultra-workstation/blob/main/LICENSE">MIT License</a>.</p>
+    </footer>
+
+    <script src="site.js" defer></script>
+  </body>
+</html>

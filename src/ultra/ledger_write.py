@@ -39,6 +39,21 @@ WRITE_COMMANDS = {("log",), ("tasks", "add"), ("tasks", "update"), ("link",), ("
 # with a server-issued, double-confirmed, single-use token (see desk.PersonAdd).
 PEOPLE_ADD = ("people", "add")
 MAX_TEXT = 20000
+# v1.15: `[ledger] new_tasks = false` makes ledger tasks archive-only in a workspace:
+# nothing in Ultra may add one (reads, status changes and due dates still work).
+TASKS_OFF_NOTE = "New ledger tasks are off in this workspace; existing tasks are archive-only."
+
+
+def new_tasks_on(cfg: Config) -> bool:
+    """False when this workspace's ledger takes no new tasks ([ledger] new_tasks)."""
+    return bool(cfg.get("ledger", "new_tasks", True))
+
+
+def tasks_off_note(cfg: Config) -> str:
+    """The plain reason shown when a new task is refused ([ledger] tasks_note)."""
+    note = " ".join(str(cfg.get("ledger", "tasks_note", "") or "").split())[:200]
+    return note or TASKS_OFF_NOTE
+
 
 NETID_RE = re.compile(r"^[a-z][a-z0-9]{1,15}$")
 NAME_RE = re.compile(r"^[A-Z][A-Za-z'.-]*( [A-Za-z][A-Za-z'.-]*){1,4}$")
@@ -124,6 +139,10 @@ class LedgerWriter:
         self.last_via = ""
         self.lock = threading.Lock()  # one write at a time: keeps ordering obvious
         self.serve = ServeClient(cfg)
+        # v1.15: archive-only ledger tasks; checked here so no path (MCP or the CLI
+        # fallback) can add one, whatever the page or a stale card sends
+        self.new_tasks = new_tasks_on(cfg)
+        self.tasks_note = tasks_off_note(cfg)
 
     def _env(self) -> dict[str, str]:
         env = dict(os.environ)
@@ -142,6 +161,8 @@ class LedgerWriter:
             raise WriteError("people add is only allowed through the Add to ledger button")
         if key != PEOPLE_ADD and key not in WRITE_COMMANDS and key[:1] not in WRITE_COMMANDS:
             raise WriteError(f"not an allowed write command: {' '.join(args[:2])}")
+        if key == ("tasks", "add") and not self.new_tasks:
+            raise WriteError(self.tasks_note)  # v1.15: never reaches MCP or the CLI
         if not self.enabled:
             raise WriteError("ledger CLI not found")
         with self.lock:
@@ -225,6 +246,8 @@ class LedgerWriter:
 
     # ---------------------------------------------------------------- tasks
     def task_add(self, summary: str, priority: str, due: str = "") -> dict[str, Any]:
+        if not self.new_tasks:
+            raise WriteError(self.tasks_note)
         # The ledger prints the summary through Rich markup; a "[/x]" sequence makes
         # that print raise and the whole add rolls back. Square brackets become
         # parentheses so a task can never fail that way.

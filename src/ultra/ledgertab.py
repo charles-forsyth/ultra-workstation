@@ -37,7 +37,7 @@ from typing import Any, ClassVar
 from ultra import ledger_mcp_write
 from ultra.ledger import Ledger, LedgerError
 from ultra.ledger_serve import ServeError, ServeUnavailable
-from ultra.ledger_write import ANSI, UUID, WriteError, check_due
+from ultra.ledger_write import ANSI, UUID, WriteError, check_due, new_tasks_on, tasks_off_note
 
 TOKEN_TTL = 300
 
@@ -583,6 +583,9 @@ class LedgerTabWriter:
         check: dict[str, Any] = {}
 
         if a == "task_add":
+            cfg = getattr(self.ledger, "cfg", None)
+            if cfg is not None and not new_tasks_on(cfg):  # v1.15: archive-only tasks
+                raise WriteError(tasks_off_note(cfg))
             summary = _short(b.get("summary"), "task text", 1000)
             if not summary:
                 raise WriteError("task text is empty")

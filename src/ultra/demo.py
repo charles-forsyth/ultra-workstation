@@ -2215,6 +2215,11 @@ def _register_desk(api: Api) -> None:
     store = Store(Path(tempfile.mkdtemp(prefix="ultra-demo-desk-")) / "desk.db")
     ledger = DemoLedger()
     writer = DemoWriter(ledger)
+    # v1.15: the demo honours [ledger] new_tasks like the live writer does
+    from ultra.ledger_write import new_tasks_on, tasks_off_note
+
+    writer.new_tasks = new_tasks_on(api.cfg)  # type: ignore[attr-defined]
+    writer.tasks_note = tasks_off_note(api.cfg)  # type: ignore[attr-defined]
     api.demo_writer = writer  # type: ignore[attr-defined]
 
     def thread_fn(key: str) -> dict[str, Any]:

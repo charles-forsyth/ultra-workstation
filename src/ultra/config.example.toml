@@ -44,6 +44,10 @@ enabled = true
 binary = "nexus"
 my_id = ""                         # your own ledger id (e.g. NetID); left off link chips
 tasks_in_stream = true             # show open ledger tasks in the stream (Tasks filter)
+new_tasks = true                   # v1.15: false = ledger tasks are archive-only here: Task
+#                                    is hidden (key t, buttons, menus, palette) and the
+#                                    server refuses new ones; reads, status and due stay
+# tasks_note = "Tasks now live in the team tracker; ledger tasks are archive-only."
 org_email_domain = "example.org"
 netid_from_local_part = true
 max_parallel = 3

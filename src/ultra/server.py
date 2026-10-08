@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from ultra import __version__, guard
 from ultra.config import Config
+from ultra.ledger_write import new_tasks_on, tasks_off_note
 from ultra.remote import PeerPolicy, policy_from_config
 
 MAX_BODY = 25 * 1024 * 1024  # attachments ride in JSON as base64 later
@@ -143,6 +144,10 @@ class Api:
             # v1.13: the Ledger place shows Nexus when there is a ledger, else Life (the vault)
             "ledger": bool(self.live and self.live.ledger.enabled) or self.demo,
             "vault": bool(self.live and self.live.vault.enabled),
+            # v1.15: false where this workspace's ledger tasks are archive-only (the
+            # page hides Task); a workspace whose Task goes to the vault keeps it
+            "new_tasks": not self.live.desk.tasks_off() if self.live else new_tasks_on(self.cfg),
+            "tasks_note": tasks_off_note(self.cfg),
             "addresses": sorted(self.cfg.my_addresses)[:4],
         }
 

@@ -1,9 +1,9 @@
 # Ultra AI Workstation Desktop: Specification
 
-Status: v1.15 of the spec; app at v1.14.1 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, the personal notes vault with reads and append-only writes through vault-mcp, workspaces (Work / Personal), Life with house sensors and tick-done, and the personal Day view; see the delivery plan in section 19)
+Status: v1.16 of the spec; app at v1.15.0 (mail, calendar, Slack, Day, Draft Studio, ledger desk writes, the Ledger tab with reviewed writes, Ask Hermes with answers into cards, the Board, keyboard help, the v1.0 docs, ledger reads and writes through the hosted ledger MCP server, the calm layout driven by one action table, cluster facts in support mail, Ask Hermes that can look things up, the personal notes vault with reads and append-only writes through vault-mcp, workspaces (Work / Personal), Life with house sensors and tick-done, the personal Day view, and archive-only ledger tasks per workspace; see the delivery plan in section 19)
 Repo: ultra-workstation (public on GitHub, installed as a uv tool)
 CLI: `ultra` (name decided, Q1)
-Last updated: 2026-10-03
+Last updated: 2026-10-07
 
 This document is public. It must never contain real names, email addresses, NetIDs,
 Slack IDs, billing or project IDs, ticket numbers, or anything else specific to one
@@ -447,6 +447,36 @@ them into one ledger write.
   and read back from the ledger before success is shown. Stream rows carry
   OVERDUE / DUE TODAY / DUE SOON badges and overdue sorts above its priority band.
 
+#### 7.2.3 Archive-only ledger tasks (v1.15)
+
+A workspace can stop taking new ledger tasks while keeping the old ones readable:
+`[ledger] new_tasks = false` (default `true`), with an optional `[ledger] tasks_note`
+(the plain reason shown when a new task is refused, at most 200 characters). Use it when
+tasks have moved to another tracker and the ledger's tasks are a historical archive.
+
+- **The page.** `/api/session` reports `new_tasks` and `tasks_note`. With `new_tasks`
+  false the Task action is hidden everywhere: the thread toolbar button (so the calm
+  "..." menu and the palette, which are built from the real buttons, drop it too), the
+  stream row button and row menu, the bucket's Task button and "Task from the bucket" in
+  the palette, Ask Hermes's "Task from it", the Board's Wait (which made a follow-up
+  task), the Ledger tab's "+ New > Task", the `t` key and its line in the keyboard help.
+  Pressing `t` shows the note instead. The stage helpers refuse a task card with the
+  note as well, so a leftover handler cannot open one.
+- **The server.** Every path that could add one refuses with HTTP 403 and the note:
+  `/api/ledger/stage` and `/api/ledger/stage-answer` with `action = task`,
+  `/api/ledger/commit` for a task card staged before the switch (the card is released,
+  nothing runs), `/api/lt/write/review` for `task_add`, and `LedgerWriter` itself
+  (`task_add` and any `tasks add` argv), checked before the hosted MCP server and before
+  the CLI fallback, so a refused or missing MCP tool can never fall through to the CLI.
+- **What stays.** Reading and listing tasks (stream Tasks filter, the task view, the Day
+  plan, the Ledger tab's task board, Full context), status changes (Complete, Start,
+  Blocked, Reopen, drag on the task board), due-date changes, task logs, links and
+  deletes. Where tasks are archive-only, the Work Day's task lists are headed "Nexus
+  tasks (archive): ..." and the Ledger tab's tab reads "Tasks (archive)".
+- **Personal is untouched.** A workspace whose Task goes to the notes vault (no ledger,
+  vault writes on, 8.10) never applies the switch: `Desk.tasks_off()` is false there and
+  `new_tasks` in its session stays true.
+
 ### 7.3 Board (court view, v0.15)
 
 A view (top-bar Board, key `o`, palette) of the same merged stream the Desk shows, as
@@ -622,7 +652,7 @@ one.
 | s | AI summary (item) | R | refresh mail and Slack |
 | h | Ask Hermes (item) | ? | keyboard help |
 | e | archive / complete task / Slack done (item) | Ctrl-Enter | Ask (in the Ask box) |
-| b / l / t | bucket / log / task (item; to the vault in Personal, 8.10) | L | switch layout calm / classic (v1.9.1) |
+| b / l / t | bucket / log / task (item; to the vault in Personal, 8.10; `t` is hidden where ledger tasks are archive-only, 7.2.3) | L | switch layout calm / classic (v1.9.1) |
 | W | switch workspace (v1.11, 7.14) | | |
 
 Keys fire only outside text boxes and when no dialog is open. Any key with Ctrl, Alt or
@@ -991,6 +1021,9 @@ sets the default for browsers that have not chosen.
   threads show Reply and Mark done in the same places. The idle Draft Studio strip is
   hidden; AI > Draft reply starts it. Attachment Download, Save and Attach appear on
   hover (always on touch); Preview stays.
+- **Archive-only tasks (v1.15).** Where `[ledger] new_tasks = false`, the Task row is
+  absent from the thread "..." menu, the row menu and the palette (7.2.3); the action
+  table keeps the row because the Personal workspace still uses it.
 - **Task view.** Complete and Log update stay; Start, Blocked, Reopen, Add to bucket,
   Block time and Copy go in "..."; Ask Hermes and Draft email in AI. Priority, due date
   and snooze stay as fields.
@@ -1369,7 +1402,9 @@ Writes (only after a staged card is committed):
 - Task: `nexus tasks add "<text>" --priority <P>`; recover the id by listing
   `tasks list --json` and matching the unique text prefix; then
   `nexus link <task_id> <target> --type REFERENCED_IN` per target and
-  `--type ASSIGNED_TO <me>`. Task commands need the full UUID.
+  `--type ASSIGNED_TO <me>`. Task commands need the full UUID. With `[ledger]
+  new_tasks = false` (7.2.3, v1.15) `tasks add` is refused in `LedgerWriter._run` before
+  MCP or the CLI.
 - Link: `nexus link <source> <target> --type <TYPE> [--role <text>]`. Unlink is staged
   and asks for confirmation (the CLI prompts, so the adapter pipes the confirmation
   only after the operator has confirmed in the UI).
@@ -2343,6 +2378,9 @@ Shipped as `config.example.toml` with placeholders; the real file lives only in
     org_email_domain = "example.org"
     netid_from_local_part = true
     max_parallel = 3
+    new_tasks = true                      # v1.15 (7.2.3): false = ledger tasks are
+                                          # archive-only here; Task hidden, adds refused
+    # tasks_note = "Tasks now live in the team tracker; ledger tasks are archive-only."
 
     [slack]
     enabled = true
@@ -2769,6 +2807,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 | v1.13 Life (shipped 1.13.0) | Section 8.11: Personal's Ledger place is Life, the operator's areas from the vault (tiles, coming up, today, lately, area pages); companion vault-mcp 0.1.1 (recent notes by the date in the name) |
 | v1.14 Life: sensors and tick done (shipped 1.14.0) | Section 8.11.5-8.11.6: house sensor lines on tiles; tick a task done from Life with a one-time token |
 | v1.14.1 Personal Day (shipped 1.14.1) | Sections 8.11.7, 7.14: the Day view in Personal is built from the notes; a ledger that is off never reads (fixes work tasks showing in Personal) |
+| v1.15 Archive-only ledger tasks (shipped 1.15.0) | Section 7.2.3: `[ledger] new_tasks = false` hides Task in that workspace (buttons, menus, palette, key `t`, help, Board Wait, Ask "Task from it", Ledger tab + New) and every server path refuses a new ledger task (stage, stage-answer, commit, Ledger tab review, the writer before MCP and the CLI); reads, status and due dates stay; Personal's vault Task untouched |
 | Next: W3 Drive | Google Drive in both workspaces: browse, open, insert a link, attach to a draft, save a draft attachment or note to Drive. Open question W-3 (edit scope) |
 | v1.x | Parked by the operator (2026-10-01, "some other time"): Slack Web API backend (S-1; needs a Slack app in the workspace, not Claude Code's connector token, which lives on Anthropic's servers) and full-context Slack drafting. Slack read and send stay on Claude Code's connector. Unbuilt plan items listed in 7.1, 7.8, 7.9, 8.1, 8.5, 11.4 and 12.4 are candidates, none scheduled. |
 
@@ -2800,6 +2839,7 @@ The journal is read in the Day view (end-of-day report, `.csv` export); there is
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-07 | 1.16 | App v1.15.0 (new 7.2.3; 7.7, 7.13, 8.4, 13, 19): archive-only ledger tasks per workspace (operator decision: tasks moved to the team tracker, the ledger's tasks are a read-only archive). `[ledger] new_tasks = false` and `tasks_note`; `/api/session` reports `new_tasks`/`tasks_note`; the page hides every Task entry point and the `t` key; the server refuses new tasks with 403 on stage, stage-answer, commit of an older card and the Ledger tab's `task_add`, and `LedgerWriter` refuses `tasks add` before MCP or the CLI fallback. Work Day task lists and the Ledger tab label the archive. Personal's vault Task is unchanged. |
 | 2026-10-03 | 1.15 | Docs only (app still v1.14.1), audited against the code. 7.14 rewritten in full (folders, slug rule, switching, routing and `WS.url`, what never crosses, sources a workspace lacks, per-workspace OAuth client, live Work/Personal table); 8.10 rewritten (server comparison table, vault-mcp's own guards, Ultra's read and write allow-lists, journal rows for vault writes, Where table for Log and Task); 8.11 split into 8.11.1-8.11.8 (area fields, task filing rules, home layout, area page, tick-done token lifecycle, sensor reads, allowed URLs and the line/level table, personal Day); 5 adds Home, Life, vault, house and MCP adapters and workspace folders; 6 per-workspace stores, vault journal actions, in-memory tokens; 7.4 personal Day and Home line; 7.7 adds `L` and `W`; 12 outbound calls, per-workspace credentials, vault data at rest, escaping, private Life and sensor config; 13 adds `[workspace]`, `[ledger] enabled`, `[vault]`, `[house]` and `life.toml`; 16 vault, Life and workspace errors; 17 vault and Life timings; 18 throwaway-copy browser runs and vault-mcp end-to-end tests; 19 reordered with v1.14.1 and W3; 20 adds W-1 (Google publishing), W-2, W-3 (Drive scope), V-1; change log reordered newest first. |
 | 2026-10-03 | 1.14 | App v1.14.1 (8.11): Personal's Day view from the notes (to-dos, today's log, Save to notes); a ledger that is off never reads; vault writes journalled. |
 | 2026-10-03 | 1.14 | App v1.14.0 (8.11, 14, 15, 19): Life tick-done (one-time token, POST /api/life/done, vault_task_done added to the write allow-list) and house sensors (`house.py`, `[house] url` on a private network, four read paths, lines on tiles, GET /api/life/house). |

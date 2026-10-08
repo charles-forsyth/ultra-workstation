@@ -2,7 +2,7 @@
 // Every ledger write goes: stage -> operator edits -> Commit click -> server runs the
 // CLI -> read-back -> chips turn green or red. Nothing here writes on its own.
 
-import { api, esc, toast, busy, copyText, localDay } from "./app.js";
+import { api, esc, toast, busy, copyText, localDay, newTasksOn, tasksOffNote } from "./app.js";
 import { setComposerContext } from "./compose.js";
 import { renderMd } from "./tools.js";
 
@@ -627,6 +627,7 @@ export async function stage(action, key = null, sent = false) {
     window.dispatchEvent(new CustomEvent("ultra:block", { detail: conv ? { key: conv.key, subject: conv.subject || "" } : { subject: R.bucket[0]?.subject || "follow-up" } }));
     return;
   }
+  if (action === "task" && !newTasksOn()) { toast(tasksOffNote(), "err"); return; }  // v1.15
   const dlg = $("#ledger-card");
   dlg.hidden = false;
   dlg.innerHTML = `<div class="lc-card"><div class="dim">Building the ${action === "log" ? "log entry" : "task"}: resolving people, labs and projects...</div></div>`;
@@ -651,6 +652,7 @@ window.addEventListener("ultra:stage-text", async (ev) => {
 // the chips; the answer is the text. Same review-then-commit card as every other.
 window.addEventListener("ultra:stage-answer", async (ev) => {
   const d = ev.detail || {};
+  if (d.action === "task" && !newTasksOn()) { toast(tasksOffNote(), "err"); return; }  // v1.15
   const dlg = $("#ledger-card");
   dlg.hidden = false;
   dlg.innerHTML = `<div class="lc-card"><div class="dim">Building the ${d.action === "task" ? "task" : "log entry"} from the answer: resolving people...</div></div>`;

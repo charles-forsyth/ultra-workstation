@@ -2,7 +2,7 @@
 // Read-only: the server runs Hermes with read tools only, and only when Ask is pressed.
 // Answers are text; acting on one goes through Ultra's normal cards and approvals.
 
-import { api, esc, toast, busy, copyText } from "./app.js";
+import { api, esc, toast, busy, copyText, newTasksOn } from "./app.js";
 import { renderMd } from "./tools.js";
 import { applyHermesDraft } from "./compose.js";
 
@@ -135,7 +135,7 @@ function actsHtml(i) {
     ? `<button class="btn tiny" data-ta="reply" data-i="${i}" title="Put this answer in the ${rk.startsWith("s-") ? "Slack reply" : "reply-all"} draft as a new version. Edit it there; it still needs both approvals.">Use as ${rk.startsWith("s-") ? "Slack reply" : "reply"}</button>`
     : "";
   return `${reply}<button class="btn tiny" data-ta="log" data-i="${i}" title="Open a ledger log card with this answer as the text (you review and commit it)">Log it</button>
-    <button class="btn tiny" data-ta="task" data-i="${i}" title="Open a ledger task card from the answer's first line (you review and commit it)">Task from it</button>
+    ${newTasksOn() ? `<button class="btn tiny" data-ta="task" data-i="${i}" title="Open a ledger task card from the answer's first line (you review and commit it)">Task from it</button>` : ""}
     <button class="btn tiny" data-ta="bucket" data-i="${i}" title="Add the answer to the bucket as a snippet">+ Bucket</button>`;
 }
 

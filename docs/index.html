@@ -31,7 +31,7 @@
       <section class="hero" aria-labelledby="page-title">
         <div class="hero-grid">
           <div>
-            <p class="kicker">Local web workstation &middot; v1.14.1</p>
+            <p class="kicker">Local web workstation &middot; v1.15.0</p>
             <h1 id="page-title">Ultra AI Workstation Desktop</h1>
             <p class="tagline">Email, calendar, Slack and a work ledger in one window.</p>
             <p class="pitch">Read, triage, ask, draft with AI, revise, <strong>approve twice</strong>, send, then log and link the conversation in the ledger.</p>
@@ -44,7 +44,7 @@
             </ul>
             <div class="cta-buttons">
               <a class="btn btn-primary" href="https://github.com/charles-forsyth/ultra-workstation"><i class="fa-brands fa-github" aria-hidden="true"></i> View on GitHub</a>
-              <a class="btn btn-secondary" href="https://github.com/charles-forsyth/ultra-workstation/releases/tag/v1.14.1"><i class="fa-solid fa-tag" aria-hidden="true"></i> Release v1.14.1</a>
+              <a class="btn btn-secondary" href="https://github.com/charles-forsyth/ultra-workstation/releases/latest"><i class="fa-solid fa-tag" aria-hidden="true"></i> Release v1.15.0</a>
               <a class="btn btn-ghost" href="#quick-start"><i class="fa-solid fa-play" aria-hidden="true"></i> Get started</a>
             </div>
           </div>
@@ -115,7 +115,7 @@
             <article class="card">
               <div class="card-icon"><i class="fa-solid fa-sun" aria-hidden="true"></i></div>
               <h3>Day <span class="key">d</span></h3>
-              <p>A morning check-in plan and an end-of-day report built from what you did.</p>
+              <p>A morning check-in plan and an end-of-day report built from what you did. In a personal workspace both are built from your notes.</p>
             </article>
             <article class="card">
               <div class="card-icon"><i class="fa-solid fa-book" aria-hidden="true"></i></div>
@@ -125,7 +125,7 @@
             <article class="card">
               <div class="card-icon"><i class="fa-solid fa-fill-drip" aria-hidden="true"></i></div>
               <h3>The bucket</h3>
-              <p>Drag a conversation, person, lab or snippet into the bucket, then Log or Task. Commit runs the ledger CLI and reads the record back.</p>
+              <p>Drag a conversation, person, lab or snippet into the bucket, then Log or Task (Task is hidden where ledger tasks are archive-only). Commit runs the ledger CLI and reads the record back.</p>
             </article>
             <article class="card">
               <div class="card-icon"><i class="fa-solid fa-comments" aria-hidden="true"></i></div>
@@ -162,6 +162,11 @@
               <div class="card-icon"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></div>
               <h3>Log and Task to notes</h3>
               <p>Writes go to the vault through the same review card. Nothing is overwritten; each write is one git commit.</p>
+            </article>
+            <article class="card">
+              <div class="card-icon"><i class="fa-solid fa-box-archive" aria-hidden="true"></i></div>
+              <h3>Archive-only ledger tasks (v1.15)</h3>
+              <p>If your tasks have moved to another tracker, <code>[ledger] new_tasks = false</code> makes that workspace's ledger tasks archive-only: Task leaves the buttons, menus, palette and the <code>t</code> key, and the server refuses new ones. Old tasks can still be read, completed and re-dated. A personal workspace's Task (to the notes) is not affected.</p>
             </article>
             <article class="card">
               <div class="card-icon"><i class="fa-solid fa-temperature-half" aria-hidden="true"></i></div>
@@ -234,7 +239,7 @@
             <li><strong>No background AI</strong>Models run only when a button is pressed. Model output can only fill cards; it has no path to an action.</li>
             <li><strong>Loopback by default</strong>Listens on 127.0.0.1 only (port 7440). Remote mode admits only your local network and your own Tailscale devices; everything else is refused.</li>
             <li><strong>Untrusted content as text</strong>Email HTML is converted to text, so no remote image or tracking pixel loads. Strict Content-Security-Policy.</li>
-            <li><strong>Allow-listed ledger writes</strong>The ledger adapter runs only allow-listed commands, passes entities as full UUIDs and sends text on stdin.</li>
+            <li><strong>Allow-listed ledger writes</strong>The ledger adapter runs only allow-listed commands, passes entities as full UUIDs and sends text on stdin. Where ledger tasks are archive-only, every path refuses a new one.</li>
             <li><strong>Safe to publish</strong>No credentials or personal data in the repo. CI runs a secrets scan; tests use synthetic fixtures only.</li>
           </ul>
         </div>

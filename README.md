@@ -6,7 +6,7 @@ conversation in the ledger. Since v1.11 it can also hold a second, personal work
 personal mail and calendar, your notes vault, and **Life**, a page for your home,
 animals, garden, vehicles, family and the rest of your life.
 
-Status: v1.14.1. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
+Status: v1.15.0. See [SPEC.md](SPEC.md) for the full specification (section 19 is the
 delivery plan, section 21 the change log).
 
 Nothing in this repo contains credentials or personal data. Runtime config and tokens
@@ -80,6 +80,11 @@ A workspace without a ledger (Personal) is built around your notes vault instead
 
 A workspace with the ledger turned off never reads the ledger, so work tasks cannot
 show up in the personal one.
+
+If your tasks have moved to another tracker, `[ledger] new_tasks = false` (v1.15) makes
+that workspace's ledger tasks archive-only: Task disappears from the buttons, menus,
+palette and the `t` key, and the server refuses new ones. You can still read, complete
+and re-date the old ones. A Personal workspace's Task (to the notes) is not affected.
 
 ## Install
 
@@ -264,7 +269,7 @@ keys need an item open. Browser shortcuts (Ctrl+R, Ctrl+F, ...) are left alone.
 | `e` | archive / complete task / mark Slack done | `Ctrl+Enter` | Ask (in the Ask box) |
 | `b` | add to bucket | | |
 | `l` | log it in the ledger (or the notes vault in Personal) | | |
-| `t` | make a ledger task (or a to-do in the notes) | | |
+| `t` | make a ledger task (or a to-do in the notes; off where `[ledger] new_tasks = false`) | | |
 
 No key sends anything: email and Slack need two approvals, and ledger and vault writes
 open a card first. Archive has Undo.

@@ -3,7 +3,7 @@
 
 import { openDraft, openSlackDraft, resumeForThread, resumeForTask, onSent, openDraftById, applyStudioDraft } from "./compose.js";
 import { initBoard, openBoard, closeBoard, boardOpen } from "./board.js";
-import { toggleHelp, helpOpen } from "./keys.js";
+import { toggleHelp, helpOpen, hideKey } from "./keys.js";
 import { initTidy, openTidy } from "./tidy.js";
 import { initGraph, openGraph, closeGraph, graphOpen } from "./graph.js";
 import { initRail, wireSearch, loadPeople, addConversation, addSnippet, addEntity as addEntityToBucket, searchFor, stage, stageAfterSend, stageTaskLog, openPersonByAddr } from "./ledger.js";
@@ -15,6 +15,11 @@ import { initLife, openLife, closeLife, lifeOpen } from "./life.js";
 
 // v1.13: the Ledger place is Nexus where this workspace has a ledger, else Life (the vault)
 const useLife = () => !S.ledgerOn && S.vaultHere;
+// v1.15: false where this workspace's ledger tasks are archive-only ([ledger] new_tasks =
+// false): Task is hidden everywhere (buttons, menus, palette, key t, help) and the
+// server refuses it too. A workspace whose Task goes to the notes vault keeps it.
+export const newTasksOn = () => S.newTasks !== false;
+export const tasksOffNote = () => S.tasksNote || "New tasks are off in this workspace.";
 const openLedgerTab = (view = null, arg = null) => (useLife() ? openLife() : openNexusTab(view, arg));
 const closeLedgerTab = () => (lifeOpen() ? closeLife() : closeNexusTab());
 const ledgerTabOpen = () => nexusTabOpen() || lifeOpen();
@@ -179,7 +184,7 @@ function rowActs(it) {
   return `<span class="rq">${arch}<button class="ra ra-more" data-ra="more" title="More actions" aria-label="More actions" aria-haspopup="menu">&#8943;</button></span><div class="ract" role="group" aria-label="Actions">
     <button class="ra" data-ra="bucket" title="Add to bucket">+ Bucket</button>
     <button class="ra" data-ra="log" title="${task ? "Log progress on this task" : "Log this conversation in the ledger"}">Log</button>
-    ${task ? "" : `<button class="ra" data-ra="task" title="Make a ledger task from it">Task</button>`}
+    ${task || !newTasksOn() ? "" : `<button class="ra" data-ra="task" title="Make a ledger task from it">Task</button>`}
     <button class="ra" data-ra="block" title="Block time for it on your calendar">Block</button>
     <button class="ra ra-ask" data-ra="ask" title="Ask Hermes about it (read-only)">Ask</button>
   </div>`;
@@ -188,7 +193,7 @@ function rowActs(it) {
 async function rowAction(a, it, btn = null) {
   if (a === "more") {
     const task = it.source === "task";
-    const items = ROW_ACTIONS.filter((r) => r.place === "more" && !(task && r.id === "task"))
+    const items = ROW_ACTIONS.filter((r) => r.place === "more" && !(r.id === "task" && (task || !newTasksOn())))
       .map((r) => ({ label: r.id === "log" && task ? "Log progress" : r.label, cls: r.id === "ask" ? "ai" : "", run: () => rowAction(r.id, it).catch((e) => toast(e.message, "err")) }));
     popMenu(btn, items, { label: "Row actions" });
     return;
@@ -209,6 +214,7 @@ async function rowAction(a, it, btn = null) {
     return;
   }
   if (a === "bucket") return addConversation(it.key);
+  if (a === "task" && !newTasksOn()) return toast(tasksOffNote(), "err");
   if (a === "log" || a === "task") return stage(a, it.key);
 }
 
@@ -281,7 +287,7 @@ async function openItem(i) {
         <button class="btn small ai" data-a="aiaudio" title="AI voice: spoken summary or full read">AI audio</button>
         <button class="btn small" data-a="bucket" title="Add to bucket (b)">+ Bucket</button>
         <button class="btn small" data-a="log" title="Log this conversation in the ledger (l)">Log</button>
-        <button class="btn small" data-a="task" title="Make a ledger task from it (t)">Task</button>
+        ${newTasksOn() ? `<button class="btn small" data-a="task" title="Make a ledger task from it (t)">Task</button>` : ""}
         <button class="btn small" data-a="block" title="Block time for this on your calendar">Block time</button>
         ${t.permalink ? `<a class="btn small" href="${esc(t.permalink)}" target="_blank" rel="noopener noreferrer">Open in Slack</a>` : ""}
       </div>
@@ -322,7 +328,7 @@ async function openItem(i) {
     setToolsThread(it.key, it.subject);
     if (S.aiOn && isMail) studioStart(mailKey); else studioStart(null);  // idle: runs only when asked
     $('[data-a="log"]', th).onclick = () => stage("log", it.key);
-    $('[data-a="task"]', th).onclick = () => stage("task", it.key);
+    const tk = $('[data-a="task"]', th); if (tk) tk.onclick = () => stage("task", it.key);
     $('[data-a="block"]', th).onclick = () => window.dispatchEvent(new CustomEvent("ultra:block", { detail: { key: it.key, subject: it.subject } }));
     wireSelection(th, it);
     if (t.cluster) wireCluster(th, it, t, mailKey);
@@ -780,7 +786,7 @@ function wire() {
       if (e.key === "s") { e.preventDefault(); click("summary"); return; }
       if (e.key === "b") { e.preventDefault(); click("bucket"); return; }
       if (e.key === "l") { e.preventDefault(); const tl = $('#thread [data-t="log"]'); if (tl) tl.click(); else click("log"); return; }
-      if (e.key === "t") { e.preventDefault(); click("task"); return; }
+      if (e.key === "t") { e.preventDefault(); click("task"); if (!newTasksOn()) toast(tasksOffNote()); return; }
       if (e.key === "h") { e.preventDefault(); const hb = $("#thread [data-ask]"); if (hb && !hb.disabled) hb.click(); return; }
     }
     if (e.key === "c") { e.preventDefault(); composeNew(); return; }
@@ -983,7 +989,7 @@ function commands() {
     { t: "Board: my court, waiting on, watching, done", k: "o", run: () => openBoard() },
     { t: "Refresh everything", k: "Shift+R", run: () => $("#btn-refresh").click() },
     { t: "Log the bucket", run: () => stage("log") },
-    { t: "Task from the bucket", run: () => stage("task") },
+    ...(newTasksOn() ? [{ t: "Task from the bucket", run: () => stage("task") }] : []),
     { t: "Search the ledger", run: () => searchFor("") },
     ...(S.vaultOn ? [{ t: "Search my notes (vault)...", run: () => searchVault("") }] : []),
     { t: "Web search...", run: () => { $('#rail-tabs button[data-tab="tools"]').click(); $("#tw-q")?.focus(); } },
@@ -1072,6 +1078,11 @@ async function boot() {
     const s = await api("/api/session");
     TOKEN = s.token; S.tz = s.timezone || "UTC"; S.demo = s.demo; S.slackOn = s.slack; S.aiOn = s.ai;
     S.ledgerOn = s.ledger !== false; S.vaultHere = !!s.vault;
+    S.newTasks = s.new_tasks !== false; S.tasksNote = s.tasks_note || "";
+    if (!S.newTasks) {  // v1.15: archive-only ledger tasks; the server refuses them too
+      const bt = $('#bucket-acts [data-act="task"]'); if (bt) bt.hidden = true;
+      hideKey("t");
+    }
     if (useLife()) {  // Personal: the third place is your life, not the work ledger
       const pb = $('#places button[data-place="ledger"]'); if (pb) { pb.textContent = "Life"; pb.title = "Life: your home, animals, garden, vehicles, family and more, from your notes (n)"; }
       const lb = $("#btn-ledger"); if (lb) lb.title = "Life: your areas, from your notes (n)";

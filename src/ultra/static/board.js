@@ -9,7 +9,7 @@
 //   to My Court -> clears a Watching flag
 //   Nudge       -> one new-email draft to the person (two approvals to send)
 
-import { api, esc, toast, busy } from "./app.js";
+import { api, esc, toast, busy, newTasksOn, tasksOffNote } from "./app.js";
 import { openAsk } from "./ask.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -73,7 +73,7 @@ function cardHtml(r, col) {
     ${badges ? `<div class="badges">${badges}</div>` : ""}${w}
     <div class="bd-acts">
       ${col !== "watching" ? `<button class="btn tiny ghost" data-bd="watch" title="Park it in Watching (local only)">Watch</button>` : `<button class="btn tiny ghost" data-bd="unwatch" title="Back to its column">Unwatch</button>`}
-      ${col === "mine" ? `<button class="btn tiny ghost" data-bd="waiting" title="Make a follow-up task with a due date">Wait</button>` : ""}
+      ${col === "mine" && newTasksOn() ? `<button class="btn tiny ghost" data-bd="waiting" title="Make a follow-up task with a due date">Wait</button>` : ""}
       <button class="btn tiny ghost" data-bd="done" title="Archive / log / complete, on one card">Done</button>
       <button class="btn tiny ghost" data-bd="ask" title="Ask Hermes about it">Ask</button>
     </div>
@@ -150,6 +150,7 @@ async function act(what, r, btn = null) {
     toast("Back in its column.", "ok"); return load();
   }
   if (what === "watch") return watchCard(r);
+  if (what === "waiting" && !newTasksOn()) return toast(tasksOffNote(), "err");
   if (what === "waiting") return window.dispatchEvent(new CustomEvent("ultra:stage-answer", { detail: { action: "task", text: `Follow up: ${r.subject || ""}${r.from ? ` (${r.from})` : ""}`, key: /^(g|k|s)-/.test(r.key) ? r.key : "", task: "", title: r.subject || "" } }));
   if (what === "done") return doneCard(r);
 }

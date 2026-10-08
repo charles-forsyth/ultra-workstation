@@ -26,7 +26,7 @@ from ultra.bucket import (
     snapshot_snippet,
     snapshot_thread,
 )
-from ultra.ledger_write import UUID, WriteError, check_due
+from ultra.ledger_write import TASKS_OFF_NOTE, UUID, WriteError, check_due
 from ultra.lint import ascii_fix
 from ultra.rules import Rules
 from ultra.store import Store
@@ -254,6 +254,7 @@ class Desk:
         """Build a card from the bucket, or from one conversation dropped on an action."""
         b = body or {}
         action = b.get("action")
+        self._refuse_task(action)
         from_bucket = not b.get("key")
         if not from_bucket:  # direct drop onto Log/Task: stage that one conversation
             key = str(b["key"])
@@ -325,6 +326,7 @@ class Desk:
         action = str(b.get("action") or "")
         if action not in ("log", "task"):
             raise _bad("action must be log or task")
+        self._refuse_task(action)
         text = ascii_fix(str(b.get("text") or "")).strip()
         if not text:
             raise _bad("the answer is empty")
@@ -492,6 +494,9 @@ class Desk:
             raise _bad(str(e), 404) from e
         except PermissionError as e:
             raise _bad(str(e), 409) from e
+        if card["action"] == "task" and card.get("target") != "vault" and self.tasks_off():
+            self.stager.release(cid)  # a card staged before tasks went archive-only
+            raise _bad(self.tasks_note(), 403)
         # validate before anything runs, so a bad request can be fixed and retried
         try:
             links = [
@@ -526,6 +531,20 @@ class Desk:
             self.commits[cid] = progress
         self.pool.submit(self._commit_run, card, text, date, priority, links, progress, due)
         return {"card": cid, "state": "running"}
+
+    def tasks_off(self) -> bool:
+        """v1.15: this workspace's ledger takes no new tasks ([ledger] new_tasks = false).
+        Never true when Task goes to the notes vault (Personal)."""
+        if self._vault_target():
+            return False
+        return getattr(self.writer, "new_tasks", True) is False
+
+    def tasks_note(self) -> str:
+        return str(getattr(self.writer, "tasks_note", "") or TASKS_OFF_NOTE)
+
+    def _refuse_task(self, action: Any) -> None:
+        if action == "task" and self.tasks_off():
+            raise _bad(self.tasks_note(), 403)
 
     def _vault_target(self) -> bool:
         return (not self.ledger.enabled) and bool(self.vault is not None and self.vault.writes)

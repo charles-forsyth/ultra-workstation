@@ -4,7 +4,7 @@
 // "Write to ledger". Deletes and unlinks need a second, separate confirmation. After
 // the write the card shows what the ledger read back.
 
-import { api, esc, toast, busy, copyText } from "./app.js";
+import { api, esc, toast, busy, copyText, newTasksOn } from "./app.js";
 import { renderMd } from "./tools.js";
 import { askButton, openAsk } from "./ask.js";
 import { popMenu } from "./actions.js";
@@ -34,14 +34,14 @@ export function openLedgerTab(view = null, arg = null) {
 
 // ---------------------------------------------------------------- frame
 function head(title, extra = "") {
-  const tabs = [["home", "Home"], ["browse", "Browse"], ["tasks", "Tasks"], ["interactions", "Interactions"], ["org", "Org"], ["reports", "Health and audit"]];
+  const tabs = [["home", "Home"], ["browse", "Browse"], ["tasks", newTasksOn() ? "Tasks" : "Tasks (archive)"], ["interactions", "Interactions"], ["org", "Org"], ["reports", "Health and audit"]];
   return `<div class="today-head lt-head">
     <h2>Ledger</h2><span class="dim small-t" id="lt-src"></span>
     <div class="seg" id="lt-seg">${tabs.map(([k, t]) => `<button data-v="${k}" class="${L.view === k ? "on" : ""} ${(k === "org" || k === "reports") && L.view !== k ? "lt-rare" : ""}">${t}</button>`).join("")}<button class="lt-more calm-only" id="lt-more" title="Org tree, health and audit reports" aria-haspopup="menu">&#8943;</button></div>
     <button class="btn small ghost calm-only" data-goto="graph" title="Map: your ledger neighborhood (v)">Map</button>
     <span class="grow"></span>
     <input id="lt-q" class="rinput lt-q" placeholder="Search the ledger..." autocomplete="off" aria-label="Search the ledger">
-    <button class="btn small" id="lt-new" title="Add a record or a task">+ New</button>
+    <button class="btn small" id="lt-new" title="${newTasksOn() ? "Add a record or a task" : "Add a record"}">+ New</button>
     <button class="btn small ghost" id="lt-fresh" title="Reload from the ledger">&#8635;</button>
     <button class="btn small ghost" id="lt-close" title="Back (Esc)">Close</button>
   </div>${title ? `<div class="lt-title">${title}${extra}</div>` : ""}`;
@@ -343,7 +343,7 @@ function paintReport(name, r) {
 
 // ---------------------------------------------------------------- write forms
 function newMenu() {
-  const opts = [["task_add", "Task"], ["log", "Log an interaction"], ["labs_add", "Lab or unit"], ["projects_add", "Project"], ["gcp_add", "GCP project"], ["grants_add", "Grant"], ["assets_add", "Asset"]];
+  const opts = [...(newTasksOn() ? [["task_add", "Task"]] : []), ["log", "Log an interaction"], ["labs_add", "Lab or unit"], ["projects_add", "Project"], ["gcp_add", "GCP project"], ["grants_add", "Grant"], ["assets_add", "Asset"]];
   modal(`<h3>New in the ledger</h3><div class="dim small-t">People are added only with the Add to ledger button on a conversation.</div><div class="lt-acts">${opts.map(([a, t]) => `<button class="btn small" data-new="${a}">${t}</button>`).join("")}</div><div class="rv-acts"><button class="btn small ghost" data-x>Cancel</button></div>`);
   document.querySelectorAll("[data-new]").forEach((b) => (b.onclick = () => actionForm(b.dataset.new, L.view === "entity" ? L.page : null)));
 }

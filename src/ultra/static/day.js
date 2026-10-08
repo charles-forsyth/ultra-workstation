@@ -3,7 +3,7 @@
 // press Add to calendar there); the report saves to the ledger (Personal: the notes) only
 // through a staged log card you review and commit.
 
-import { api, esc, toast, busy, copyText, WS } from "./app.js";
+import { api, esc, toast, busy, copyText, WS, newTasksOn } from "./app.js";
 import { askButton, openAsk } from "./ask.js";
 import { openNote } from "./home.js";
 
@@ -74,6 +74,8 @@ function renderPlan() {
   const sec = (title, body, n = null) => body ? `<section class="day-sec"><div class="label">${title}${n != null ? ` <span class="dim">${n}</span>` : ""}</div>${body}</section>` : "";
   const items = (xs) => xs.length ? `<ul class="day-list">${xs.map((i) => `<li class="day-item" data-key="${esc(i.key)}"><span class="src">${esc(i.source)}</span> <b>${esc(i.from || "")}</b> ${esc(i.subject || "")} ${(i.badges || []).map((b) => `<span class="badge">${esc(b)}</span>`).join(" ")}${i.waiting_days ? ` <span class="badge wait">${esc(i.waiting_days)}d</span>` : ""}</li>`).join("")}</ul>` : "";
   const P = !!p.personal;
+  // v1.15: where ledger tasks are archive-only, the Work Day's task lists say so
+  const arch = !P && !newTasksOn();
   const tasks = (xs) => xs.length ? `<ul class="day-list">${xs.map((t) => P
     ? `<li class="day-item" data-note="${esc(t.path || "")}" title="${esc(t.path || "")}">${esc(t.summary)}${t.due_date ? ` <span class="dim small-t">${esc(dShort(t.due_date))}</span>` : ""}</li>`
     : `<li class="day-item" data-key="t-${esc(t.id)}">${pri(t.priority)} ${esc(t.summary)} <span class="dim small-t">${esc(t.status)}${t.due_date ? ` &middot; due ${esc(String(t.due_date).slice(0, 10))}` : ""}</span></li>`).join("")}</ul>` : "";
@@ -89,9 +91,9 @@ function renderPlan() {
     ${sec(P ? "On the calendar" : "Meetings", p.meetings.length ? `<ul class="day-list">${p.meetings.map((m) => `<li>${esc(tOf(m.start))}-${esc(tOf(m.end))} <b>${esc(m.summary)}</b>${m.attendees > 1 ? ` <span class="dim small-t">${m.attendees} people</span>` : ""}${m.response === "needsAction" ? ` <span class="badge warn">not answered</span>` : ""}${m.mine ? ` <span class="badge dim">your block</span>` : ""}</li>`).join("")}</ul>` : `<div class="dim small-t">${P ? "Nothing on the calendar." : "No meetings."}</div>`)}
     ${P ? "" : sec("Suggested focus blocks", p.blocks.length ? `<ul class="day-list">${p.blocks.map((b, i) => `<li>${esc(b.label)} ${esc(b.title)} <button class="btn tiny" data-block="${i}" title="Open the block card for this slot (nothing is added until you confirm there)">Block it</button></li>`).join("")}</ul><div class="dim small-t">Free: ${p.free.map((f) => esc(f.label)).join(", ")}</div>` : (p.free.length ? `<div class="dim small-t">Free: ${p.free.map((f) => esc(f.label)).join(", ")}</div>` : `<div class="dim small-t">No free time left in work hours.</div>`))}
     ${sec(P ? "Email that is your move" : "Your move", items(p.mine) || `<div class="dim small-t">Nothing waiting on you.</div>`, p.mine_count)}
-    ${sec(P ? "Overdue" : "Overdue tasks", tasks(p.overdue), p.overdue.length || null)}
-    ${sec("Due today", tasks(p.due_today), p.due_today.length || null)}
-    ${sec(P ? "Coming up (two weeks)" : "High-priority tasks", tasks(p.top_tasks), p.top_tasks.length || null)}
+    ${sec(P ? "Overdue" : arch ? "Nexus tasks (archive): overdue" : "Overdue tasks", tasks(p.overdue), p.overdue.length || null)}
+    ${sec(P || !arch ? "Due today" : "Nexus tasks (archive): due today", tasks(p.due_today), p.due_today.length || null)}
+    ${sec(P ? "Coming up (two weeks)" : arch ? "Nexus tasks (archive): high priority" : "High-priority tasks", tasks(p.top_tasks), p.top_tasks.length || null)}
     ${logged}
     ${sec("Waiting on others (3+ days)", items(p.waiting), p.waiting.length || null)}`;
   wireHead();

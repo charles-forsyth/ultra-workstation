@@ -32,6 +32,10 @@ export const KEYS = [
   ["Ctrl+Enter", "Ask (in the Ask Hermes box)", "Write", "any"],
 ];
 
+// v1.15: keys a workspace turns off (t where ledger tasks are archive-only) leave the panel
+const HIDDEN = new Set();
+export function hideKey(k) { HIDDEN.add(k); }
+
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 export function helpOpen() { const d = document.querySelector("#keyhelp"); return !!d && !d.hidden; }
@@ -40,10 +44,11 @@ export function toggleHelp() {
   const dlg = document.querySelector("#keyhelp");
   if (!dlg) return;
   if (!dlg.hidden) { dlg.hidden = true; return; }
-  const groups = [...new Set(KEYS.map((k) => k[2]))];
+  const shown = KEYS.filter((k) => !HIDDEN.has(k[0]));
+  const groups = [...new Set(shown.map((k) => k[2]))];
   dlg.innerHTML = `<div class="rv-card kh-card" role="dialog" aria-modal="true" aria-labelledby="kh-h">
     <div class="lc-head"><h3 id="kh-h">Keyboard</h3><span class="dim small-t">Keys work when you are not typing in a box. Item keys need an item open.</span><span class="grow"></span><button class="btn tiny ghost" id="kh-x">Close</button></div>
-    <div class="kh-grid">${groups.map((g) => `<section><div class="label">${esc(g)}</div><dl>${KEYS.filter((k) => k[2] === g).map((k) => `<dt><span class="kbd">${esc(k[0])}</span></dt><dd>${esc(k[1])}</dd>`).join("")}</dl></section>`).join("")}</div>
+    <div class="kh-grid">${groups.map((g) => `<section><div class="label">${esc(g)}</div><dl>${shown.filter((k) => k[2] === g).map((k) => `<dt><span class="kbd">${esc(k[0])}</span></dt><dd>${esc(k[1])}</dd>`).join("")}</dl></section>`).join("")}</div>
     <div class="kh-touch dim small-t">On a phone or tablet these work with a keyboard attached; every action is also a button.</div>
     <div class="dim small-t">Nothing is ever sent by a key alone: email and Slack need two approvals; ledger writes open a card first.</div>
   </div>`;

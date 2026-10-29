@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Ultra AI Workstation: a local operator desk for email, calendar, tickets and a work ledger"
+type: software
+authors:
+  - family-names: "Forsyth III"
+    given-names: "Charles E."
+    orcid: "https://orcid.org/0000-0003-4872-0296"
+    affiliation: "University of California, Riverside"
+repository-code: "https://github.com/charles-forsyth/ultra-workstation"
+license: MIT
+keywords:
+  - "AI agents"
+  - "human-in-the-loop"
+  - "research computing operations"
+references:
+  - type: report
+    title: "Field Note describing this software"
+    doi: "10.5281/zenodo.23752273"
+    authors:
+      - family-names: "Forsyth III"
+        given-names: "Charles E."
